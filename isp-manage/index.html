@@ -359,8 +359,7 @@ onAuthStateChanged(auth,async user=>{
     if(!window._APP_READY){window._APP_READY=true;startApp();}
   } else {
     window._fbUser = null;
-    document.getElementById('login-screen').style.display='flex';
-    document.getElementById('app').style.display='none';
+    window.location.href = '../index.html';
   }
 });
 </script>
@@ -368,7 +367,7 @@ onAuthStateChanged(auth,async user=>{
 <body>
 
 <!-- ════════ LOGIN ════════ -->
-<div id="login-screen" style="display:flex">
+<div id="login-screen" style="display:none">
 <div class="lcard">
   <!-- Logo Infolink real -->
   <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:16px;">
