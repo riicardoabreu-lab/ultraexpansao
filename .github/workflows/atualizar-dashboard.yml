@@ -1,0 +1,63 @@
+name: Atualizar Dados Voalle (placeholder)
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: atualizar-dashboard
+  cancel-in-progress: false
+
+jobs:
+  atualizar-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verificar se credenciais do Voalle estão configuradas
+        id: check
+        env:
+          VOALLE_CLIENT_ID: ${{ secrets.VOALLE_CLIENT_ID }}
+          VOALLE_CLIENT_SECRET: ${{ secrets.VOALLE_CLIENT_SECRET }}
+        run: |
+          if [ -z "$VOALLE_CLIENT_ID" ] || [ -z "$VOALLE_CLIENT_SECRET" ]; then
+            echo "Credenciais VOALLE_CLIENT_ID/VOALLE_CLIENT_SECRET não configuradas nos Secrets do repositório. Pulando execução."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configurar Python
+        if: steps.check.outputs.run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        if: steps.check.outputs.run == 'true'
+        run: pip install -r cfo/requirements.txt
+
+      - name: Buscar dados na API do Voalle
+        if: steps.check.outputs.run == 'true'
+        env:
+          VOALLE_CLIENT_ID: ${{ secrets.VOALLE_CLIENT_ID }}
+          VOALLE_CLIENT_SECRET: ${{ secrets.VOALLE_CLIENT_SECRET }}
+        run: python cfo/scripts/buscar_dados.py
+
+      - name: Commit e push das alterações
+        if: steps.check.outputs.run == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add cfo/data/dados.json
+          if git diff --cached --quiet; then
+            echo "Nenhuma alteração para commitar."
+          else
+            git commit -m "Atualiza dados.json via API Voalle [skip ci]"
+            git push
+          fi
