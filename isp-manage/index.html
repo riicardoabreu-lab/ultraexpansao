@@ -10,7 +10,7 @@
 /* ── RESET & VARS ── */
 *{box-sizing:border-box;margin:0;padding:0;}
 :root{
-  --blue:#003087;--cyan:#00aeef;--cyan2:#0090c8;--blue-l:#e8f6fd;
+  --blue:#6a00b8;--cyan:#00aeef;--cyan2:#0090c8;--blue-l:#f3e8fd;
   --green:#1a7f37;--green-l:#e6f4ea;--red:#c0392b;--red-l:#fdecea;
   --amber:#d97706;--amber-l:#fffbeb;--gray:#64748b;--gray-l:#f1f5f9;
   --border:#e2e8f0;--text:#0f172a;--text2:#475569;--surface:#fff;
@@ -166,7 +166,7 @@ body{display:flex;flex-direction:column;}
 .btn{padding:7px 13px;border-radius:8px;border:none;cursor:pointer;font-size:.78em;
   font-weight:700;font-family:var(--font);transition:.15s;display:inline-flex;align-items:center;gap:5px;}
 .btn-cyan{background:#7b2fd4;color:#fff;}.btn-cyan:hover{background:#6a00b8;}
-.btn-blue{background:var(--blue);color:#fff;}.btn-blue:hover{background:#002575;}
+.btn-blue{background:var(--blue);color:#fff;}.btn-blue:hover{background:#52008f;}
 .btn-ghost{background:var(--gray-l);color:var(--text2);}.btn-ghost:hover{background:var(--border);}
 .btn-green{background:var(--green);color:#fff;}
 .btn-amber{background:var(--amber);color:#fff;}
@@ -1245,7 +1245,7 @@ function drawRegMap(r){
     if(!c.lat||!c.lng)return;
     const db=DB[c.nome];
     const vn=db?db.provedores.filter(p=>p.status==='visitado').length:0;
-    const color=vn>0?'#1a7f37':'#003087';
+    const color=vn>0?'#1a7f37':'#6a00b8';
     const size=vn>0?9:6;
     const m=L.circleMarker([c.lat,c.lng],{radius:size,fillColor:color,color:'#fff',weight:2,fillOpacity:.9})
       .bindPopup(`<b>${c.nome}</b><br>${c.count} provedores${vn>0?`<br><span style="color:#1a7f37">✓${vn} visitado(s)</span>`:''}`);
@@ -1293,7 +1293,7 @@ function focusCity(city){
   _map.setView([city.lat,city.lng],14,{animate:true});
   _markers.clearLayers();
   // City dot
-  L.circleMarker([city.lat,city.lng],{radius:10,fillColor:'#003087',color:'#fff',weight:2,fillOpacity:.9})
+  L.circleMarker([city.lat,city.lng],{radius:10,fillColor:'#6a00b8',color:'#fff',weight:2,fillOpacity:.9})
     .bindPopup(`<b>${city.nome}</b>`).addTo(_markers);
 
   const db=DB[city.nome];
@@ -1301,7 +1301,7 @@ function focusCity(city){
   const allProvs=db.provedores||[];
   const STYLE={
     visitado:    {color:'#1a7f37', icon:'✓', label:'Visitado'},
-    ativo:       {color:'#003087', icon:'📶', label:'Ativo'},
+    ativo:       {color:'#6a00b8', icon:'📶', label:'Ativo'},
     prospectado: {color:'#b45309', icon:'🎯', label:'Prospectado'},
     fechado:     {color:'#6b7280', icon:'✕', label:'Encerrado'}
   };
@@ -1332,7 +1332,7 @@ function focusCity(city){
         ${p.endereco?`<div style="font-size:.72em;color:#666;margin-top:2px">📍 ${p.endereco}</div>`:''}
         ${p.circuito?`<div style="font-size:.75em;color:#555">🔌 ${p.circuito}</div>`:''}
         ${thumb}
-        <button onclick="editProv('${esc(city.nome)}',${idx})" style="margin-top:7px;background:#003087;color:#fff;border:none;border-radius:5px;padding:4px 9px;font-size:.74em;cursor:pointer">✏️ Editar</button>
+        <button onclick="editProv('${esc(city.nome)}',${idx})" style="margin-top:7px;background:#6a00b8;color:#fff;border:none;border-radius:5px;padding:4px 9px;font-size:.74em;cursor:pointer">✏️ Editar</button>
       </div>`,{maxWidth:200}).addTo(_markers);
 
     // Se ainda não tem posição real e o endereço existe, geocodifica em
@@ -1352,7 +1352,7 @@ function focusCity(city){
             ${p.endereco?`<div style="font-size:.72em;color:#666;margin-top:2px">📍 ${p.endereco}</div>`:''}
             ${p.circuito?`<div style="font-size:.75em;color:#555">🔌 ${p.circuito}</div>`:''}
             ${thumb}
-            <button onclick="editProv('${esc(city.nome)}',${idx})" style="margin-top:7px;background:#003087;color:#fff;border:none;border-radius:5px;padding:4px 9px;font-size:.74em;cursor:pointer">✏️ Editar</button>
+            <button onclick="editProv('${esc(city.nome)}',${idx})" style="margin-top:7px;background:#6a00b8;color:#fff;border:none;border-radius:5px;padding:4px 9px;font-size:.74em;cursor:pointer">✏️ Editar</button>
           </div>`);
         }
       });

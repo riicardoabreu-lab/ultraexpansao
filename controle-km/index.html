@@ -12,7 +12,7 @@
   --bg:#0f0f11;--s1:#18181c;--s2:#222228;--s3:#2a2a32;
   --b1:rgba(255,255,255,.07);--b2:rgba(255,255,255,.13);--b3:rgba(255,255,255,.2);
   --tx:#f0f0f2;--mu:#8a8a96;--hi:#44444f;
-  --ac:#3b82f6;--ac2:rgba(59,130,246,.15);
+  --ac:#6a00b8;--ac2:rgba(106,0,184,.15);
   --gn:#22c55e;--gn2:rgba(34,197,94,.13);
   --am:#f59e0b;--am2:rgba(245,158,11,.13);
   --rd:#ef4444;--rd2:rgba(239,68,68,.13);
@@ -47,7 +47,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
 .ml{font-size:10.5px;color:var(--mu);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px}
 .mv{font-size:24px;font-weight:600;font-family:'JetBrains Mono',monospace;line-height:1}
 .mu2{font-size:10.5px;color:var(--hi);margin-top:4px}
-.mc.bl{border-color:rgba(59,130,246,.35)}.mc.bl .mv{color:var(--ac)}
+.mc.bl{border-color:rgba(106,0,184,.35)}.mc.bl .mv{color:var(--ac)}
 .mc.gn{border-color:rgba(34,197,94,.35)}.mc.gn .mv{color:var(--gn)}
 .mc.am{border-color:rgba(245,158,11,.35)}.mc.am .mv{color:var(--am)}
 .card{background:var(--s1);border:1px solid var(--b1);border-radius:var(--rl);padding:1.4rem;margin-bottom:1.1rem}
@@ -57,7 +57,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
 .fl{display:flex;flex-direction:column;gap:4px}
 .fl label{font-size:11px;color:var(--mu);font-weight:500;letter-spacing:.02em}
 .fl input,.fl select,.fl textarea{background:var(--bg);border:1px solid var(--b2);border-radius:var(--r);padding:8px 11px;font-size:13px;color:var(--tx);font-family:'Inter',sans-serif;outline:none;width:100%;transition:border-color .13s,box-shadow .13s}
-.fl input:focus,.fl select:focus{border-color:var(--ac);box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+.fl input:focus,.fl select:focus{border-color:var(--ac);box-shadow:0 0 0 3px rgba(106,0,184,.1)}
 .fl input.mono{font-family:'JetBrains Mono',monospace}
 .lb{background:var(--s2);border-radius:var(--r);padding:12px 14px;grid-column:1/-1}
 .ll{font-size:10px;color:var(--mu);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
@@ -897,7 +897,7 @@ function dash() {
   if(desls.length){
     const last=[...desls].slice(-15);
     C1=new Chart(document.getElementById('ch1'),{type:'bar',
-      data:{labels:last.map(d=>br(d.dt)),datasets:[{label:'km',data:last.map(d=>d.km),backgroundColor:'rgba(59,130,246,.6)',borderColor:'#3b82f6',borderWidth:1,borderRadius:4}]},
+      data:{labels:last.map(d=>br(d.dt)),datasets:[{label:'km',data:last.map(d=>d.km),backgroundColor:'rgba(106,0,184,.6)',borderColor:'#6a00b8',borderWidth:1,borderRadius:4}]},
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:tc,font:{size:10},maxRotation:35},grid:{color:gc}},y:{ticks:{color:tc,font:{size:11}},grid:{color:gc}}}}});
   }
   if(abasts.length){
