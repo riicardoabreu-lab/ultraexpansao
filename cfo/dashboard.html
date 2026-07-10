@@ -7,7 +7,7 @@
   // Bloqueia acesso direto a esta página sem passar pelo login (index.html).
   // Proteção apenas visual/afastadora — ver aviso em index.html.
   if (sessionStorage.getItem('cfo_auth') !== 'ok' && sessionStorage.getItem('infolink_hub_auth') !== 'ok') {
-    window.location.href = 'index.html';
+    window.location.href = '../index.html';
   }
 </script>
 <title>Map Marker Coleta — Dashboard Consolidado</title>
@@ -109,7 +109,7 @@
       style="background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:20px;font-size:12px;cursor:pointer;text-decoration:none;display:inline-block;">
       Início
     </a>
-    <button onclick="sessionStorage.removeItem('cfo_auth');sessionStorage.removeItem('infolink_hub_auth');window.location.href='index.html';"
+    <button onclick="sessionStorage.removeItem('cfo_auth');sessionStorage.removeItem('infolink_hub_auth');window.location.href='../index.html';"
       style="background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:20px;font-size:12px;cursor:pointer;">
       Sair
     </button>
