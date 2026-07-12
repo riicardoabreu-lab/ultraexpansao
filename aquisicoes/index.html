@@ -37,13 +37,14 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
-    --bg:#0c1322; --bg-panel:#151f36; --bg-panel-2:#1a2744; --bg-inset:#101a2e;
-    --border:#2b3c60; --border-soft:#223252;
-    --accent:#2dd4bf; --accent-dim:#164e47;
+    --bg:#0d0620; --bg-panel:#1a0f2e; --bg-panel-2:#221540; --bg-inset:#170c28;
+    --border:#3a2160; --border-soft:#2c1850;
+    --accent:#00d4c8; --accent-dim:#0d3a36;
     --amber:#fbbf24; --amber-dim:#4a3a13;
     --good:#34d399; --good-dim:#123a2c;
     --bad:#fb7185; --bad-dim:#3f1622;
-    --text:#e8edf7; --text-dim:#93a1c2; --text-faint:#54607f;
+    --text:#f1eefa; --text-dim:#a99bc4; --text-faint:#6f5f92;
+    --purple:#6a00b8; --magenta:#b91cd0;
     --radius:10px;
     --mono:'IBM Plex Mono', ui-monospace, monospace;
     --disp:'Space Grotesk', sans-serif;
@@ -54,18 +55,18 @@
   body{
     margin:0; background:var(--bg); color:var(--text); font-family:var(--body); font-size:14px; line-height:1.5;
     background-image:
-      radial-gradient(ellipse 900px 500px at 12% -10%, rgba(45,212,191,.09), transparent 60%),
-      radial-gradient(ellipse 700px 500px at 100% 0%, rgba(251,191,36,.05), transparent 60%);
+      radial-gradient(ellipse 900px 500px at 12% -10%, rgba(0,212,200,.09), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 100% 0%, rgba(185,28,208,.08), transparent 60%);
     background-attachment:fixed;
   }
   ::selection{ background:var(--accent); color:#03110f; }
   button, input, select{ font-family:inherit; }
 
   /* ---------- topbar ---------- */
-  .topbar{ position:sticky; top:0; z-index:50; backdrop-filter:blur(10px); background:rgba(8,13,24,.9); border-bottom:1px solid var(--border-soft); }
+  .topbar{ position:sticky; top:0; z-index:50; backdrop-filter:blur(10px); background:rgba(13,6,32,.9); border-bottom:1px solid var(--border-soft); }
   .topbar-inner{ max-width:1560px; margin:0 auto; padding:12px 22px; display:flex; align-items:center; gap:16px; }
   .brand{ display:flex; align-items:center; gap:9px; font-family:var(--disp); font-weight:600; font-size:14.5px; white-space:nowrap; }
-  .brand-dot{ width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px 2px rgba(45,212,191,.7); }
+  .brand-dot{ width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px 2px rgba(0,212,200,.7); }
   .topbar-actions{ margin-left:auto; display:flex; align-items:center; gap:8px; }
   .ghost-btn{ background:transparent; border:1px solid var(--border); color:var(--text-dim); padding:7px 13px; border-radius:7px; font-size:12px; cursor:pointer; white-space:nowrap; }
   .ghost-btn:hover{ border-color:var(--accent); color:var(--accent); }
@@ -86,10 +87,10 @@
   }
   .sidebar h4{ font-family:var(--disp); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-faint); margin:4px 6px 12px; }
   .new-provider-btn{
-    width:100%; background:linear-gradient(180deg, rgba(45,212,191,.14), rgba(45,212,191,.05)); border:1px dashed rgba(45,212,191,.45);
+    width:100%; background:linear-gradient(180deg, rgba(0,212,200,.14), rgba(0,212,200,.05)); border:1px dashed rgba(0,212,200,.45);
     color:var(--accent); padding:11px; border-radius:9px; font-size:12.5px; font-weight:600; cursor:pointer; margin-bottom:16px;
   }
-  .new-provider-btn:hover{ background:rgba(45,212,191,.18); }
+  .new-provider-btn:hover{ background:rgba(0,212,200,.18); }
   .side-btn-row{ display:flex; flex-direction:column; gap:6px; margin-bottom:18px; }
   .side-btn{
     width:100%; background:var(--bg-inset); border:1px solid var(--border-soft); color:var(--text-dim);
@@ -102,7 +103,7 @@
     background:var(--bg-panel); border:1px solid var(--border-soft); border-radius:9px; padding:11px 12px; cursor:pointer; position:relative; transition:.15s;
   }
   .provider-card:hover{ border-color:var(--border); }
-  .provider-card.active{ border-color:var(--accent); background:linear-gradient(180deg, rgba(45,212,191,.09), var(--bg-panel) 70%); }
+  .provider-card.active{ border-color:var(--accent); background:linear-gradient(180deg, rgba(0,212,200,.09), var(--bg-panel) 70%); }
   .provider-card .pname{ font-weight:600; font-size:13px; margin-bottom:3px; padding-right:20px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .provider-card .pmeta{ color:var(--text-faint); font-size:11px; font-family:var(--mono); display:flex; justify-content:space-between; gap:6px; }
   .provider-card .pstatus-chip{
@@ -140,10 +141,10 @@
     appearance:none; -webkit-appearance:none; border:1px solid var(--border); border-radius:20px;
     padding:6px 30px 6px 13px; font-family:var(--mono); font-size:11.5px; font-weight:600; cursor:pointer;
     background-color:var(--status-bg, var(--bg-inset)); color:var(--status-fg, var(--text-dim));
-    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%2393a1c2'/></svg>");
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%23a99bc4'/></svg>");
     background-repeat:no-repeat; background-position:right 12px center;
   }
-  select.status-select:focus{ outline:none; box-shadow:0 0 0 3px rgba(45,212,191,.18); }
+  select.status-select:focus{ outline:none; box-shadow:0 0 0 3px rgba(0,212,200,.18); }
   .phead-kpis{ display:flex; gap:22px; margin-left:auto; flex-wrap:wrap; max-width:100%; }
   .phead-kpis .k{ text-align:right; }
   .phead-kpis .k .l{ font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.06em; }
@@ -180,7 +181,7 @@
     background:var(--bg-inset); border:1px solid var(--border); color:var(--text); font-family:var(--mono);
     font-size:13.5px; padding:9px 10px; border-radius:7px; width:100%;
   }
-  .field input:focus, .field select:focus, table input:focus, table select:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(45,212,191,.15); }
+  .field input:focus, .field select:focus, table input:focus, table select:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(0,212,200,.15); }
   .field-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; }
 
   .kpi-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
@@ -188,7 +189,7 @@
   .kpi .label{ color:var(--text-faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; margin-bottom:7px; }
   .kpi .value{ font-family:var(--mono); font-weight:600; font-size:19px; }
   .kpi .sub{ color:var(--text-dim); font-size:11px; margin-top:4px; }
-  .kpi.hi{ border-color:rgba(45,212,191,.4); background:linear-gradient(180deg, rgba(45,212,191,.08), var(--bg-panel) 60%); }
+  .kpi.hi{ border-color:rgba(0,212,200,.4); background:linear-gradient(180deg, rgba(0,212,200,.08), var(--bg-panel) 60%); }
   .kpi.hi .value{ color:var(--accent); font-size:22px; }
 
   .table-scroll{ overflow-x:auto; border-radius:8px; border:1px solid var(--border-soft); }
@@ -212,8 +213,8 @@
   .chart-bars{ display:flex; gap:8px; align-items:flex-end; height:100%; }
   .bar{ width:34px; border-radius:5px 5px 0 0; position:relative; }
   .bar .tag{ position:absolute; top:-20px; left:50%; transform:translateX(-50%); font-family:var(--mono); font-size:10.5px; color:var(--text-dim); white-space:nowrap; }
-  .bar.a{ background:linear-gradient(180deg,#3b82f6,#1d4ed8); }
-  .bar.b{ background:linear-gradient(180deg,var(--accent),#0d9488); }
+  .bar.a{ background:linear-gradient(180deg,var(--purple),var(--magenta)); }
+  .bar.b{ background:linear-gradient(180deg,var(--accent),#009088); }
   .chart-group .glabel{ font-size:11.5px; color:var(--text-dim); }
   .legend{ display:flex; gap:18px; justify-content:center; margin-top:14px; font-size:11.5px; color:var(--text-dim);}
   .legend span{ display:inline-flex; align-items:center; gap:6px; }
@@ -265,7 +266,7 @@
   <div class="topbar-inner">
     <a href="../home.html" class="brand" style="text-decoration:none;color:inherit;"><span class="brand-dot"></span>Plataforma de Aquisições ISP</a>
     <div class="topbar-actions">
-      <a href="../home.html" class="ghost-btn" style="text-decoration:none;">← Portal</a>
+      <a href="../home.html" class="ghost-btn" style="text-decoration:none;">← Voltar</a>
       <div class="status-pill"><span class="dot" id="statusDot"></span>Conclusão: <b id="statusText">—</b></div>
       <button class="ghost-btn" id="exportBtn">Exportar tudo</button>
       <button class="ghost-btn" id="importBtn">Importar</button>
@@ -598,7 +599,7 @@ function tplCustos(){
     <div class="grid2">
       <div class="panel">
         <div id="chart" class="chart-wrap"></div>
-        <div class="legend"><span><i style="background:#3b82f6"></i>Atual</span><span><i style="background:var(--accent)"></i>Comprador</span></div>
+        <div class="legend"><span><i style="background:var(--purple)"></i>Atual</span><span><i style="background:var(--accent)"></i>Comprador</span></div>
       </div>
       <div class="panel"><div class="kpi-row" id="comparativoKpis"></div></div>
     </div>
@@ -805,7 +806,7 @@ function buildPropostasTable(){
   const sug = {nome:"Proposta Sugerida*", valor: Math.round(m.tetoSustentavel/1000)*1000, entrada: p.propostaSugEntrada!=null?p.propostaSugEntrada:50, parcelas: p.propostaSugParcelas!=null?p.propostaSugParcelas:12};
   const cs = proposalCalc(sug,p,m);
   const clsS = cs.viavel==='SIM'?'sim':(cs.viavel==='NÃO'?'nao':'rev');
-  rows += `<tr data-i="sug" style="background:rgba(45,212,191,.06);">
+  rows += `<tr data-i="sug" style="background:rgba(0,212,200,.06);">
       <td><em>${esc(sug.nome)}</em></td>
       <td class="computed" style="color:var(--accent);font-weight:600;" data-role="valor">${fmtBRL(sug.valor)}</td>
       <td><input data-role="entrada" type="number" step="1" value="${sug.entrada}"></td>
@@ -1019,7 +1020,7 @@ function fillFields(){
 }
 function applyStatusColor(){
   const sel = document.getElementById('pstatus'); if(!sel) return;
-  const color = STATUS_COLOR[sel.value] || '#93a1c2';
+  const color = STATUS_COLOR[sel.value] || '#a99bc4';
   sel.style.setProperty('--status-bg', color+'22');
   sel.style.setProperty('--status-fg', color);
   sel.style.borderColor = color+'55';
@@ -1142,7 +1143,7 @@ function parseKML(xmlText){
       const c = point.getElementsByTagName('coordinates')[0]?.textContent;
       if(c){ const [lon,lat] = c.trim().split(',').map(Number);
         if(isFinite(lat)&&isFinite(lon)){
-          L.circleMarker([lat,lon], {radius:5, color:'#2dd4bf', fillColor:'#2dd4bf', fillOpacity:.9, weight:1.5}).bindPopup(popupHtml).addTo(layer);
+          L.circleMarker([lat,lon], {radius:5, color:'#00d4c8', fillColor:'#00d4c8', fillOpacity:.9, weight:1.5}).bindPopup(popupHtml).addTo(layer);
           count++;
         }
       }
