@@ -11,7 +11,8 @@
 </script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   const fb = initializeApp({
     apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
     authDomain: "isp-manager-ce.firebaseapp.com",
@@ -21,12 +22,40 @@
     appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
   });
   const auth = getAuth(fb);
+  const fsDb = getFirestore(fb);
   window._doLogout = function(){
     signOut(auth).finally(()=>{
       sessionStorage.clear();
       window.location.href = '../index.html';
     });
   };
+
+  // ---- Sincronização automática com a nuvem (Firestore) ----
+  // Mesmo projeto Firebase do ISP Manage: quem loga com a mesma conta
+  // compartilha os mesmos dados entre navegadores/dispositivos.
+  window._cloudSave = (data) => {
+    if(!window._fbUser) return Promise.resolve();
+    return setDoc(doc(fsDb, 'aquisicoes_backups', window._fbUser.uid), data);
+  };
+
+  onAuthStateChanged(auth, async user => {
+    if(!user) return;
+    window._fbUser = user;
+    try{
+      const localEmpty = !localStorage.getItem('plataforma-isp-v1');
+      if(localEmpty && !sessionStorage.getItem('_aquis_cloud_restore_tried')){
+        sessionStorage.setItem('_aquis_cloud_restore_tried', '1');
+        const snap = await getDoc(doc(fsDb, 'aquisicoes_backups', user.uid));
+        if(snap.exists()){
+          const cloud = snap.data();
+          if(cloud.empresas && cloud.empresas.length){
+            localStorage.setItem('plataforma-isp-v1', JSON.stringify({ empresas: cloud.empresas, currentId: cloud.currentId }));
+            window.location.reload();
+          }
+        }
+      }
+    }catch(e){ console.error('Falha ao restaurar Aquisições da nuvem:', e); }
+  });
 </script>
 <title>Plataforma de Aquisições ISP</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -390,8 +419,28 @@ function loadApp(){
 function saveApp(){
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }
   catch(e){ alert('Não foi possível salvar (armazenamento local cheio). Exporte seus dados em "Exportar tudo".'); }
+  syncToCloud();
 }
 function current(){ return app.empresas.find(e=>e.id===app.currentId) || app.empresas[0]; }
+
+// ---- Envia os dados para a nuvem (Firestore) alguns instantes após cada
+// alteração, pra outras pessoas logadas com a mesma conta verem os dados
+// atualizados. O KMZ de cada provedor fica de fora (só localmente), pois em
+// base64 facilmente estouraria o limite de 1MB por documento do Firestore.
+let _cloudSyncTimer = null;
+function syncToCloud(){
+  if(!window._fbUser || !window._cloudSave) return;
+  clearTimeout(_cloudSyncTimer);
+  _cloudSyncTimer = setTimeout(async ()=>{
+    try{
+      const empresasSemKmz = app.empresas.map(e=>{
+        const { kmz, ...rest } = e;
+        return rest;
+      });
+      await window._cloudSave({ empresas: empresasSemKmz, currentId: app.currentId, updated: Date.now() });
+    }catch(e){ console.error('Falha ao sincronizar Aquisições com a nuvem:', e); }
+  }, 1500);
+}
 
 /* ======================================================================
    FORMAT HELPERS
