@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+  // Bloqueia acesso direto a esta página sem passar pelo login do portal.
+  if (sessionStorage.getItem('infolink_hub_auth') !== 'ok') {
+    window.location.href = '../index.html';
+  }
+</script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  const fb = initializeApp({
+    apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
+    authDomain: "isp-manager-ce.firebaseapp.com",
+    projectId: "isp-manager-ce",
+    storageBucket: "isp-manager-ce.firebasestorage.app",
+    messagingSenderId: "374725918192",
+    appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
+  });
+  const auth = getAuth(fb);
+  window._doLogout = function(){
+    signOut(auth).finally(()=>{
+      sessionStorage.clear();
+      window.location.href = '../index.html';
+    });
+  };
+</script>
+<title>Plataforma de Aquisições ISP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#0c1322; --bg-panel:#151f36; --bg-panel-2:#1a2744; --bg-inset:#101a2e;
+    --border:#2b3c60; --border-soft:#223252;
+    --accent:#2dd4bf; --accent-dim:#164e47;
+    --amber:#fbbf24; --amber-dim:#4a3a13;
+    --good:#34d399; --good-dim:#123a2c;
+    --bad:#fb7185; --bad-dim:#3f1622;
+    --text:#e8edf7; --text-dim:#93a1c2; --text-faint:#54607f;
+    --radius:10px;
+    --mono:'IBM Plex Mono', ui-monospace, monospace;
+    --disp:'Space Grotesk', sans-serif;
+    --body:'Inter', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0; background:var(--bg); color:var(--text); font-family:var(--body); font-size:14px; line-height:1.5;
+    background-image:
+      radial-gradient(ellipse 900px 500px at 12% -10%, rgba(45,212,191,.09), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 100% 0%, rgba(251,191,36,.05), transparent 60%);
+    background-attachment:fixed;
+  }
+  ::selection{ background:var(--accent); color:#03110f; }
+  button, input, select{ font-family:inherit; }
+
+  /* ---------- topbar ---------- */
+  .topbar{ position:sticky; top:0; z-index:50; backdrop-filter:blur(10px); background:rgba(8,13,24,.9); border-bottom:1px solid var(--border-soft); }
+  .topbar-inner{ max-width:1560px; margin:0 auto; padding:12px 22px; display:flex; align-items:center; gap:16px; }
+  .brand{ display:flex; align-items:center; gap:9px; font-family:var(--disp); font-weight:600; font-size:14.5px; white-space:nowrap; }
+  .brand-dot{ width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px 2px rgba(45,212,191,.7); }
+  .topbar-actions{ margin-left:auto; display:flex; align-items:center; gap:8px; }
+  .ghost-btn{ background:transparent; border:1px solid var(--border); color:var(--text-dim); padding:7px 13px; border-radius:7px; font-size:12px; cursor:pointer; white-space:nowrap; }
+  .ghost-btn:hover{ border-color:var(--accent); color:var(--accent); }
+  .status-pill{ display:flex; align-items:center; gap:8px; padding:6px 12px; border-radius:20px; border:1px solid var(--border); font-family:var(--mono); font-size:12px; white-space:nowrap; }
+  .status-pill b{ font-family:var(--body); font-weight:600;}
+  .dot{width:7px;height:7px;border-radius:50%;}
+  #fileImport{ display:none; }
+  @media (max-width:760px){
+    .topbar-inner{ flex-wrap:wrap; row-gap:8px; }
+    .topbar-actions{ order:3; width:100%; justify-content:flex-start; flex-wrap:wrap; margin-left:0; }
+  }
+
+  /* ---------- shell layout ---------- */
+  .shell{ max-width:1560px; margin:0 auto; display:flex; align-items:flex-start; }
+  .sidebar{
+    width:280px; flex-shrink:0; padding:20px 14px 40px; position:sticky; top:53px;
+    height:calc(100vh - 53px); overflow-y:auto; border-right:1px solid var(--border-soft);
+  }
+  .sidebar h4{ font-family:var(--disp); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-faint); margin:4px 6px 12px; }
+  .new-provider-btn{
+    width:100%; background:linear-gradient(180deg, rgba(45,212,191,.14), rgba(45,212,191,.05)); border:1px dashed rgba(45,212,191,.45);
+    color:var(--accent); padding:11px; border-radius:9px; font-size:12.5px; font-weight:600; cursor:pointer; margin-bottom:16px;
+  }
+  .new-provider-btn:hover{ background:rgba(45,212,191,.18); }
+  .side-btn-row{ display:flex; flex-direction:column; gap:6px; margin-bottom:18px; }
+  .side-btn{
+    width:100%; background:var(--bg-inset); border:1px solid var(--border-soft); color:var(--text-dim);
+    padding:8px 10px; border-radius:7px; font-size:11.5px; cursor:pointer; text-align:left;
+  }
+  .side-btn:hover{ border-color:var(--border); color:var(--text); }
+  #sheetImport{ display:none; }
+  .provider-list{ display:flex; flex-direction:column; gap:8px; }
+  .provider-card{
+    background:var(--bg-panel); border:1px solid var(--border-soft); border-radius:9px; padding:11px 12px; cursor:pointer; position:relative; transition:.15s;
+  }
+  .provider-card:hover{ border-color:var(--border); }
+  .provider-card.active{ border-color:var(--accent); background:linear-gradient(180deg, rgba(45,212,191,.09), var(--bg-panel) 70%); }
+  .provider-card .pname{ font-weight:600; font-size:13px; margin-bottom:3px; padding-right:20px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .provider-card .pmeta{ color:var(--text-faint); font-size:11px; font-family:var(--mono); display:flex; justify-content:space-between; gap:6px; }
+  .provider-card .pstatus-chip{
+    display:inline-block; margin-top:8px; font-family:var(--mono); font-size:10px; font-weight:600;
+    padding:3px 9px; border-radius:12px; border:1px solid; white-space:nowrap;
+  }
+  .provider-card .pbadge{ position:absolute; top:11px; right:10px; width:8px; height:8px; border-radius:50%; }
+  .provider-card .pactions{ display:flex; gap:6px; margin-top:8px; }
+  .provider-card .pactions button{
+    background:transparent; border:1px solid var(--border-soft); color:var(--text-faint); font-size:10.5px; padding:3px 7px; border-radius:5px; cursor:pointer;
+  }
+  .provider-card .pactions button:hover{ color:var(--text); border-color:var(--text-dim); }
+  .empty-side{ color:var(--text-faint); font-size:12px; padding:14px 6px; line-height:1.6; }
+
+  @media (max-width:940px){
+    .shell{ flex-direction:column; align-items:stretch; }
+    .sidebar{ width:100%; height:auto; position:static; border-right:none; border-bottom:1px solid var(--border-soft); }
+    .provider-list{ flex-direction:row; overflow-x:auto; padding-bottom:6px; }
+    .provider-card{ min-width:190px; flex-shrink:0; }
+  }
+
+  .main{ flex:1; min-width:0; padding:26px 28px 90px; }
+
+  /* ---------- provider header ---------- */
+  .phead{ margin-bottom:6px; }
+  .phead .eyebrow{ font-family:var(--mono); color:var(--accent); font-size:11.5px; letter-spacing:.12em; text-transform:uppercase; margin:0 0 8px; }
+  .phead-row{ display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap; margin-bottom:18px; }
+  .phead input.pname-input{
+    background:transparent; border:none; border-bottom:2px solid transparent; color:var(--text); font-family:var(--disp);
+    font-weight:700; font-size:clamp(22px,3vw,30px); padding:2px 0; min-width:220px;
+  }
+  .phead input.pname-input:hover, .phead input.pname-input:focus{ border-bottom-color:var(--border); outline:none; }
+  .status-select-wrap{ margin-top:9px; }
+  select.status-select{
+    appearance:none; -webkit-appearance:none; border:1px solid var(--border); border-radius:20px;
+    padding:6px 30px 6px 13px; font-family:var(--mono); font-size:11.5px; font-weight:600; cursor:pointer;
+    background-color:var(--status-bg, var(--bg-inset)); color:var(--status-fg, var(--text-dim));
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%2393a1c2'/></svg>");
+    background-repeat:no-repeat; background-position:right 12px center;
+  }
+  select.status-select:focus{ outline:none; box-shadow:0 0 0 3px rgba(45,212,191,.18); }
+  .phead-kpis{ display:flex; gap:22px; margin-left:auto; flex-wrap:wrap; max-width:100%; }
+  .phead-kpis .k{ text-align:right; }
+  .phead-kpis .k .l{ font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.06em; }
+  .phead-kpis .k .v{ font-family:var(--mono); font-weight:600; font-size:15.5px; }
+  @media (max-width:600px){
+    .phead-row{ display:block; }
+    .pname-input{ display:block; width:100%; }
+    .phead-kpis{ margin-left:0; margin-top:16px; justify-content:flex-start; }
+  }
+
+  /* ---------- tabs ---------- */
+  .tabbar{ display:flex; gap:2px; border-bottom:1px solid var(--border-soft); margin-bottom:24px; overflow-x:auto; }
+  .tabbar button{
+    background:transparent; border:none; color:var(--text-dim); padding:11px 16px; font-family:var(--disp); font-weight:600;
+    font-size:13px; cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap;
+  }
+  .tabbar button:hover{ color:var(--text); }
+  .tabbar button.active{ color:var(--accent); border-bottom-color:var(--accent); }
+  .tabpanel{ display:none; }
+  .tabpanel.active{ display:block; }
+
+  /* ---------- shared panels/fields/tables (from single-provider dashboard) ---------- */
+  .panel{ background:var(--bg-panel); border:1px solid var(--border); border-radius:var(--radius); padding:20px; min-width:0; }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; min-width:0; }
+  .grid2 > *{ min-width:0; }
+  @media (max-width:920px){ .grid2{ grid-template-columns:1fr; } }
+  .sec-block{ margin-bottom:26px; }
+  .sec-block > h3{ font-family:var(--disp); font-size:14.5px; font-weight:600; margin:0 0 12px; color:var(--text-dim); }
+  .sec-block > p.hint{ color:var(--text-faint); font-size:12px; margin:-6px 0 14px; }
+
+  .field{ display:flex; flex-direction:column; gap:5px; }
+  .field label{ font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.06em; }
+  .field input, .field select{
+    background:var(--bg-inset); border:1px solid var(--border); color:var(--text); font-family:var(--mono);
+    font-size:13.5px; padding:9px 10px; border-radius:7px; width:100%;
+  }
+  .field input:focus, .field select:focus, table input:focus, table select:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(45,212,191,.15); }
+  .field-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; }
+
+  .kpi-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+  .kpi{ background:var(--bg-panel); border:1px solid var(--border); border-radius:var(--radius); padding:15px 17px; }
+  .kpi .label{ color:var(--text-faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; margin-bottom:7px; }
+  .kpi .value{ font-family:var(--mono); font-weight:600; font-size:19px; }
+  .kpi .sub{ color:var(--text-dim); font-size:11px; margin-top:4px; }
+  .kpi.hi{ border-color:rgba(45,212,191,.4); background:linear-gradient(180deg, rgba(45,212,191,.08), var(--bg-panel) 60%); }
+  .kpi.hi .value{ color:var(--accent); font-size:22px; }
+
+  .table-scroll{ overflow-x:auto; border-radius:8px; border:1px solid var(--border-soft); }
+  table{ width:100%; border-collapse:collapse; min-width:640px; }
+  thead th{ background:var(--bg-panel-2); color:var(--text-faint); text-transform:uppercase; letter-spacing:.05em; font-size:10.5px; font-weight:600; text-align:right; padding:10px; white-space:nowrap; border-bottom:1px solid var(--border); }
+  thead th:first-child, thead th:nth-child(2){ text-align:left; }
+  tbody td{ padding:6px 8px; border-bottom:1px solid var(--border-soft); text-align:right; white-space:nowrap; }
+  tbody td:first-child, tbody td:nth-child(2){ text-align:left; }
+  tbody tr:hover{ background:rgba(255,255,255,.02); }
+  table input, table select{ background:var(--bg-inset); border:1px solid var(--border); color:var(--text); font-family:var(--mono); font-size:12.5px; padding:7px 8px; border-radius:6px; width:100%; min-width:70px; text-align:right; }
+  table td:first-child input, table td:nth-child(2) input, table select{ text-align:left; font-family:var(--body); }
+  tfoot td{ padding:11px 8px; font-weight:600; border-top:1px solid var(--border); background:var(--bg-panel-2); font-family:var(--mono); }
+  .computed{ color:var(--text-dim); font-family:var(--mono); }
+  .rm-btn{ background:transparent; border:1px solid var(--border); color:var(--text-faint); width:26px; height:26px; border-radius:6px; cursor:pointer; font-size:14px; line-height:1; }
+  .rm-btn:hover{ border-color:var(--bad); color:var(--bad); }
+  .add-row{ margin-top:10px; background:var(--bg-inset); border:1px dashed var(--border); color:var(--text-dim); padding:9px 14px; border-radius:7px; font-size:12.5px; cursor:pointer; }
+  .add-row:hover{ border-color:var(--accent); color:var(--accent); }
+
+  .chart-wrap{ display:flex; align-items:flex-end; gap:34px; height:220px; padding:10px 6px 0; }
+  .chart-group{ display:flex; flex-direction:column; align-items:center; gap:8px; flex:1; height:100%; justify-content:flex-end; }
+  .chart-bars{ display:flex; gap:8px; align-items:flex-end; height:100%; }
+  .bar{ width:34px; border-radius:5px 5px 0 0; position:relative; }
+  .bar .tag{ position:absolute; top:-20px; left:50%; transform:translateX(-50%); font-family:var(--mono); font-size:10.5px; color:var(--text-dim); white-space:nowrap; }
+  .bar.a{ background:linear-gradient(180deg,#3b82f6,#1d4ed8); }
+  .bar.b{ background:linear-gradient(180deg,var(--accent),#0d9488); }
+  .chart-group .glabel{ font-size:11.5px; color:var(--text-dim); }
+  .legend{ display:flex; gap:18px; justify-content:center; margin-top:14px; font-size:11.5px; color:var(--text-dim);}
+  .legend span{ display:inline-flex; align-items:center; gap:6px; }
+  .legend i{ width:10px; height:10px; border-radius:3px; display:inline-block; }
+
+  .badge{ font-family:var(--mono); font-size:11.5px; font-weight:600; padding:4px 10px; border-radius:20px; display:inline-block; }
+  .badge.sim{ background:var(--good-dim); color:var(--good); border:1px solid rgba(52,211,153,.35); }
+  .badge.nao{ background:var(--bad-dim); color:var(--bad); border:1px solid rgba(251,113,133,.35); }
+  .badge.rev{ background:var(--amber-dim); color:var(--amber); border:1px solid rgba(251,191,36,.35); }
+
+  .check-list{ display:flex; flex-direction:column; gap:10px; }
+  .check{ display:flex; align-items:center; justify-content:space-between; gap:14px; background:var(--bg-inset); border:1px solid var(--border-soft); border-radius:8px; padding:12px 15px; }
+  .check .ctext{ font-size:13px; }
+  .check .cmeta{ color:var(--text-faint); font-size:11.5px; font-family:var(--mono); }
+
+  .gauge{ position:relative; height:64px; margin-top:22px; }
+  .gauge-track{ position:absolute; top:26px; left:0; right:0; height:10px; border-radius:6px; background:var(--bg-inset); border:1px solid var(--border-soft); overflow:hidden; }
+  .gauge-zone{ position:absolute; top:0; bottom:0; }
+  .gauge-mark{ position:absolute; top:6px; width:2px; height:26px; background:var(--text); }
+  .gauge-mark .mlabel{ position:absolute; top:-20px; left:50%; transform:translateX(-50%); font-family:var(--mono); font-size:10px; white-space:nowrap; }
+  .gauge-mark .mval{ position:absolute; top:32px; left:50%; transform:translateX(-50%); font-family:var(--mono); font-size:10px; color:var(--text-dim); white-space:nowrap; }
+  .gauge-mark.prop{ background:var(--amber); } .gauge-mark.prop .mlabel{ color:var(--amber); }
+  .gauge-mark.sug{ background:var(--accent); z-index:3;} .gauge-mark.sug .mlabel{ color:var(--accent); }
+
+  .note{ font-size:11.5px; color:var(--text-faint); margin-top:10px; line-height:1.6; }
+
+  /* ---------- fiber divider ---------- */
+  .fiber{ position:relative; height:2px; margin:30px 0 26px; background:linear-gradient(90deg, transparent, var(--border) 8%, var(--border) 92%, transparent); overflow:hidden; }
+  .fiber::before{ content:""; position:absolute; top:0; left:-20%; width:20%; height:100%; background:linear-gradient(90deg, transparent, var(--accent), transparent); filter:blur(1px); animation:pulse 5.5s ease-in-out infinite; }
+  @keyframes pulse{ 0%{left:-20%;} 55%{left:100%;} 100%{left:100%;} }
+  @media (prefers-reduced-motion: reduce){ .fiber::before{ animation:none; left:40%; } }
+
+  /* ---------- KMZ / map tab ---------- */
+  .map-toolbar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .upload-btn{ background:var(--accent); color:#03211d; border:none; padding:10px 16px; border-radius:8px; font-size:12.5px; font-weight:700; cursor:pointer; }
+  .upload-btn:hover{ filter:brightness(1.08); }
+  #map{ height:540px; border-radius:10px; border:1px solid var(--border); background:var(--bg-inset); }
+  .map-meta{ display:flex; gap:18px; flex-wrap:wrap; color:var(--text-dim); font-size:12px; font-family:var(--mono); margin-top:12px; }
+  .map-empty{ height:540px; border-radius:10px; border:1px dashed var(--border); display:flex; align-items:center; justify-content:center; flex-direction:column; gap:14px; color:var(--text-faint); text-align:center; padding:30px; }
+  .map-empty svg{ opacity:.5; }
+  #kmzInput{ display:none; }
+
+  footer{ margin-top:50px; padding-top:24px; border-top:1px solid var(--border-soft); color:var(--text-faint); font-size:11.5px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="../home.html" class="brand" style="text-decoration:none;color:inherit;"><span class="brand-dot"></span>Plataforma de Aquisições ISP</a>
+    <div class="topbar-actions">
+      <a href="../home.html" class="ghost-btn" style="text-decoration:none;">← Portal</a>
+      <div class="status-pill"><span class="dot" id="statusDot"></span>Conclusão: <b id="statusText">—</b></div>
+      <button class="ghost-btn" id="exportBtn">Exportar tudo</button>
+      <button class="ghost-btn" id="importBtn">Importar</button>
+      <input type="file" id="fileImport" accept="application/json">
+      <button class="ghost-btn" onclick="window._doLogout()">Sair</button>
+    </div>
+  </div>
+</div>
+
+<div class="shell">
+  <aside class="sidebar">
+    <button class="new-provider-btn" id="newProviderBtn">+ Novo provedor</button>
+    <div class="side-btn-row">
+      <button class="side-btn" id="templateBtn">Baixar modelo (.xlsx)</button>
+      <button class="side-btn" id="sheetImportBtn">Importar planilha</button>
+      <input type="file" id="sheetImport" accept=".xlsx,.xls,.csv">
+    </div>
+    <h4>Provedores</h4>
+    <div class="provider-list" id="providerList"></div>
+  </aside>
+
+  <main class="main" id="main">
+    <!-- rendered dynamically -->
+  </main>
+</div>
+
+<script>
+/* ======================================================================
+   DATA MODEL
+====================================================================== */
+const STORAGE_KEY = "plataforma-isp-v1";
+
+const STATUS_OPTIONS = ["Prospecção","Em análise","Proposta enviada","Em negociação","Due diligence","Fechado","Descartado"];
+const STATUS_COLOR = {
+  "Prospecção":"#8b99b6", "Em análise":"#60a5fa", "Proposta enviada":"#fbbf24",
+  "Em negociação":"#fb923c", "Due diligence":"#a78bfa", "Fechado":"#34d399", "Descartado":"#fb7185",
+};
+
+function blankEmpresa(nome){
+  return {
+    id: 'e_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
+    nome: nome || "Novo provedor",
+    status: "Prospecção",
+    comprador:"INFOLINK TELECOM", regiao:"", data:new Date().toISOString().slice(0,10),
+    clientes:0, mrr:0, impostosPct:0, pddPct:0,
+    metaMargem:0, metaPayback:12, multMRR:14, multEBITDA:4,
+    custosAtual:[], custosComprador:[], investimentos:[],
+    propostas:[], propostaSugEntrada:50, propostaSugParcelas:12,
+    finPrazo:12, finSelic:14.5, finValorOverride:null,
+    kmz:null, // {name, dataUrl}
+  };
+}
+
+function demoEmpresa(){
+  const e = blankEmpresa("GIGANET ITAREMA-CE");
+  Object.assign(e, {
+    status:"Em negociação",
+    regiao:"ITAREMA / CE", data:"2026-03-01", clientes:629, mrr:37777,
+    custosAtual:[
+      {cat:"DP",item:"Salários e Ordenados",qtd:1,valor:8500},
+      {cat:"DO",item:"Elétrica e Água/Esgoto",qtd:1,valor:456.98},
+      {cat:"DO",item:"Internet Link (TELFO)",qtd:1,valor:1500},
+      {cat:"DO",item:"Internet Link (NETONDA)",qtd:1,valor:2000},
+      {cat:"DO",item:"Assessoria Contábil",qtd:1,valor:450},
+      {cat:"DO",item:"Serviços Terceirizados PF/PJ",qtd:1,valor:400},
+      {cat:"DI",item:"Simples Nacional",qtd:1,valor:500},
+      {cat:"DO",item:"Assessoria Técnica",qtd:1,valor:1524},
+      {cat:"DO",item:"Material Instalação (Fibra/Cabo)",qtd:1,valor:2859},
+      {cat:"DF",item:"Material Rede/BackBone",qtd:1,valor:1345},
+      {cat:"DO",item:"Veículos: Combustível/Lubrificantes",qtd:1,valor:2158},
+    ],
+    custosComprador:[
+      {cat:"DO",item:"Link / Trânsito IP",qtd:500,valor:0.6},
+      {cat:"DO",item:"PTTS",qtd:1000,valor:0.45},
+      {cat:"DO",item:"Transporte L2 (CDNs locais)",qtd:1000,valor:0.01},
+      {cat:"DO",item:"Transporte L2 (Netonda Fortaleza)",qtd:2000,valor:0.5},
+      {cat:"DO",item:"CDNs Locais (Telfo Fortaleza)",qtd:2000,valor:0.5},
+      {cat:"DO",item:"Compartimento de Postes",qtd:0,valor:12.58},
+      {cat:"DO",item:"Manutenção de Backbone",qtd:1,valor:600},
+      {cat:"DO",item:"Manutenção de Clientes",qtd:15,valor:100},
+      {cat:"DO",item:"Kit de Instalação Clientes",qtd:35,valor:256},
+      {cat:"DO",item:"Atendente Loja",qtd:0,valor:1621},
+      {cat:"DO",item:"Técnico de Campo",qtd:2,valor:2689},
+      {cat:"DO",item:"Veículos / Combustível",qtd:1,valor:900},
+      {cat:"DO",item:"Veículos / Aluguel",qtd:1,valor:1863},
+      {cat:"DI",item:"PIS/COFINS/CSLL/Impostos",qtd:0,valor:5700},
+      {cat:"DO",item:"POP / Loja / Aluguel",qtd:0,valor:800},
+      {cat:"DO",item:"Rede Elétrica ENEL",qtd:1,valor:458.99},
+    ],
+    investimentos:[
+      {cat:"Aquisição",item:"Preço de compra da operação",tipo:"Compra",qtd:1,valor:200000},
+      {cat:"Integração",item:"Integração de sistemas e migração",tipo:"One-off",qtd:1,valor:44.8},
+      {cat:"Integração",item:"Importação / Banco de dados",tipo:"One-off",qtd:1,valor:8000},
+      {cat:"Infraestrutura",item:"Equipamentos e ativos adicionais/POP",tipo:"Capex",qtd:1,valor:5000},
+      {cat:"Capital de giro",item:"Reserva inicial de caixa",tipo:"Capital de giro",qtd:0,valor:3700},
+      {cat:"Integração",item:"Sistemas Temporários IXC",tipo:"One-off",qtd:3,valor:350},
+      {cat:"Outros",item:"Aluguel/Energia loja & POP",tipo:"One-off",qtd:3,valor:459.99},
+      {cat:"Outros",item:"Telefonia da Loja",tipo:"Capex",qtd:0,valor:50},
+      {cat:"Outros",item:"Reforma Loja",tipo:"One-off",qtd:0,valor:30000},
+    ],
+    propostas:[
+      {nome:"Proposta 1",valor:380000,entrada:60,parcelas:12},
+      {nome:"Proposta 2",valor:400000,entrada:50,parcelas:12},
+      {nome:"Proposta 3",valor:500000,entrada:50,parcelas:12},
+      {nome:"Proposta 4",valor:550000,entrada:50,parcelas:12},
+    ],
+    finPrazo:13, finSelic:14.5,
+  });
+  return e;
+}
+
+let app = loadApp();
+function loadApp(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){ const parsed = JSON.parse(raw); if(parsed.empresas && parsed.empresas.length) return parsed; }
+  }catch(e){}
+  const demo = demoEmpresa();
+  return { empresas:[demo], currentId: demo.id };
+}
+function saveApp(){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }
+  catch(e){ alert('Não foi possível salvar (armazenamento local cheio). Exporte seus dados em "Exportar tudo".'); }
+}
+function current(){ return app.empresas.find(e=>e.id===app.currentId) || app.empresas[0]; }
+
+/* ======================================================================
+   FORMAT HELPERS
+====================================================================== */
+const fmtBRL = n => (isFinite(n)?n:0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
+const fmtBRL2 = n => (isFinite(n)?n:0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:2});
+const fmtPct = n => (isFinite(n)?n*100:0).toLocaleString('pt-BR',{maximumFractionDigits:1})+"%";
+const fmtMult = n => (isFinite(n)?n:0).toLocaleString('pt-BR',{maximumFractionDigits:1})+"x";
+const fmtNum = n => (isFinite(n)?n:0).toLocaleString('pt-BR',{maximumFractionDigits:0});
+const rowTotal = r => (r.qtd||0)*(r.valor||0);
+const sumRows = list => list.reduce((s,r)=>s+rowTotal(r),0);
+const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;').replace(/</g,'&lt;');
+
+/* ======================================================================
+   COMPUTED MODEL (per provider)
+====================================================================== */
+function compute(p){
+  const custoAtualTotal = sumRows(p.custosAtual);
+  const custoCompradorTotal = sumRows(p.custosComprador);
+  const investTotal = sumRows(p.investimentos);
+  const mrr = p.mrr||0;
+  const deducoes = mrr*(p.impostosPct/100||0) + mrr*(p.pddPct/100||0);
+  const ebitdaAtual = mrr - deducoes - custoAtualTotal;
+  const ebitdaComprador = mrr - deducoes - custoCompradorTotal;
+  const margemAtual = mrr? ebitdaAtual/mrr : 0;
+  const margemComprador = mrr? ebitdaComprador/mrr : 0;
+  const custoClienteAtual = p.clientes? custoAtualTotal/p.clientes : 0;
+  const custoClienteComprador = p.clientes? custoCompradorTotal/p.clientes : 0;
+
+  const invPorCliente = p.clientes? investTotal/p.clientes : 0;
+  const invPctMRRano = mrr? investTotal/(mrr*12) : 0;
+  const payback = ebitdaComprador>0 ? investTotal/ebitdaComprador : Infinity;
+  const evMRR = mrr? investTotal/mrr : 0;
+  const evEBITDAano = ebitdaComprador>0 ? investTotal/(ebitdaComprador*12) : Infinity;
+
+  const tetoMRR = mrr*(p.multMRR||0);
+  const tetoEBITDA = ebitdaComprador>0 ? ebitdaComprador*12*(p.multEBITDA||0) : 0;
+  const tetoSustentavel = ebitdaComprador>0 ? ebitdaComprador*(p.metaPayback||0) : 0;
+
+  const ebitdaPositivo = ebitdaComprador>0;
+  const margemOk = margemComprador >= (p.metaMargem/100||0);
+  const paybackOk = isFinite(payback) && payback<=(p.metaPayback||0);
+  const conclusao = (ebitdaPositivo && margemOk && paybackOk) ? "SIM" : "REVISAR";
+
+  const finValor = p.finValorOverride!=null ? p.finValorOverride : investTotal;
+  const i = Math.pow(1+(p.finSelic/100||0),1/12)-1;
+  const n = p.finPrazo||1;
+  const parcelaPrice = i>0 ? finValor*i/(1-Math.pow(1+i,-n)) : finValor/n;
+  const caixaPosParcela = ebitdaComprador - parcelaPrice;
+  const totalPago = parcelaPrice*n;
+
+  return { custoAtualTotal, custoCompradorTotal, investTotal, mrr, deducoes,
+    ebitdaAtual, ebitdaComprador, margemAtual, margemComprador, custoClienteAtual, custoClienteComprador,
+    invPorCliente, invPctMRRano, payback, evMRR, evEBITDAano, tetoMRR, tetoEBITDA, tetoSustentavel,
+    ebitdaPositivo, margemOk, paybackOk, conclusao, finValor, parcelaPrice, caixaPosParcela, totalPago };
+}
+
+function proposalCalc(pr, p, m){
+  const entradaR = pr.valor*(pr.entrada/100);
+  const saldoFin = pr.valor-entradaR;
+  const parcela = pr.parcelas? saldoFin/pr.parcelas : 0;
+  const porCliente = p.clientes? pr.valor/p.clientes : 0;
+  const evMRRi = m.mrr? pr.valor/m.mrr : 0;
+  const evEBITDAi = m.ebitdaComprador>0 ? pr.valor/(m.ebitdaComprador*12) : Infinity;
+  const paybackI = m.ebitdaComprador>0 ? pr.valor/m.ebitdaComprador : Infinity;
+  const caixaMensal = m.ebitdaComprador - parcela;
+  let viavel;
+  if(caixaMensal<=0) viavel="NÃO";
+  else if(isFinite(paybackI) && paybackI<=(p.metaPayback||0)) viavel="SIM";
+  else viavel="REVISAR";
+  return {entradaR, saldoFin, parcela, porCliente, evMRRi, evEBITDAi, paybackI, caixaMensal, viavel};
+}
+
+/* ======================================================================
+   SIDEBAR
+====================================================================== */
+function renderSidebar(){
+  const list = document.getElementById('providerList');
+  if(!app.empresas.length){
+    list.innerHTML = `<div class="empty-side">Nenhum provedor cadastrado ainda. Clique em <b>+ Novo provedor</b> para começar.</div>`;
+    return;
+  }
+  list.innerHTML = app.empresas.map(p=>{
+    const m = compute(p);
+    const active = p.id===app.currentId;
+    const badgeColor = m.conclusao==='SIM' ? 'var(--good)' : 'var(--amber)';
+    const stColor = STATUS_COLOR[p.status] || '#8b99b6';
+    return `<div class="provider-card ${active?'active':''}" data-id="${p.id}">
+      <span class="pbadge" style="background:${badgeColor}" title="Conclusão financeira: ${m.conclusao}"></span>
+      <div class="pname">${esc(p.nome)||'(sem nome)'}</div>
+      <div class="pmeta"><span>${esc(p.regiao)||'—'}</span><span>${fmtBRL(p.mrr)}/mês</span></div>
+      <div class="pstatus-chip" style="color:${stColor};border-color:${stColor}55;background:${stColor}1a;">${esc(p.status||'Prospecção')}</div>
+      <div class="pactions">
+        <button data-act="dup" title="Duplicar">Duplicar</button>
+        <button data-act="del" title="Remover">Remover</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('.provider-card').forEach(card=>{
+    card.addEventListener('click', e=>{
+      if(e.target.dataset.act) return;
+      app.currentId = card.dataset.id; saveApp(); renderAll();
+    });
+    card.querySelector('[data-act="dup"]').addEventListener('click', e=>{
+      e.stopPropagation();
+      const src = app.empresas.find(x=>x.id===card.dataset.id);
+      const copy = JSON.parse(JSON.stringify(src));
+      copy.id = 'e_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+      copy.nome = src.nome + ' (cópia)';
+      app.empresas.push(copy); app.currentId = copy.id; saveApp(); renderAll();
+    });
+    card.querySelector('[data-act="del"]').addEventListener('click', e=>{
+      e.stopPropagation();
+      const src = app.empresas.find(x=>x.id===card.dataset.id);
+      if(!confirm(`Remover "${src.nome}"? Essa ação não pode ser desfeita.`)) return;
+      app.empresas = app.empresas.filter(x=>x.id!==card.dataset.id);
+      if(app.currentId===card.dataset.id) app.currentId = app.empresas[0]?.id || null;
+      saveApp(); renderAll();
+    });
+  });
+}
+
+document.getElementById('newProviderBtn').onclick = () => {
+  const p = blankEmpresa("Novo provedor "+(app.empresas.length+1));
+  app.empresas.push(p); app.currentId = p.id; saveApp(); renderAll();
+  setTimeout(()=>{ const el=document.querySelector('.pname-input'); if(el){ el.focus(); el.select(); } }, 30);
+};
+
+/* ======================================================================
+   MAIN AREA — layout + tabs
+====================================================================== */
+let activeTab = 'custos';
+
+function mainSkeleton(){
+  return `
+    <div class="phead">
+      <p class="eyebrow">Ficha da operação</p>
+      <div class="phead-row">
+        <div>
+          <input class="pname-input" id="pname" type="text">
+          <div class="status-select-wrap">
+            <select id="pstatus" class="status-select">${STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}</select>
+          </div>
+        </div>
+        <div class="phead-kpis" id="pheadKpis"></div>
+      </div>
+    </div>
+    <div class="tabbar" id="tabbar">
+      <button data-tab="custos">Custos &amp; EBITDA</button>
+      <button data-tab="valuation">Investimento &amp; Valuation</button>
+      <button data-tab="propostas">Propostas</button>
+      <button data-tab="rede">Rede (KMZ)</button>
+    </div>
+    <div class="tabpanel" data-panel="custos">${tplCustos()}</div>
+    <div class="tabpanel" data-panel="valuation">${tplValuation()}</div>
+    <div class="tabpanel" data-panel="propostas">${tplPropostas()}</div>
+    <div class="tabpanel" data-panel="rede">${tplRede()}</div>
+    <footer>Plataforma local — nenhum dado sai deste navegador. Cada provedor é salvo separadamente e pode ser exportado em JSON.</footer>
+  `;
+}
+
+function tplCustos(){
+  return `
+  <div class="sec-block">
+    <h3>Identificação</h3>
+    <div class="panel">
+      <div class="field-grid">
+        <div class="field"><label>Comprador</label><input id="in-comprador" type="text"></div>
+        <div class="field"><label>Região / Cidade</label><input id="in-regiao" type="text"></div>
+        <div class="field"><label>Data da análise</label><input id="in-data" type="date"></div>
+        <div class="field"><label>Clientes ativos</label><input id="in-clientes" type="number" min="0" step="1"></div>
+        <div class="field"><label>MRR mensal (R$)</label><input id="in-mrr" type="number" min="0" step="1"></div>
+        <div class="field"><label>Impostos sobre receita (%)</label><input id="in-impostos" type="number" min="0" step="0.1"></div>
+        <div class="field"><label>Inadimplência / PDD (%)</label><input id="in-pdd" type="number" min="0" step="0.1"></div>
+      </div>
+    </div>
+  </div>
+  <div class="sec-block">
+    <h3>Estrutura de custos mensais</h3>
+    <p class="hint">Custo do provedor hoje (Atual) vs. custo estimado operando com o comprador.</p>
+    <div class="grid2">
+      <div class="panel">
+        <h3 style="margin:0 0 12px;font-size:13.5px;">Operação atual</h3>
+        <div class="table-scroll"><table id="tbl-atual">
+          <thead><tr><th>Categoria</th><th>Item</th><th>Qtd</th><th>Vr. Unit.</th><th>Total</th><th></th></tr></thead>
+          <tbody></tbody>
+          <tfoot><tr><td colspan="4">Total custos atuais</td><td id="atual-total-geral" class="computed">—</td><td></td></tr></tfoot>
+        </table></div>
+        <button class="add-row" data-add="atual">+ adicionar linha</button>
+      </div>
+      <div class="panel">
+        <h3 style="margin:0 0 12px;font-size:13.5px;">Cenário comprador</h3>
+        <div class="table-scroll"><table id="tbl-comprador">
+          <thead><tr><th>Categoria</th><th>Item</th><th>Qtd</th><th>Vr. Unit.</th><th>Total</th><th></th></tr></thead>
+          <tbody></tbody>
+          <tfoot><tr><td colspan="4">Total custos comprador</td><td id="comprador-total-geral" class="computed">—</td><td></td></tr></tfoot>
+        </table></div>
+        <button class="add-row" data-add="comprador">+ adicionar linha</button>
+      </div>
+    </div>
+  </div>
+  <div class="sec-block">
+    <h3>Comparativo &amp; EBITDA</h3>
+    <div class="grid2">
+      <div class="panel">
+        <div id="chart" class="chart-wrap"></div>
+        <div class="legend"><span><i style="background:#3b82f6"></i>Atual</span><span><i style="background:var(--accent)"></i>Comprador</span></div>
+      </div>
+      <div class="panel"><div class="kpi-row" id="comparativoKpis"></div></div>
+    </div>
+  </div>`;
+}
+
+function tplValuation(){
+  return `
+  <div class="sec-block">
+    <h3>Investimento inicial</h3>
+    <p class="hint">Tudo que o comprador desembolsa para viabilizar a operação.</p>
+    <div class="panel">
+      <div class="table-scroll"><table id="tbl-invest">
+        <thead><tr><th>Categoria</th><th>Item</th><th>Tipo</th><th>Qtd</th><th>Vr. Unit.</th><th>Total</th><th></th></tr></thead>
+        <tbody></tbody>
+        <tfoot><tr><td colspan="5">Investimento total</td><td id="invest-total-geral" class="computed">—</td><td></td></tr></tfoot>
+      </table></div>
+      <button class="add-row" data-add="invest">+ adicionar linha</button>
+      <div class="kpi-row" style="margin-top:16px;">
+        <div class="kpi"><div class="label">Investimento / cliente</div><div class="value" id="kpi-invcliente">—</div></div>
+        <div class="kpi"><div class="label">% do MRR anual</div><div class="value" id="kpi-invpct">—</div></div>
+        <div class="kpi"><div class="label">Payback (meses)</div><div class="value" id="kpi-payback">—</div></div>
+        <div class="kpi"><div class="label">EV / MRR atual</div><div class="value" id="kpi-evmrr">—</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="sec-block">
+    <h3>Teto de valuation &amp; metas</h3>
+    <p class="hint">Defina as metas — os tetos e os checks abaixo recalculam sozinhos.</p>
+    <div class="panel">
+      <div class="field-grid">
+        <div class="field"><label>Meta margem EBITDA mín. (%)</label><input id="in-metamargem" type="number" step="0.1"></div>
+        <div class="field"><label>Meta payback máx. (meses)</label><input id="in-metapayback" type="number" step="1"></div>
+        <div class="field"><label>Múltiplo alvo EV/MRR</label><input id="in-multmrr" type="number" step="0.1"></div>
+        <div class="field"><label>Múltiplo alvo EV/EBITDA anual</label><input id="in-multebitda" type="number" step="0.1"></div>
+      </div>
+      <div class="kpi-row" style="margin-top:18px;">
+        <div class="kpi"><div class="label">Teto via EV/MRR alvo</div><div class="value" id="kpi-tetomrr">—</div></div>
+        <div class="kpi"><div class="label">Teto via EV/EBITDA alvo</div><div class="value" id="kpi-tetoebitda">—</div></div>
+        <div class="kpi hi"><div class="label">Oferta máx. sustentável (payback-alvo)</div><div class="value" id="kpi-tetosustentavel">—</div><div class="sub">EBITDA comprador × meta de payback</div></div>
+      </div>
+      <div class="gauge" id="gauge"></div>
+      <p class="note">O teto sustentável (destaque teal) é o mais conservador — reflete a capacidade de caixa real da operação, não apenas um múltiplo de mercado.</p>
+    </div>
+  </div>
+  <div class="sec-block">
+    <h3>Checks automáticos de viabilidade</h3>
+    <div class="panel"><div class="check-list" id="checkList"></div></div>
+  </div>
+  <div class="sec-block">
+    <h3>Financiamento (referência simplificada)</h3>
+    <p class="hint">Tabela Price mensal — para a estrutura negociada específica, use a planilha completa.</p>
+    <div class="panel">
+      <div class="field-grid">
+        <div class="field"><label>Valor a financiar (R$)</label><input id="in-fin-valor" type="number" step="1"></div>
+        <div class="field"><label>Prazo (meses)</label><input id="in-fin-prazo" type="number" step="1"></div>
+        <div class="field"><label>Selic de referência (% a.a.)</label><input id="in-fin-selic" type="number" step="0.1"></div>
+      </div>
+      <div class="kpi-row" style="margin-top:16px;">
+        <div class="kpi"><div class="label">Parcela mensal (Price)</div><div class="value" id="kpi-fin-parcela">—</div></div>
+        <div class="kpi"><div class="label">Caixa mensal pós-parcela</div><div class="value" id="kpi-fin-caixa">—</div></div>
+        <div class="kpi"><div class="label">Total pago no prazo</div><div class="value" id="kpi-fin-total">—</div></div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function tplPropostas(){
+  return `
+  <div class="sec-block">
+    <h3>Simulador de propostas</h3>
+    <p class="hint">Quanto podemos ofertar — edite valor, entrada e parcelas de cada cenário.</p>
+    <div class="panel">
+      <div class="table-scroll"><table id="tbl-propostas">
+        <thead><tr>
+          <th>Proposta</th><th>Oferta (R$)</th><th>Entrada %</th><th>Entrada R$</th><th>Saldo Fin.</th>
+          <th>Parcelas</th><th>Vr. Parcela</th><th>R$/Cliente</th><th>EV/MRR</th><th>EV/EBITDA</th>
+          <th>Payback (m)</th><th>Caixa Mensal</th><th>Viável?</th><th></th>
+        </tr></thead>
+        <tbody id="propostas-body"></tbody>
+      </table></div>
+      <button class="add-row" data-add="proposta">+ adicionar proposta</button>
+      <p class="note">Viável = caixa mensal positivo após a parcela e payback dentro da meta definida em Investimento &amp; Valuation.</p>
+    </div>
+  </div>`;
+}
+
+function tplRede(){
+  return `
+  <div class="sec-block">
+    <h3>Rede do provedor</h3>
+    <p class="hint">Envie o arquivo KMZ/KML da rede para visualizar no mapa. Fica salvo com este provedor.</p>
+    <div class="panel">
+      <div class="map-toolbar">
+        <button class="upload-btn" id="kmzUploadBtn">Carregar KMZ / KML</button>
+        <input type="file" id="kmzInput" accept=".kmz,.kml">
+        <button class="ghost-btn" id="kmzDownloadBtn" style="display:none;">Baixar arquivo original</button>
+        <button class="ghost-btn" id="kmzRemoveBtn" style="display:none;">Remover rede</button>
+      </div>
+      <div id="mapHolder"></div>
+      <div class="map-meta" id="mapMeta"></div>
+    </div>
+  </div>`;
+}
+
+/* ======================================================================
+   RENDER: cost / invest / proposals tables (rebuilt on structural change)
+====================================================================== */
+function catOptions(sel){ return ["DP","DO","DI","DF","Outro"].map(c=>`<option ${c===sel?'selected':''}>${c}</option>`).join(''); }
+function tipoOptions(sel){ return ["Compra","One-off","Capex","Capital de giro"].map(c=>`<option ${c===sel?'selected':''}>${c}</option>`).join(''); }
+
+function buildCostTable(key, tableId){
+  const p = current();
+  const tbody = document.querySelector('#'+tableId+' tbody');
+  if(!tbody) return;
+  tbody.innerHTML = p[key].map((r,i)=>`
+    <tr data-i="${i}">
+      <td><select data-role="cat">${catOptions(r.cat)}</select></td>
+      <td><input data-role="item" type="text" value="${esc(r.item)}"></td>
+      <td><input data-role="qtd" type="number" step="0.01" value="${r.qtd}"></td>
+      <td><input data-role="valor" type="number" step="0.01" value="${r.valor}"></td>
+      <td class="computed" data-role="total">${fmtBRL2(rowTotal(r))}</td>
+      <td><button class="rm-btn" data-role="rm">×</button></td>
+    </tr>`).join('');
+  tbody.oninput = e => {
+    const tr = e.target.closest('tr'); if(!tr) return;
+    const i = +tr.dataset.i; const role = e.target.dataset.role;
+    const row = current()[key][i];
+    if(role==='item') row.item = e.target.value;
+    else if(role==='qtd') row.qtd = parseFloat(e.target.value)||0;
+    else if(role==='valor') row.valor = parseFloat(e.target.value)||0;
+    else if(role==='cat') row.cat = e.target.value;
+    tr.querySelector('[data-role="total"]').textContent = fmtBRL2(rowTotal(row));
+    recomputeAll(); saveApp();
+  };
+  tbody.onclick = e => {
+    if(e.target.dataset.role!=='rm') return;
+    const tr = e.target.closest('tr'); const i = +tr.dataset.i;
+    current()[key].splice(i,1);
+    buildCostTable(key, tableId); recomputeAll(); saveApp(); renderSidebar();
+  };
+}
+
+function buildInvestTable(){
+  const p = current();
+  const tbody = document.querySelector('#tbl-invest tbody');
+  if(!tbody) return;
+  tbody.innerHTML = p.investimentos.map((r,i)=>`
+    <tr data-i="${i}">
+      <td><input data-role="cat" type="text" value="${esc(r.cat)}"></td>
+      <td><input data-role="item" type="text" value="${esc(r.item)}"></td>
+      <td><select data-role="tipo">${tipoOptions(r.tipo)}</select></td>
+      <td><input data-role="qtd" type="number" step="0.01" value="${r.qtd}"></td>
+      <td><input data-role="valor" type="number" step="0.01" value="${r.valor}"></td>
+      <td class="computed" data-role="total">${fmtBRL2(rowTotal(r))}</td>
+      <td><button class="rm-btn" data-role="rm">×</button></td>
+    </tr>`).join('');
+  tbody.oninput = e => {
+    const tr = e.target.closest('tr'); if(!tr) return;
+    const i = +tr.dataset.i; const role = e.target.dataset.role;
+    const row = current().investimentos[i];
+    if(role==='item') row.item=e.target.value;
+    else if(role==='cat') row.cat=e.target.value;
+    else if(role==='tipo') row.tipo=e.target.value;
+    else if(role==='qtd') row.qtd=parseFloat(e.target.value)||0;
+    else if(role==='valor') row.valor=parseFloat(e.target.value)||0;
+    tr.querySelector('[data-role="total"]').textContent = fmtBRL2(rowTotal(row));
+    recomputeAll(); saveApp();
+  };
+  tbody.onclick = e => {
+    if(e.target.dataset.role!=='rm') return;
+    const tr=e.target.closest('tr'); const i=+tr.dataset.i;
+    current().investimentos.splice(i,1);
+    buildInvestTable(); recomputeAll(); saveApp(); renderSidebar();
+  };
+}
+
+function buildPropostasTable(){
+  const p = current();
+  const tbody = document.getElementById('propostas-body');
+  if(!tbody) return;
+  const m = compute(p);
+  let rows = p.propostas.map((pr,i)=>{
+    const c = proposalCalc(pr,p,m);
+    const cls = c.viavel==='SIM'?'sim':(c.viavel==='NÃO'?'nao':'rev');
+    return `<tr data-i="${i}">
+      <td><input data-role="nome" type="text" value="${esc(pr.nome)}"></td>
+      <td><input data-role="valor" type="number" step="1000" value="${pr.valor}"></td>
+      <td><input data-role="entrada" type="number" step="1" value="${pr.entrada}"></td>
+      <td class="computed" data-role="entradaR">${fmtBRL(c.entradaR)}</td>
+      <td class="computed" data-role="saldoFin">${fmtBRL(c.saldoFin)}</td>
+      <td><input data-role="parcelas" type="number" step="1" value="${pr.parcelas}"></td>
+      <td class="computed" data-role="parcela">${fmtBRL(c.parcela)}</td>
+      <td class="computed" data-role="porCliente">${fmtBRL2(c.porCliente)}</td>
+      <td class="computed" data-role="evMRRi">${fmtMult(c.evMRRi)}</td>
+      <td class="computed" data-role="evEBITDAi">${fmtMult(c.evEBITDAi)}</td>
+      <td class="computed" data-role="paybackI">${isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A'}</td>
+      <td class="computed" data-role="caixaMensal">${fmtBRL(c.caixaMensal)}</td>
+      <td><span class="badge ${cls}" data-role="badge">${c.viavel}</span></td>
+      <td><button class="rm-btn" data-role="rm">×</button></td>
+    </tr>`;
+  }).join('');
+
+  const sug = {nome:"Proposta Sugerida*", valor: Math.round(m.tetoSustentavel/1000)*1000, entrada: p.propostaSugEntrada!=null?p.propostaSugEntrada:50, parcelas: p.propostaSugParcelas!=null?p.propostaSugParcelas:12};
+  const cs = proposalCalc(sug,p,m);
+  const clsS = cs.viavel==='SIM'?'sim':(cs.viavel==='NÃO'?'nao':'rev');
+  rows += `<tr data-i="sug" style="background:rgba(45,212,191,.06);">
+      <td><em>${esc(sug.nome)}</em></td>
+      <td class="computed" style="color:var(--accent);font-weight:600;" data-role="valor">${fmtBRL(sug.valor)}</td>
+      <td><input data-role="entrada" type="number" step="1" value="${sug.entrada}"></td>
+      <td class="computed">${fmtBRL(cs.entradaR)}</td>
+      <td class="computed">${fmtBRL(cs.saldoFin)}</td>
+      <td><input data-role="parcelas" type="number" step="1" value="${sug.parcelas}"></td>
+      <td class="computed">${fmtBRL(cs.parcela)}</td>
+      <td class="computed">${fmtBRL2(cs.porCliente)}</td>
+      <td class="computed">${fmtMult(cs.evMRRi)}</td>
+      <td class="computed">${fmtMult(cs.evEBITDAi)}</td>
+      <td class="computed">${isFinite(cs.paybackI)?cs.paybackI.toFixed(1):'N/A'}</td>
+      <td class="computed">${fmtBRL(cs.caixaMensal)}</td>
+      <td><span class="badge ${clsS}">${cs.viavel}</span></td>
+      <td></td>
+    </tr>`;
+  tbody.innerHTML = rows;
+
+  tbody.oninput = e => {
+    const tr = e.target.closest('tr'); if(!tr) return;
+    const role = e.target.dataset.role;
+    const p2 = current();
+    if(tr.dataset.i==='sug'){
+      if(role==='entrada') p2.propostaSugEntrada = parseFloat(e.target.value)||0;
+      else if(role==='parcelas') p2.propostaSugParcelas = parseFloat(e.target.value)||1;
+      buildPropostasTable(); recomputeAll(); saveApp(); return;
+    }
+    const i = +tr.dataset.i; const row = p2.propostas[i];
+    if(role==='nome') row.nome=e.target.value;
+    else if(role==='valor') row.valor=parseFloat(e.target.value)||0;
+    else if(role==='entrada') row.entrada=parseFloat(e.target.value)||0;
+    else if(role==='parcelas') row.parcelas=parseFloat(e.target.value)||1;
+    buildPropostasTable(); recomputeAll(); saveApp();
+  };
+  tbody.onclick = e => {
+    if(e.target.dataset.role!=='rm') return;
+    const tr = e.target.closest('tr'); if(tr.dataset.i==='sug') return;
+    current().propostas.splice(+tr.dataset.i,1);
+    buildPropostasTable(); recomputeAll(); saveApp();
+  };
+}
+
+/* ======================================================================
+   RECOMPUTE (runs on every keystroke — text-only updates, no rebuild)
+====================================================================== */
+function recomputeAll(){
+  const p = current(); if(!p) return;
+  const m = compute(p);
+  const ticket = p.clientes? p.mrr/p.clientes : 0;
+
+  const kpiRow = document.getElementById('pheadKpis');
+  if(kpiRow) kpiRow.innerHTML = `
+    <div class="k"><div class="l">Clientes</div><div class="v">${fmtNum(p.clientes)}</div></div>
+    <div class="k"><div class="l">MRR</div><div class="v">${fmtBRL(p.mrr)}</div></div>
+    <div class="k"><div class="l">Ticket médio</div><div class="v">${fmtBRL2(ticket)}</div></div>
+    <div class="k"><div class="l">Oferta sustentável</div><div class="v" style="color:var(--accent)">${fmtBRL(m.tetoSustentavel)}</div></div>
+  `;
+
+  setText('atual-total-geral', fmtBRL2(m.custoAtualTotal));
+  setText('comprador-total-geral', fmtBRL2(m.custoCompradorTotal));
+  setText('invest-total-geral', fmtBRL2(m.investTotal));
+
+  const deltaCusto = m.custoCompradorTotal-m.custoAtualTotal;
+  const compKpi = document.getElementById('comparativoKpis');
+  if(compKpi) compKpi.innerHTML = `
+    <div class="kpi"><div class="label">Custo % receita (atual)</div><div class="value">${fmtPct(m.mrr?m.custoAtualTotal/m.mrr:0)}</div></div>
+    <div class="kpi"><div class="label">Custo % receita (comprador)</div><div class="value">${fmtPct(m.mrr?m.custoCompradorTotal/m.mrr:0)}</div></div>
+    <div class="kpi"><div class="label">EBITDA atual</div><div class="value">${fmtBRL(m.ebitdaAtual)}</div><div class="sub">margem ${fmtPct(m.margemAtual)}</div></div>
+    <div class="kpi"><div class="label">EBITDA comprador</div><div class="value">${fmtBRL(m.ebitdaComprador)}</div><div class="sub">margem ${fmtPct(m.margemComprador)}</div></div>
+    <div class="kpi"><div class="label">Variação de custo</div><div class="value" style="color:${deltaCusto>0?'var(--bad)':'var(--good)'}">${deltaCusto>0?'+':''}${fmtBRL2(deltaCusto)}</div></div>
+    <div class="kpi"><div class="label">Custo / cliente (comprador)</div><div class="value">${fmtBRL2(m.custoClienteComprador)}</div></div>
+  `;
+  renderChart(m);
+
+  setText('kpi-invcliente', fmtBRL2(m.invPorCliente));
+  setText('kpi-invpct', fmtPct(m.invPctMRRano));
+  setText('kpi-payback', isFinite(m.payback)?m.payback.toFixed(1):'N/A');
+  setText('kpi-evmrr', fmtMult(m.evMRR));
+
+  setText('kpi-tetomrr', fmtBRL(m.tetoMRR));
+  setText('kpi-tetoebitda', fmtBRL(m.tetoEBITDA));
+  setText('kpi-tetosustentavel', fmtBRL(m.tetoSustentavel));
+  renderGauge(p, m);
+
+  const checks = [
+    {label:'EBITDA positivo', val:fmtBRL(m.ebitdaComprador), meta:'> R$ 0', ok:m.ebitdaPositivo},
+    {label:'Margem EBITDA ≥ meta', val:fmtPct(m.margemComprador), meta:fmtPct(p.metaMargem/100||0), ok:m.margemOk},
+    {label:'Payback ≤ meta', val:isFinite(m.payback)?m.payback.toFixed(1)+'m':'N/A', meta:(p.metaPayback||0)+'m', ok:m.paybackOk},
+  ];
+  const checkList = document.getElementById('checkList');
+  if(checkList) checkList.innerHTML = checks.map(c=>`
+    <div class="check"><div class="ctext">${c.label} <span class="cmeta">(${c.val} · meta ${c.meta})</span></div>
+    <span class="badge ${c.ok?'sim':'nao'}">${c.ok?'SIM':'NÃO'}</span></div>`).join('') +
+    `<div class="check"><div class="ctext"><b>Conclusão geral</b></div><span class="badge ${m.conclusao==='SIM'?'sim':'rev'}">${m.conclusao}</span></div>`;
+
+  const dot = document.getElementById('statusDot'); const txt = document.getElementById('statusText');
+  if(dot && txt){
+    txt.textContent = m.conclusao;
+    dot.style.background = m.conclusao==='SIM' ? 'var(--good)' : 'var(--amber)';
+    dot.style.boxShadow = `0 0 8px 2px ${m.conclusao==='SIM' ? 'rgba(52,211,153,.6)':'rgba(251,191,36,.6)'}`;
+  }
+
+  const finValEl = document.getElementById('in-fin-valor');
+  if(finValEl && document.activeElement!==finValEl) finValEl.value = Math.round(m.finValor);
+  setText('kpi-fin-parcela', fmtBRL(m.parcelaPrice));
+  setText('kpi-fin-caixa', fmtBRL(m.caixaPosParcela));
+  setText('kpi-fin-total', fmtBRL(m.totalPago));
+
+  refreshProposalsComputed(p, m);
+  renderSidebar();
+}
+function setText(id, val){ const el=document.getElementById(id); if(el) el.textContent = val; }
+
+function refreshProposalsComputed(p, m){
+  const tbody = document.getElementById('propostas-body'); if(!tbody) return;
+  [...tbody.querySelectorAll('tr')].forEach(tr=>{
+    const i = tr.dataset.i; let pr;
+    if(i==='sug'){
+      pr = {valor: Math.round(m.tetoSustentavel/1000)*1000, entrada: p.propostaSugEntrada!=null?p.propostaSugEntrada:50, parcelas: p.propostaSugParcelas!=null?p.propostaSugParcelas:12};
+      const vEl = tr.querySelector('[data-role="valor"]'); if(vEl) vEl.textContent = fmtBRL(pr.valor);
+    } else { pr = p.propostas[+i]; if(!pr) return; }
+    const c = proposalCalc(pr,p,m);
+    const set = (sel,val)=>{ const el=tr.querySelector(sel); if(el) el.textContent=val; };
+    if(i!=='sug'){
+      set('[data-role="entradaR"]', fmtBRL(c.entradaR));
+      set('[data-role="saldoFin"]', fmtBRL(c.saldoFin));
+      set('[data-role="parcela"]', fmtBRL(c.parcela));
+      set('[data-role="porCliente"]', fmtBRL2(c.porCliente));
+      set('[data-role="evMRRi"]', fmtMult(c.evMRRi));
+      set('[data-role="evEBITDAi"]', fmtMult(c.evEBITDAi));
+      set('[data-role="paybackI"]', isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A');
+      set('[data-role="caixaMensal"]', fmtBRL(c.caixaMensal));
+    } else {
+      const tds = tr.querySelectorAll('td.computed');
+      const vals = [fmtBRL(c.entradaR), fmtBRL(c.saldoFin), fmtBRL(c.parcela), fmtBRL2(c.porCliente), fmtMult(c.evMRRi), fmtMult(c.evEBITDAi), isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A', fmtBRL(c.caixaMensal)];
+      tds.forEach((td,idx)=>{ if(idx>0 && vals[idx-1]!==undefined) td.textContent = vals[idx-1]; });
+    }
+    const cls = c.viavel==='SIM'?'sim':(c.viavel==='NÃO'?'nao':'rev');
+    const badge = tr.querySelector('.badge');
+    if(badge){ badge.className='badge '+cls; badge.textContent=c.viavel; }
+  });
+}
+
+function renderChart(m){
+  const maxVal = Math.max(m.custoAtualTotal, m.custoCompradorTotal, m.ebitdaAtual, m.ebitdaComprador, 1);
+  const h = n => Math.max(4, (n/maxVal)*180);
+  const groups = [
+    {label:'Custos / mês', a:m.custoAtualTotal, b:m.custoCompradorTotal},
+    {label:'EBITDA / mês', a:m.ebitdaAtual, b:m.ebitdaComprador},
+  ];
+  const el = document.getElementById('chart'); if(!el) return;
+  el.innerHTML = groups.map(g=>`
+    <div class="chart-group">
+      <div class="chart-bars">
+        <div class="bar a" style="height:${h(g.a)}px"><span class="tag">${fmtBRL(g.a)}</span></div>
+        <div class="bar b" style="height:${h(g.b)}px"><span class="tag">${fmtBRL(g.b)}</span></div>
+      </div>
+      <div class="glabel">${g.label}</div>
+    </div>`).join('');
+}
+
+function renderGauge(p, m){
+  const el = document.getElementById('gauge'); if(!el) return;
+  const propVals = p.propostas.map(pr=>pr.valor);
+  const sugVal = Math.round(m.tetoSustentavel/1000)*1000;
+  const allVals = [m.tetoMRR, m.tetoEBITDA, m.tetoSustentavel, sugVal, ...propVals, 1];
+  const max = Math.max(...allVals)*1.08;
+  const pct = v => Math.max(0,Math.min(100,(v/max)*100));
+  let marks = [
+    {v:m.tetoSustentavel, label:'Sustentável', cls:'sug'},
+    {v:m.tetoMRR, label:'EV/MRR alvo', cls:''},
+    {v:m.tetoEBITDA, label:'EV/EBITDA alvo', cls:''},
+  ];
+  p.propostas.forEach(pr=> marks.push({v:pr.valor, label:pr.nome, cls:'prop'}));
+  const zones = `
+    <div class="gauge-zone" style="left:0; width:${pct(m.tetoSustentavel)}%; background:rgba(52,211,153,.18);"></div>
+    <div class="gauge-zone" style="left:${pct(m.tetoSustentavel)}%; width:${Math.max(0,pct(m.tetoMRR)-pct(m.tetoSustentavel))}%; background:rgba(251,191,36,.15);"></div>
+    <div class="gauge-zone" style="left:${pct(m.tetoMRR)}%; width:${100-pct(m.tetoMRR)}%; background:rgba(251,113,133,.14);"></div>`;
+  const markHtml = marks.map(mk=>`
+    <div class="gauge-mark ${mk.cls}" style="left:${pct(mk.v)}%;">
+      <span class="mlabel">${esc(mk.label)}</span><span class="mval">${fmtBRL(mk.v)}</span>
+    </div>`).join('');
+  el.innerHTML = `<div class="gauge-track">${zones}</div>${markHtml}`;
+}
+
+/* ======================================================================
+   FIELD BINDING (identification / meta / financing)
+====================================================================== */
+function bindField(id, setter){
+  const el = document.getElementById(id); if(!el) return;
+  el.oninput = () => { setter(current(), el.value); recomputeAll(); saveApp(); };
+}
+function fillFields(){
+  const p = current(); if(!p) return;
+  const set = (id,val)=>{ const el=document.getElementById(id); if(el) el.value = val; };
+  set('pname', p.nome);
+  set('in-comprador', p.comprador);
+  set('in-regiao', p.regiao);
+  set('in-data', p.data);
+  set('in-clientes', p.clientes);
+  set('in-mrr', p.mrr);
+  set('in-impostos', p.impostosPct);
+  set('in-pdd', p.pddPct);
+  set('in-metamargem', p.metaMargem);
+  set('in-metapayback', p.metaPayback);
+  set('in-multmrr', p.multMRR);
+  set('in-multebitda', p.multEBITDA);
+  set('in-fin-prazo', p.finPrazo);
+  set('in-fin-selic', p.finSelic);
+  set('pstatus', p.status||"Prospecção");
+  applyStatusColor();
+}
+function applyStatusColor(){
+  const sel = document.getElementById('pstatus'); if(!sel) return;
+  const color = STATUS_COLOR[sel.value] || '#93a1c2';
+  sel.style.setProperty('--status-bg', color+'22');
+  sel.style.setProperty('--status-fg', color);
+  sel.style.borderColor = color+'55';
+}
+function bindAll(){
+  bindField('pname', (p,v)=>{ p.nome=v; });
+  document.getElementById('pstatus').onchange = e => { current().status = e.target.value; applyStatusColor(); saveApp(); renderSidebar(); };
+  bindField('in-comprador', (p,v)=>p.comprador=v);
+  bindField('in-regiao', (p,v)=>p.regiao=v);
+  bindField('in-data', (p,v)=>p.data=v);
+  bindField('in-clientes', (p,v)=>p.clientes=parseFloat(v)||0);
+  bindField('in-mrr', (p,v)=>p.mrr=parseFloat(v)||0);
+  bindField('in-impostos', (p,v)=>p.impostosPct=parseFloat(v)||0);
+  bindField('in-pdd', (p,v)=>p.pddPct=parseFloat(v)||0);
+  bindField('in-metamargem', (p,v)=>p.metaMargem=parseFloat(v)||0);
+  bindField('in-metapayback', (p,v)=>p.metaPayback=parseFloat(v)||0);
+  bindField('in-multmrr', (p,v)=>p.multMRR=parseFloat(v)||0);
+  bindField('in-multebitda', (p,v)=>p.multEBITDA=parseFloat(v)||0);
+  bindField('in-fin-prazo', (p,v)=>p.finPrazo=parseFloat(v)||1);
+  bindField('in-fin-selic', (p,v)=>p.finSelic=parseFloat(v)||0);
+  const finValEl = document.getElementById('in-fin-valor');
+  if(finValEl) finValEl.oninput = e => { current().finValorOverride = parseFloat(e.target.value)||0; recomputeAll(); saveApp(); };
+
+  document.querySelectorAll('[data-add]').forEach(btn=>{
+    btn.onclick = () => {
+      const type = btn.dataset.add; const p = current();
+      if(type==='atual'){ p.custosAtual.push({cat:'DO',item:'Novo item',qtd:1,valor:0}); buildCostTable('custosAtual','tbl-atual'); }
+      if(type==='comprador'){ p.custosComprador.push({cat:'DO',item:'Novo item',qtd:1,valor:0}); buildCostTable('custosComprador','tbl-comprador'); }
+      if(type==='invest'){ p.investimentos.push({cat:'Outros',item:'Novo item',tipo:'One-off',qtd:1,valor:0}); buildInvestTable(); }
+      if(type==='proposta'){ p.propostas.push({nome:'Nova Proposta',valor:400000,entrada:50,parcelas:12}); buildPropostasTable(); }
+      recomputeAll(); saveApp();
+    };
+  });
+
+  document.getElementById('tabbar').querySelectorAll('button').forEach(btn=>{
+    btn.onclick = () => { activeTab = btn.dataset.tab; applyTab(); };
+  });
+}
+function applyTab(){
+  document.querySelectorAll('#tabbar button').forEach(b=> b.classList.toggle('active', b.dataset.tab===activeTab));
+  document.querySelectorAll('.tabpanel').forEach(pnl=> pnl.classList.toggle('active', pnl.dataset.panel===activeTab));
+  if(activeTab==='rede') initMapIfNeeded();
+}
+
+/* ======================================================================
+   KMZ / KML MAP
+====================================================================== */
+let leafletMap = null, currentKmlLayer = null;
+const TILE_LAYERS = {
+  osm: { url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', opts:{maxZoom:19, attribution:'&copy; OpenStreetMap'} },
+  esri: { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', opts:{maxZoom:19, attribution:'&copy; Esri'} },
+  topo: { url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', opts:{maxZoom:17, attribution:'&copy; OpenTopoMap'} },
+};
+
+function initMapIfNeeded(){
+  const holder = document.getElementById('mapHolder'); if(!holder) return;
+  const p = current();
+  if(!p.kmz){
+    if(leafletMap){ leafletMap.remove(); leafletMap=null; }
+    holder.innerHTML = `<div class="map-empty">
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2V6z"/><path d="M9 4v14M15 6v14"/></svg>
+      <div>Nenhuma rede carregada para este provedor.<br>Envie um arquivo .kmz ou .kml.</div>
+    </div>`;
+    document.getElementById('kmzDownloadBtn').style.display='none';
+    document.getElementById('kmzRemoveBtn').style.display='none';
+    document.getElementById('mapMeta').innerHTML='';
+    return;
+  }
+  if(!holder.querySelector('#map')) holder.innerHTML = `<div id="map"></div>`;
+  document.getElementById('kmzDownloadBtn').style.display='inline-block';
+  document.getElementById('kmzRemoveBtn').style.display='inline-block';
+
+  if(!leafletMap){
+    leafletMap = L.map('map', { zoomControl:true }).setView([-3.5,-40], 12);
+    const base = { "Mapa": L.tileLayer(TILE_LAYERS.osm.url, TILE_LAYERS.osm.opts).addTo(leafletMap),
+                   "Satélite": L.tileLayer(TILE_LAYERS.esri.url, TILE_LAYERS.esri.opts),
+                   "Topográfico": L.tileLayer(TILE_LAYERS.topo.url, TILE_LAYERS.topo.opts) };
+    L.control.layers(base).addTo(leafletMap);
+  }
+  setTimeout(()=> leafletMap && leafletMap.invalidateSize(), 60);
+  loadKmlIntoMap(p);
+}
+
+function dataUrlToBlob(dataUrl){
+  const [meta, b64] = dataUrl.split(',');
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+  const mimeMatch = meta.match(/data:(.*);base64/);
+  return new Blob([arr], {type: mimeMatch?mimeMatch[1]:'application/octet-stream'});
+}
+
+async function extractKMLFromBlob(blob, filename){
+  const buf = await blob.arrayBuffer();
+  if(/\.kmz$/i.test(filename)){
+    const zip = await JSZip.loadAsync(buf);
+    const kmlEntry = Object.values(zip.files).find(f=>/\.kml$/i.test(f.name) && !f.dir);
+    if(!kmlEntry) throw new Error('Nenhum arquivo .kml encontrado dentro do KMZ.');
+    return await kmlEntry.async('text');
+  }
+  return new TextDecoder('utf-8').decode(buf);
+}
+
+function parseKML(xmlText){
+  const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+  if(doc.querySelector('parsererror')) throw new Error('KML inválido ou corrompido.');
+  const placemarks = [...doc.getElementsByTagName('Placemark')];
+  const layer = L.layerGroup();
+  let count = 0;
+  const coordsToLatLngs = txt => txt.trim().split(/\s+/).filter(Boolean).map(c=>{
+    const parts = c.split(',').map(Number); return [parts[1], parts[0]];
+  });
+  placemarks.forEach(pm=>{
+    const name = pm.getElementsByTagName('name')[0]?.textContent?.trim() || '';
+    const desc = pm.getElementsByTagName('description')[0]?.textContent?.trim() || '';
+    const popupHtml = `<b>${name||'Sem nome'}</b>${desc?'<br>'+desc.slice(0,200):''}`;
+
+    const point = pm.getElementsByTagName('Point')[0];
+    if(point){
+      const c = point.getElementsByTagName('coordinates')[0]?.textContent;
+      if(c){ const [lon,lat] = c.trim().split(',').map(Number);
+        if(isFinite(lat)&&isFinite(lon)){
+          L.circleMarker([lat,lon], {radius:5, color:'#2dd4bf', fillColor:'#2dd4bf', fillOpacity:.9, weight:1.5}).bindPopup(popupHtml).addTo(layer);
+          count++;
+        }
+      }
+    }
+    const line = pm.getElementsByTagName('LineString')[0];
+    if(line){
+      const c = line.getElementsByTagName('coordinates')[0]?.textContent;
+      if(c){ const ll = coordsToLatLngs(c); if(ll.length>1){ L.polyline(ll, {color:'#fbbf24', weight:3}).bindPopup(popupHtml).addTo(layer); count++; } }
+    }
+    const poly = pm.getElementsByTagName('Polygon')[0];
+    if(poly){
+      const c = poly.getElementsByTagName('coordinates')[0]?.textContent;
+      if(c){ const ll = coordsToLatLngs(c); if(ll.length>2){ L.polygon(ll, {color:'#fb7185', fillOpacity:.15, weight:2}).bindPopup(popupHtml).addTo(layer); count++; } }
+    }
+  });
+  return {layer, count};
+}
+
+async function loadKmlIntoMap(p){
+  try{
+    if(currentKmlLayer){ leafletMap.removeLayer(currentKmlLayer); currentKmlLayer=null; }
+    const blob = dataUrlToBlob(p.kmz.dataUrl);
+    const kmlText = await extractKMLFromBlob(blob, p.kmz.name);
+    const {layer, count} = parseKML(kmlText);
+    layer.addTo(leafletMap);
+    currentKmlLayer = layer;
+    const bounds = layer.getBounds ? layer.getBounds() : null;
+    if(count>0 && bounds && bounds.isValid()) leafletMap.fitBounds(bounds, {padding:[30,30]});
+    document.getElementById('mapMeta').innerHTML = `<span>Arquivo: <b style="color:var(--text)">${esc(p.kmz.name)}</b></span><span>Elementos: <b style="color:var(--text)">${count}</b></span>`;
+  }catch(err){
+    document.getElementById('mapMeta').innerHTML = `<span style="color:var(--bad)">Erro ao ler o arquivo: ${esc(err.message)}</span>`;
+  }
+}
+
+function bindKmzControls(){
+  const input = document.getElementById('kmzInput');
+  document.getElementById('kmzUploadBtn').onclick = () => input.click();
+  input.onchange = async () => {
+    const file = input.files[0]; if(!file) return;
+    if(!/\.(kmz|kml)$/i.test(file.name)){ alert('Envie um arquivo .kmz ou .kml'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const p = current();
+      p.kmz = { name:file.name, dataUrl:reader.result };
+      saveApp();
+      initMapIfNeeded();
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
+  };
+  document.getElementById('kmzRemoveBtn').onclick = () => {
+    if(!confirm('Remover o arquivo de rede deste provedor?')) return;
+    current().kmz = null; saveApp(); initMapIfNeeded();
+  };
+  document.getElementById('kmzDownloadBtn').onclick = () => {
+    const p = current(); if(!p.kmz) return;
+    const blob = dataUrlToBlob(p.kmz.dataUrl);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download=p.kmz.name; a.click();
+    URL.revokeObjectURL(url);
+  };
+}
+
+/* ======================================================================
+   IMPORT / EXPORT
+====================================================================== */
+document.getElementById('exportBtn').onclick = () => {
+  const blob = new Blob([JSON.stringify(app,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='plataforma-isp-backup.json'; a.click();
+  URL.revokeObjectURL(url);
+};
+document.getElementById('importBtn').onclick = () => document.getElementById('fileImport').click();
+document.getElementById('fileImport').onchange = () => {
+  const file = document.getElementById('fileImport').files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const parsed = JSON.parse(reader.result);
+      if(!parsed.empresas || !Array.isArray(parsed.empresas)) throw new Error('Formato inválido.');
+      if(!confirm(`Importar ${parsed.empresas.length} provedor(es)? Isso substituirá os dados atuais desta plataforma.`)) return;
+      app = parsed;
+      if(!app.currentId && app.empresas.length) app.currentId = app.empresas[0].id;
+      saveApp(); renderAll();
+    }catch(err){ alert('Não foi possível importar: '+err.message); }
+  };
+  reader.readAsText(file);
+  document.getElementById('fileImport').value='';
+};
+
+/* ======================================================================
+   SPREADSHEET IMPORT (.xlsx / .xls / .csv)
+====================================================================== */
+const normKey = k => String(k||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+
+function parseNumberBR(v){
+  if(v===undefined || v===null || v==='') return NaN;
+  if(typeof v==='number') return v;
+  let s = String(v).trim().replace(/[R$\s]/g,'');
+  if(s.includes(',') && s.includes('.')) s = s.replace(/\./g,'').replace(',', '.');
+  else if(s.includes(',')) s = s.replace(',', '.');
+  return parseFloat(s);
+}
+function numOr(v,d){ const n=parseNumberBR(v); return isFinite(n)?n:d; }
+
+function rowGet(row, ...candidates){
+  const keys = Object.keys(row).map(k=>({raw:k, n:normKey(k)}));
+  for(const c of candidates){
+    const cn = normKey(c);
+    let hit = keys.find(k=>k.n===cn);
+    if(!hit) hit = keys.find(k=>k.n.startsWith(cn) || cn.startsWith(k.n));
+    if(!hit) hit = keys.find(k=>k.n.includes(cn));
+    if(hit){ const v = row[hit.raw]; if(v!==undefined && v!=='') return v; }
+  }
+  return undefined;
+}
+
+/* Locates the real header row (which may not be row 1 — many spreadsheets have a
+   title row, blank rows, or summary KPIs above the actual data table) by scanning
+   for a row containing one of the given hint words, then returns the data below
+   it as an array of objects keyed by that header row. */
+function sheetToRowsSmart(ws, headerHints){
+  if(!ws) return [];
+  const aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+  let headerRowIdx = -1;
+  for(let i=0;i<aoa.length;i++){
+    const rowNorm = aoa[i].map(c=>normKey(c)).filter(Boolean);
+    if(headerHints.some(h=> rowNorm.some(cell=>cell===normKey(h)))){ headerRowIdx = i; break; }
+  }
+  if(headerRowIdx===-1) return [];
+  const headers = aoa[headerRowIdx];
+  const rows = [];
+  for(let i=headerRowIdx+1;i<aoa.length;i++){
+    const r = aoa[i];
+    if(!r || r.every(c=>c===''||c==null)) continue;
+    const obj = {};
+    headers.forEach((h,idx)=>{ if(h!=='' && h!=null) obj[h]=r[idx]; });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function parseCostRows(rows){
+  return rows.map(r=>({
+    cat: String(rowGet(r,'Categoria','Cat')||'DO'),
+    item: String(rowGet(r,'Item','Descricao','Descrição')||'').trim(),
+    qtd: numOr(rowGet(r,'Qtd','Quantidade'),1),
+    valor: numOr(rowGet(r,'ValorUnitario','Valor Unitario','Valor Unitário','VrUnitario','Valor'),0),
+  })).filter(r=>r.item);
+}
+function parseInvestRows(rows){
+  return rows.map(r=>({
+    cat: String(rowGet(r,'Categoria','Cat')||'Outros'),
+    item: String(rowGet(r,'Item','Descricao','Descrição')||'').trim(),
+    tipo: String(rowGet(r,'Tipo')||'One-off'),
+    qtd: numOr(rowGet(r,'Qtd','Quantidade'),1),
+    valor: numOr(rowGet(r,'ValorUnitario','Valor Unitario','Valor Unitário','VrUnitario','Valor'),0),
+  })).filter(r=>r.item);
+}
+function parsePropRows(rows){
+  return rows.map(r=>({
+    nome: String(rowGet(r,'Nome','Proposta')||'Proposta'),
+    valor: numOr(rowGet(r,'Valor','Oferta','ValorOferta'),0),
+    entrada: numOr(rowGet(r,'EntradaPct','Entrada%','Entrada'),50),
+    parcelas: numOr(rowGet(r,'Parcelas','NParcelas','NumParcelas'),12),
+  })).filter(r=>r.valor>0);
+}
+function normalizeDateVal(v){
+  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  if(typeof v==='string' && /^\d{4}-\d{2}-\d{2}/.test(v.trim())) return v.trim().slice(0,10);
+  return new Date().toISOString().slice(0,10);
+}
+function parseIdentSheetAOA(rows){
+  const dict = []; // [{n: normalizedLabel, v: value}]
+  rows.forEach(r=>{
+    if(!r || r.length<2) return;
+    const label = String(r[0]||'').trim();
+    const n = normKey(label);
+    if(!n || n==='campo') return;
+    if(r[1]===''||r[1]==null) return;
+    dict.push({n, v:r[1]});
+  });
+  const find = (...labels)=>{
+    for(const l of labels){
+      const ln = normKey(l);
+      let hit = dict.find(d=>d.n===ln);
+      if(!hit) hit = dict.find(d=>d.n.includes(ln) || ln.includes(d.n));
+      if(hit) return hit.v;
+    }
+    return undefined;
+  };
+  const out = {
+    nome: find('empresa alvo','empresa'),
+    comprador: find('comprador'),
+    regiao: find('regiao cidade','regiao','cidade'),
+    data: normalizeDateVal(find('data da analise','data')),
+    clientes: numOr(find('clientes ativos','clientes'), undefined),
+    mrr: numOr(find('mrr mensal','receita mensal mrr','mrr'), undefined),
+    impostosPct: numOr(find('impostos sobre receita','impostos'), undefined),
+    pddPct: numOr(find('inadimplencia pdd','pdd'), undefined),
+    status: find('status da negociacao','status'),
+    metaMargem: numOr(find('meta minima de margem ebitda','meta margem ebitda','meta margem'), undefined),
+    metaPayback: numOr(find('meta maxima de payback','meta payback'), undefined),
+    multMRR: numOr(find('multiplo alvo ev mrr','ev mrr'), undefined),
+    multEBITDA: numOr(find('multiplo alvo ev ebitda','ev ebitda'), undefined),
+  };
+  Object.keys(out).forEach(k=>{ if(out[k]===undefined) delete out[k]; });
+  return out;
+}
+
+function downloadTemplate(){
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Campo','Valor'],
+    ['Empresa alvo','NOME DO PROVEDOR'],
+    ['Comprador','INFOLINK TELECOM'],
+    ['Regiao/Cidade','CIDADE / UF'],
+    ['Data da analise (AAAA-MM-DD)','2026-01-01'],
+    ['Clientes ativos',500],
+    ['MRR mensal (R$)',30000],
+    ['Impostos sobre receita (%)',0],
+    ['Inadimplencia/PDD (%)',0],
+    ['Status da negociacao','Prospecção'],
+    ['Meta margem EBITDA minima (%)',0],
+    ['Meta payback maxima (meses)',12],
+    ['Multiplo alvo EV/MRR',14],
+    ['Multiplo alvo EV/EBITDA anual',4],
+  ]), 'Identificacao');
+  const custosHead = ['Categoria','Item','Qtd','ValorUnitario'];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([custosHead,
+    ['DP','Salários e Ordenados',1,8000], ['DO','Internet Link',1,1500], ['DI','Simples Nacional',1,500],
+  ]), 'Custos_Atual');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([custosHead,
+    ['DO','Link / Trânsito IP',500,0.6], ['DO','Técnico de Campo',2,2689],
+  ]), 'Custos_Comprador');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Categoria','Item','Tipo','Qtd','ValorUnitario'],
+    ['Aquisição','Preço de compra da operação','Compra',1,200000],
+    ['Integração','Migração de sistemas','One-off',1,8000],
+  ]), 'Investimentos');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Nome','Valor','EntradaPct','Parcelas'],
+    ['Proposta 1',300000,50,12], ['Proposta 2',350000,50,12],
+  ]), 'Propostas');
+  XLSX.writeFile(wb, 'modelo-provedor-isp.xlsx');
+}
+
+async function importSpreadsheetFile(file){
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array', cellDates:true});
+    const findSheet = (...cands)=>{ for(const c of cands){ const hit = wb.SheetNames.find(n=>normKey(n)===normKey(c)); if(hit) return wb.Sheets[hit]; } return null; };
+
+    const p = blankEmpresa('Provedor importado');
+
+    const identWs = findSheet('Identificacao','Identificação','Ident','Info','01_Inputs','Inputs','01Inputs');
+    if(identWs){
+      const aoa = XLSX.utils.sheet_to_json(identWs, {header:1, defval:''});
+      Object.assign(p, parseIdentSheetAOA(aoa));
+    }
+    const custosAtualWs = findSheet('Custos_Atual','CustosAtual','Custos Atual','02_Custos_Atual');
+    if(custosAtualWs) p.custosAtual = parseCostRows(sheetToRowsSmart(custosAtualWs,['Categoria','Item']));
+
+    const custosCompradorWs = findSheet('Custos_Comprador','CustosComprador','Custos Comprador','03_Custos_Comprador');
+    if(custosCompradorWs) p.custosComprador = parseCostRows(sheetToRowsSmart(custosCompradorWs,['Categoria','Item']));
+
+    const investWs = findSheet('Investimentos','Investimento','04_Invest_Iniciais','04_Investimentos_Iniciais','InvestIniciais');
+    if(investWs) p.investimentos = parseInvestRows(sheetToRowsSmart(investWs,['Categoria','Item']));
+
+    const propWs = findSheet('Propostas','Proposta');
+    if(propWs) p.propostas = parsePropRows(sheetToRowsSmart(propWs,['Nome','Proposta','Valor']));
+
+    // Fallback for a single generic sheet (typical of a plain .csv upload)
+    const namedHits = [identWs, custosAtualWs, custosCompradorWs, investWs, propWs].filter(Boolean).length;
+    if(namedHits===0 && wb.SheetNames.length){
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:''});
+      if(rows.length){
+        const headerKeys = Object.keys(rows[0]).map(normKey);
+        if(headerKeys.some(k=>k.includes('entrada')) && headerKeys.some(k=>k.includes('parcela'))){
+          p.propostas = parsePropRows(rows);
+        } else if(headerKeys.some(k=>k.includes('tipo'))){
+          p.investimentos = parseInvestRows(rows);
+        } else if(headerKeys.some(k=>k.includes('categoria')) || headerKeys.some(k=>k.includes('item'))){
+          const cenarioKey = Object.keys(rows[0]).find(k=>normKey(k).includes('cenario'));
+          if(cenarioKey){
+            p.custosAtual = parseCostRows(rows.filter(r=>!normKey(String(r[cenarioKey])).includes('comprador')));
+            p.custosComprador = parseCostRows(rows.filter(r=>normKey(String(r[cenarioKey])).includes('comprador')));
+          } else {
+            p.custosAtual = parseCostRows(rows);
+          }
+        } else if(headerKeys.some(k=>k.includes('campo'))){
+          Object.assign(p, parseIdentSheetAOA(rows.map(r=>Object.values(r))));
+        }
+      }
+    }
+
+    if(!p.nome || p.nome==='Novo provedor' || p.nome==='Provedor importado'){
+      p.nome = file.name.replace(/\.(xlsx|xls|csv)$/i,'') || 'Provedor importado';
+    }
+    app.empresas.push(p); app.currentId = p.id; saveApp(); renderAll();
+    alert(`Provedor "${p.nome}" importado. Confira os valores nas abas e ajuste o que precisar.`);
+  }catch(err){
+    alert('Não foi possível importar essa planilha: '+err.message+'\n\nBaixe o modelo (.xlsx) para ver o formato esperado.');
+  }
+}
+
+document.getElementById('templateBtn').onclick = downloadTemplate;
+document.getElementById('sheetImportBtn').onclick = () => document.getElementById('sheetImport').click();
+document.getElementById('sheetImport').onchange = () => {
+  const file = document.getElementById('sheetImport').files[0]; if(!file) return;
+  importSpreadsheetFile(file);
+  document.getElementById('sheetImport').value='';
+};
+
+/* ======================================================================
+   INIT
+====================================================================== */
+function renderAll(){
+  const main = document.getElementById('main');
+  if(!app.empresas.length){
+    main.innerHTML = `<div class="panel" style="margin-top:40px;text-align:center;padding:60px 20px;">
+      <h3 style="font-family:var(--disp);font-size:18px;margin:0 0 10px;">Nenhum provedor cadastrado</h3>
+      <p style="color:var(--text-dim);margin:0;">Clique em <b>+ Novo provedor</b> na barra lateral para começar a avaliar uma operação.</p>
+    </div>`;
+    renderSidebar();
+    return;
+  }
+  if(!app.currentId || !app.empresas.find(e=>e.id===app.currentId)) app.currentId = app.empresas[0].id;
+  main.innerHTML = mainSkeleton();
+  fillFields();
+  buildCostTable('custosAtual','tbl-atual');
+  buildCostTable('custosComprador','tbl-comprador');
+  buildInvestTable();
+  buildPropostasTable();
+  bindAll();
+  bindKmzControls();
+  applyTab();
+  recomputeAll();
+  renderSidebar();
+}
+
+renderAll();
+</script>
+</body>
+</html>
