@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+  // Bloqueia acesso direto a esta página sem passar pelo login do portal.
+  if (sessionStorage.getItem('infolink_hub_auth') !== 'ok') {
+    window.location.href = '../index.html';
+  }
+</script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  const fb = initializeApp({
+    apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
+    authDomain: "isp-manager-ce.firebaseapp.com",
+    projectId: "isp-manager-ce",
+    storageBucket: "isp-manager-ce.firebasestorage.app",
+    messagingSenderId: "374725918192",
+    appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
+  });
+  const auth = getAuth(fb);
+  const fsDb = getFirestore(fb);
+  window._doLogout = function(){
+    signOut(auth).finally(()=>{
+      sessionStorage.clear();
+      window.location.href = '../index.html';
+    });
+  };
+
+  // Painel de leitura: mesma coleção (auditoria_lb) que a equipe de campo
+  // preenche na Auditoria LB (repositório separado, login próprio deles) —
+  // aqui é só visualização, com o login normal do portal.
+  onSnapshot(collection(fsDb, 'auditoria_lb'), snap => {
+    const rows = [];
+    snap.forEach(docSnap => rows.push({ protocolo: docSnap.id, ...docSnap.data() }));
+    if(window._renderAuditRows) window._renderAuditRows(rows);
+  }, err => {
+    console.error('Falha ao carregar auditorias:', err);
+    if(window._renderAuditError) window._renderAuditError(err);
+  });
+</script>
+<title>Auditoria LB — Painel</title>
+<style>
+  :root{
+    --green:#6a00b8; --darkgreen:#b91cd0; --cyan:#00d4c8;
+    --bg:#0d0620; --panel:#1a0f2e; --panel2:#221540;
+    --text:#f1eefa; --muted:#a99bc4; --border:#3a2160;
+    --good:#34d399; --amber:#fbbf24; --gray:#8b99b6;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Segoe UI',Arial,sans-serif;background:radial-gradient(circle at top left,#2a0a4a,var(--bg) 60%);color:var(--text);min-height:100vh;}
+  header{padding:26px 36px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;}
+  header h1{margin:0;font-size:24px;letter-spacing:.3px;}
+  header h1 span{color:var(--cyan);}
+  header p{margin:4px 0 0;color:var(--muted);font-size:13px;}
+  .badge{background:linear-gradient(135deg,var(--green),var(--darkgreen));padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap;}
+  .logout,.backbtn{background:var(--panel2);color:var(--muted);border:1px solid var(--border);padding:8px 14px;border-radius:8px;font-size:12px;cursor:pointer;text-decoration:none;display:inline-block;}
+  .logout:hover,.backbtn:hover{color:var(--text);}
+
+  main{padding:36px;max-width:1200px;margin:0 auto;}
+  .stats-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;}
+  .stat{background:linear-gradient(145deg,var(--panel),var(--panel2));border:1px solid var(--border);border-radius:14px;padding:16px 20px;min-width:160px;}
+  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+  .stat .v{font-size:26px;font-weight:700;margin-top:4px;}
+  .stat .v.cyan{color:var(--cyan);}
+
+  .toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
+  #search{flex:1;min-width:220px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 14px;color:var(--text);font-size:13px;outline:none;}
+  #search:focus{border-color:var(--cyan);}
+
+  .table-wrap{background:var(--panel);border:1px solid var(--border);border-radius:14px;overflow:hidden;overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;min-width:760px;}
+  th{background:var(--panel2);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px;text-align:left;padding:12px 14px;white-space:nowrap;}
+  td{padding:11px 14px;border-top:1px solid var(--border);font-size:13px;white-space:nowrap;}
+  tr:hover td{background:rgba(255,255,255,0.02);}
+  .pill{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;}
+  .pill.vistoriado{background:rgba(52,211,153,.15);color:var(--good);border:1px solid rgba(52,211,153,.35);}
+  .pill.pendente{background:rgba(139,153,182,.15);color:var(--gray);border:1px solid rgba(139,153,182,.35);}
+  .empty{text-align:center;padding:60px 20px;color:var(--muted);}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Auditoria LB <span>· Painel</span></h1>
+    <p>Vistorias de materiais registradas pela equipe de campo (Link Barato) — atualiza em tempo real</p>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <div class="badge">Infolink Telecom</div>
+    <a href="../home.html" class="backbtn">← Voltar</a>
+    <button class="logout" onclick="window._doLogout && window._doLogout()">Sair</button>
+  </div>
+</header>
+
+<main>
+  <div class="stats-row">
+    <div class="stat"><div class="l">Auditorias registradas</div><div class="v" id="stat-total">—</div></div>
+    <div class="stat"><div class="l">Vistoriadas</div><div class="v cyan" id="stat-vistoriado">—</div></div>
+    <div class="stat"><div class="l">Pendentes / em preenchimento</div><div class="v" id="stat-pendente">—</div></div>
+  </div>
+
+  <div class="toolbar">
+    <input id="search" type="text" placeholder="🔍 Buscar por protocolo ou auditor(a)...">
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Protocolo</th>
+          <th>Status</th>
+          <th>Auditor(a)</th>
+          <th>Data da vistoria</th>
+          <th>Itens auditados</th>
+          <th>Atualizado em</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+let _rows = [];
+
+function fmtDataHora(v){
+  if(!v) return '—';
+  const d = new Date(v);
+  if(isNaN(d)) return String(v);
+  return d.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+
+function renderAuditRows(rows){
+  _rows = rows.sort((a,b) => (b.atualizado_em||0) - (a.atualizado_em||0));
+  applyFilter();
+}
+window._renderAuditRows = renderAuditRows;
+
+function renderAuditError(err){
+  document.getElementById('tbody').innerHTML =
+    `<tr><td colspan="6" class="empty">⚠️ Não foi possível carregar as auditorias. Verifique se as regras do Firestore liberam leitura desta coleção pro seu login.</td></tr>`;
+}
+window._renderAuditError = renderAuditError;
+
+function applyFilter(){
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  const filtered = !q ? _rows : _rows.filter(r =>
+    String(r.protocolo).toLowerCase().includes(q) || (r.auditor||'').toLowerCase().includes(q));
+
+  const total = _rows.length;
+  const vistoriado = _rows.filter(r => r.status === 'vistoriado').length;
+  document.getElementById('stat-total').textContent = total;
+  document.getElementById('stat-vistoriado').textContent = vistoriado;
+  document.getElementById('stat-pendente').textContent = total - vistoriado;
+
+  const tbody = document.getElementById('tbody');
+  if(!filtered.length){
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">${total ? 'Nenhum resultado pra essa busca.' : 'Nenhuma auditoria registrada ainda.'}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = filtered.map(r => {
+    const nItens = r.itens_auditados ? Object.keys(r.itens_auditados).length : 0;
+    const statusCls = r.status === 'vistoriado' ? 'vistoriado' : 'pendente';
+    return `<tr>
+      <td>${r.protocolo}</td>
+      <td><span class="pill ${statusCls}">${r.status === 'vistoriado' ? 'Vistoriado' : 'Pendente'}</span></td>
+      <td>${r.auditor || '—'}</td>
+      <td>${fmtDataHora(r.data_vistoria)}</td>
+      <td>${nItens}</td>
+      <td>${fmtDataHora(r.atualizado_em)}</td>
+    </tr>`;
+  }).join('');
+}
+
+document.getElementById('search').addEventListener('input', applyFilter);
+applyFilter();
+</script>
+
+</body>
+</html>
