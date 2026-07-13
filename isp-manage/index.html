@@ -351,6 +351,7 @@ onAuthStateChanged(auth,async user=>{
           let restored = false;
           if(cloud.isp_db){ localStorage.setItem('isp_db', JSON.stringify(cloud.isp_db)); restored = true; }
           if(cloud.isp_pr){ localStorage.setItem('isp_pr', JSON.stringify(cloud.isp_pr)); restored = true; }
+          if(cloud.isp_tr){ localStorage.setItem('isp_trips', JSON.stringify(cloud.isp_tr)); restored = true; }
           if(restored){ window.location.reload(); return; } // recarrega pra pegar os dados restaurados
         }
       }
@@ -440,7 +441,7 @@ onAuthStateChanged(auth,async user=>{
       <div id="sb-head">
         <h2 id="sb-rname">↑ Selecione uma região</h2>
         <input id="csearch" type="text" placeholder="🔍 Buscar cidade..."
-          oninput="renderCityList()">
+          oninput="onCsearchInput()">
       </div>
       <div id="clist"></div>
     </div>
@@ -511,9 +512,26 @@ function gPR(){try{return JSON.parse(localStorage.getItem('isp_pr')||'[]')}catch
 function pPR(a){localStorage.setItem('isp_pr',JSON.stringify(a));syncToCloud()}
 let PR=gPR();
 
+/* Viagens (roteiros de visita) */
+function gTR(){try{return JSON.parse(localStorage.getItem('isp_trips')||'[]')}catch{return[]}}
+function pTR(a){localStorage.setItem('isp_trips',JSON.stringify(a));syncToCloud()}
+let TR=gTR();
+if(localStorage.getItem('isp_trips')===null){
+  TR=[{
+    id:'trip_seed_litoral_oeste',
+    nome:'Litoral Oeste — Pecém a Trairi',
+    dataInicio:'2026-07-07',
+    dataFim:'2026-07-09',
+    cidades:['São Gonçalo do Amarante','Paracuru','Paraipaba','Lagoinha','Trairi'],
+    kmTotal:null,
+    rotaGeoJSON:null
+  }];
+  pTR(TR);
+}
+
 // ---- Backup manual (baixa um arquivo .json com tudo, incluindo fotos) ----
 function exportBackup(){
-  const data = { isp_db: gDB(), isp_pr: gPR(), exported_at: new Date().toISOString() };
+  const data = { isp_db: gDB(), isp_pr: gPR(), isp_tr: gTR(), exported_at: new Date().toISOString() };
   const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -536,7 +554,7 @@ function syncToCloud(){
   clearTimeout(_cloudSyncTimer);
   _cloudSyncTimer = setTimeout(async ()=>{
     try{
-      const db = gDB(), pr = gPR();
+      const db = gDB(), pr = gPR(), tr = gTR();
       const dbNoPhotos = {};
       for(const cidade in db){
         dbNoPhotos[cidade] = {
@@ -547,7 +565,7 @@ function syncToCloud(){
           })
         };
       }
-      await window._cloudSave({ isp_db: dbNoPhotos, isp_pr: pr, updated: Date.now() });
+      await window._cloudSave({ isp_db: dbNoPhotos, isp_pr: pr, isp_tr: tr, updated: Date.now() });
     }catch(e){ console.error('Falha ao sincronizar com a nuvem:', e); }
   }, 1500);
 }
@@ -653,6 +671,7 @@ pDB(DB);
    STATE
 ══════════════════════════════════════════ */
 let activeReg=null,activeCity=null,editTgt=null,proTgt=null;
+let viewMode='cidades',activeTrip=null,editTripTgt=null;
 let pendingPhotos=[],lbImgs=[],lbIdx=0;
 let _map=null,_markers=null;
 
@@ -704,14 +723,38 @@ function buildTabs(){
     b.onclick=()=>selectReg(r,b);
     el.appendChild(b);
   });
+  const vb=document.createElement('button');
+  vb.className='rtab';
+  vb.id='tab-viagens';
+  vb.title='Viagens';
+  vb.innerHTML=`🧳 Viagens<span class="rc">${TR.length}</span>`;
+  vb.onclick=()=>selectViagensView(vb);
+  el.appendChild(vb);
+}
+
+function onCsearchInput(){
+  if(viewMode==='viagens') renderTripList(); else renderCityList();
+}
+
+function selectViagensView(btn){
+  document.querySelectorAll('.rtab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  viewMode='viagens'; activeReg=null; activeCity=null; activeTrip=null;
+  document.getElementById('sb-rname').textContent='🧳 Viagens';
+  document.getElementById('csearch').value='';
+  document.getElementById('csearch').placeholder='🔍 Buscar viagem/cidade...';
+  renderTripList();
+  document.getElementById('content').innerHTML=`<div class="empty"><div class="ei">🧳</div><p>Selecione uma <b>viagem</b> na lista,<br>ou clique em <b>+ Nova viagem</b>.</p></div>`;
+  drawTripsOverviewMap();
 }
 
 function selectReg(r,btn){
   document.querySelectorAll('.rtab').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
-  activeReg=r; activeCity=null;
+  viewMode='cidades'; activeReg=r; activeCity=null; activeTrip=null;
   document.getElementById('sb-rname').textContent=r.regiao.replace(/^\d+ /,'');
   document.getElementById('csearch').value='';
+  document.getElementById('csearch').placeholder='🔍 Buscar cidade...';
   renderCityList();
   document.getElementById('content').innerHTML=`<div class="empty"><div class="ei">🏙️</div><p>Clique em uma cidade na lista.</p></div>`;
   drawRegMap(r);
@@ -1046,7 +1089,9 @@ function saveModal(){
 
 function closeModal(){
   document.getElementById('moverlay').classList.remove('open');
-  pendingPhotos=[];editTgt=null;
+  pendingPhotos=[];editTgt=null;editTripTgt=null;
+  const sb=document.getElementById('m-save-btn');
+  sb.style.display='';sb.onclick=saveModal;
 }
 
 function markV(cidade,idx){
@@ -1269,6 +1314,285 @@ function updateHV(){
   let n=0;
   Object.values(DB).forEach(c=>(c.provedores||[]).forEach(p=>{if(p.status==='visitado')n++;}));
   document.getElementById('hv').textContent=n;
+}
+
+/* ══════════════════════════════════════════
+   VIAGENS (roteiros de visita: cidades, provedores, km)
+══════════════════════════════════════════ */
+const FORTALEZA={lat:-3.7932167,lng:-38.5280359};
+
+function fmtDataBR(iso){
+  if(!iso)return'';
+  const[y,m,d]=iso.split('-');
+  return d&&m&&y?`${d}/${m}/${y}`:iso;
+}
+
+function renderTripList(){
+  const q=document.getElementById('csearch').value.toLowerCase();
+  const el=document.getElementById('clist');
+  el.innerHTML='';
+  el.scrollTop=0;
+  const addDiv=document.createElement('div');
+  addDiv.className='citem';
+  addDiv.style.cssText='justify-content:center;color:var(--blue);font-weight:700;';
+  addDiv.textContent='+ Nova viagem';
+  addDiv.onclick=()=>openTripForm();
+  el.appendChild(addDiv);
+
+  if(!TR.length){
+    const empty=document.createElement('div');
+    empty.style.cssText='padding:16px 13px;font-size:.8em;color:var(--gray);line-height:1.6;';
+    empty.textContent='Nenhuma viagem cadastrada ainda.';
+    el.appendChild(empty);
+    return;
+  }
+
+  TR.filter(t=>!q||t.nome.toLowerCase().includes(q)||t.cidades.some(c=>c.toLowerCase().includes(q)))
+    .forEach(t=>{
+      const visitados=t.cidades.reduce((s,c)=>s+((DB[c]?.provedores||[]).filter(p=>p.status==='visitado').length),0);
+      const div=document.createElement('div');
+      div.className='citem'+(activeTrip?.id===t.id?' active':'');
+      div.innerHTML=`<span class="ci-name">🧳 ${esc(t.nome)}</span>
+        <span class="ci-pills">
+          <span class="cp cp-b">${t.cidades.length} cid.</span>
+          ${visitados?`<span class="cp cp-g">${visitados} vis.</span>`:''}
+          ${t.kmTotal?`<span class="cp cp-a">${Math.round(t.kmTotal)}km</span>`:''}
+        </span>`;
+      div.onclick=()=>selectTrip(t,div);
+      el.appendChild(div);
+    });
+}
+
+function selectTrip(trip,el){
+  activeTrip=trip;
+  document.querySelectorAll('#clist .citem').forEach(e=>e.classList.remove('active'));
+  el?.classList.add('active');
+  renderTripDetail(trip);
+  drawTripMap(trip);
+}
+
+function renderTripDetail(trip){
+  const content=document.getElementById('content');
+  const porCidade=trip.cidades.map(nome=>({cidade:nome,provs:(DB[nome]?.provedores||[])}));
+  const totalProvs=porCidade.reduce((s,c)=>s+c.provs.length,0);
+  const totalVisitados=porCidade.reduce((s,c)=>s+c.provs.filter(p=>p.status==='visitado').length,0);
+  const periodo=trip.dataFim&&trip.dataFim!==trip.dataInicio
+    ?`${fmtDataBR(trip.dataInicio)} a ${fmtDataBR(trip.dataFim)}`:fmtDataBR(trip.dataInicio);
+
+  let h=`<div class="city-hdr">
+    <div class="city-hdr-l">
+      <h2>🧳 ${esc(trip.nome)}</h2>
+      <div class="cm">${periodo?periodo+' · ':''}${trip.cidades.length} cidade(s) · ${totalProvs} provedor(es) · ${totalVisitados} visitado(s)${trip.kmTotal?` · 📏 ${Math.round(trip.kmTotal)} km (ida e volta Fortaleza)`:''}</div>
+    </div>
+    <div class="city-hdr-r">
+      <button class="btn btn-cyan btn-sm" onclick="calcRotaTrip('${trip.id}')">${trip.kmTotal?'🔄 Recalcular rota':'📏 Calcular km'}</button>
+      <button class="btn btn-ghost btn-sm" onclick="openTripForm('${trip.id}')">✏️ Editar</button>
+      <button class="btn btn-red btn-sm" onclick="deleteTrip('${trip.id}')">🗑️ Excluir</button>
+    </div>
+  </div>`;
+
+  if(trip._kmErro){
+    h+=`<div style="background:var(--red-l);color:var(--red);border-radius:8px;padding:9px 13px;font-size:.8em;margin-bottom:14px;">⚠️ ${esc(trip._kmErro)}</div>`;
+  }
+  if(trip._kmCalculando){
+    h+=`<div style="color:var(--gray);font-size:.8em;margin-bottom:14px;">⏳ Calculando rota...</div>`;
+  }
+
+  porCidade.forEach(({cidade,provs})=>{
+    h+=`<div class="slbl">🏙️ ${esc(cidade)} <span style="font-weight:400;color:var(--gray);text-transform:none;letter-spacing:0;">(${provs.length})</span></div>`;
+    if(!provs.length){
+      h+=`<p style="font-size:.8em;color:var(--gray);margin:0 0 10px;">Nenhum provedor cadastrado ainda nesta cidade.</p>`;
+    }else{
+      h+=`<div class="pgrid">`;
+      provs.forEach(p=>{
+        const cls=p.status==='visitado'?'visitado':(p.status==='fechado'?'fechado':(p.status==='prospectado'?'prospectado':'ativo'));
+        const stagCls=p.status==='visitado'?'stv':(p.status==='fechado'?'stf':(p.status==='prospectado'?'stp':'sta'));
+        h+=`<div class="pcard ${cls}">
+          <div class="pcard-top"><span class="pcard-nome">${esc(p.nome)}</span><span class="stag ${stagCls}">${esc(p.status)}</span></div>
+          ${p.obs?`<div class="pcard-obs">${esc(p.obs)}</div>`:''}
+        </div>`;
+      });
+      h+=`</div>`;
+    }
+  });
+
+  content.innerHTML=h;
+}
+
+function drawTripsOverviewMap(){
+  if(!_map)return;
+  _markers.clearLayers();
+  const bounds=[[FORTALEZA.lat,FORTALEZA.lng]];
+  const mF=L.circleMarker([FORTALEZA.lat,FORTALEZA.lng],{radius:8,fillColor:'#b91cd0',color:'#fff',weight:2,fillOpacity:.95})
+    .bindPopup('<b>Fortaleza</b><br>Ponto de partida das viagens');
+  _markers.addLayer(mF);
+  TR.forEach(t=>t.cidades.forEach(nome=>{
+    const c=REGIOES.flatMap(r=>r.cidades).find(x=>x.nome===nome);
+    if(!c||!c.lat)return;
+    const m=L.circleMarker([c.lat,c.lng],{radius:6,fillColor:'#6a00b8',color:'#fff',weight:1.5,fillOpacity:.85}).bindPopup(`<b>${c.nome}</b>`);
+    _markers.addLayer(m);
+    bounds.push([c.lat,c.lng]);
+  }));
+  if(bounds.length>1)_map.fitBounds(bounds,{padding:[20,20]});
+  else _map.setView([FORTALEZA.lat,FORTALEZA.lng],9);
+}
+
+function drawTripMap(trip){
+  if(!_map)return;
+  _markers.clearLayers();
+  const bounds=[[FORTALEZA.lat,FORTALEZA.lng]];
+  const mF=L.circleMarker([FORTALEZA.lat,FORTALEZA.lng],{radius:9,fillColor:'#b91cd0',color:'#fff',weight:2,fillOpacity:.95})
+    .bindPopup('<b>Fortaleza</b><br>Ponto de partida');
+  _markers.addLayer(mF);
+  trip.cidades.forEach(nome=>{
+    const c=REGIOES.flatMap(r=>r.cidades).find(x=>x.nome===nome);
+    if(!c||!c.lat)return;
+    const vn=(DB[nome]?.provedores||[]).filter(p=>p.status==='visitado').length;
+    const m=L.circleMarker([c.lat,c.lng],{radius:9,fillColor:'#1a7f37',color:'#fff',weight:2,fillOpacity:.9})
+      .bindPopup(`<b>${c.nome}</b><br>${vn} provedor(es) visitado(s)`);
+    _markers.addLayer(m);
+    bounds.push([c.lat,c.lng]);
+  });
+  if(trip.rotaGeoJSON){
+    const line=L.geoJSON(trip.rotaGeoJSON,{style:{color:'#b91cd0',weight:4,opacity:.75}});
+    _markers.addLayer(line);
+  }
+  if(bounds.length)_map.fitBounds(bounds,{padding:[24,24]});
+}
+
+// ---- Cálculo de rota real (OSRM, serviço público gratuito, sem chave) ----
+async function calcRotaTrip(tripId){
+  const trip=TR.find(t=>t.id===tripId);
+  if(!trip)return;
+  const coordsCidades=trip.cidades.map(nome=>{
+    const c=REGIOES.flatMap(r=>r.cidades).find(x=>x.nome===nome);
+    return c&&c.lat?[c.lng,c.lat]:null;
+  }).filter(Boolean);
+  if(!coordsCidades.length){alert('Nenhuma cidade desta viagem tem coordenadas cadastradas.');return;}
+  trip._kmCalculando=true;trip._kmErro=null;
+  if(activeTrip?.id===tripId)renderTripDetail(trip);
+  const pontos=[[FORTALEZA.lng,FORTALEZA.lat],...coordsCidades,[FORTALEZA.lng,FORTALEZA.lat]];
+  const coordStr=pontos.map(p=>p.join(',')).join(';');
+  const url=`https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+  try{
+    const res=await fetch(url);
+    const data=await res.json();
+    if(data.code!=='Ok'||!data.routes?.length)throw new Error('Rota não encontrada');
+    trip.kmTotal=data.routes[0].distance/1000;
+    trip.rotaGeoJSON=data.routes[0].geometry;
+  }catch(e){
+    trip._kmErro='Não foi possível calcular a rota agora (serviço de rotas indisponível). Tente novamente em instantes.';
+    console.error('Falha ao calcular rota da viagem:',e);
+  }
+  trip._kmCalculando=false;
+  pTR(TR);
+  renderTripList();
+  if(activeTrip?.id===tripId){renderTripDetail(trip);drawTripMap(trip);}
+}
+
+function deleteTrip(tripId){
+  const trip=TR.find(t=>t.id===tripId);
+  if(!trip)return;
+  if(!confirm(`Excluir a viagem "${trip.nome}"? Essa ação não pode ser desfeita.`))return;
+  TR=TR.filter(t=>t.id!==tripId);
+  pTR(TR);
+  if(activeTrip?.id===tripId){
+    activeTrip=null;
+    document.getElementById('content').innerHTML=`<div class="empty"><div class="ei">🧳</div><p>Selecione uma <b>viagem</b> na lista,<br>ou clique em <b>+ Nova viagem</b>.</p></div>`;
+    drawTripsOverviewMap();
+  }
+  renderTripList();
+  const tab=document.getElementById('tab-viagens');
+  if(tab)tab.querySelector('.rc').textContent=TR.length;
+}
+
+// ---- Formulário de criar/editar viagem (reaproveita o modal genérico) ----
+function openTripForm(tripId){
+  editTripTgt=tripId||null;
+  const trip=editTripTgt?TR.find(t=>t.id===editTripTgt):null;
+  document.getElementById('m-title').textContent=trip?'Editar viagem':'Nova viagem';
+  const saveBtn=document.getElementById('m-save-btn');
+  saveBtn.style.display='';
+  saveBtn.onclick=saveTripForm;
+  const cidadesTodas=REGIOES.flatMap(r=>r.cidades.map(c=>c.nome)).sort();
+  document.getElementById('m-body').innerHTML=`
+    <div class="fg"><label>Nome da viagem</label><input id="tr-nome" type="text" value="${trip?esc(trip.nome):''}" placeholder="Ex: Litoral Oeste — julho"></div>
+    <div class="fg" style="display:flex;gap:10px;">
+      <div style="flex:1"><label style="display:block;font-size:.73em;font-weight:700;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.3px;">Data início</label><input id="tr-ini" type="date" value="${trip?.dataInicio||''}"></div>
+      <div style="flex:1"><label style="display:block;font-size:.73em;font-weight:700;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.3px;">Data fim</label><input id="tr-fim" type="date" value="${trip?.dataFim||''}"></div>
+    </div>
+    <div class="fg">
+      <label>Cidades visitadas (na ordem do roteiro)</label>
+      <div style="display:flex;gap:6px;">
+        <input id="tr-city-search" type="text" placeholder="🔍 Digite o nome da cidade..." list="tr-city-list" style="flex:1;">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="addTripCity()">+ Adicionar</button>
+      </div>
+      <datalist id="tr-city-list">${cidadesTodas.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+      <div id="tr-city-chips" style="margin-top:10px;display:flex;flex-direction:column;gap:5px;"></div>
+    </div>
+  `;
+  window._tripCidades=trip?[...trip.cidades]:[];
+  renderTripCityChips();
+  document.getElementById('tr-city-search').addEventListener('keydown',e=>{
+    if(e.key==='Enter'){e.preventDefault();addTripCity();}
+  });
+  document.getElementById('moverlay').classList.add('open');
+}
+
+function renderTripCityChips(){
+  const el=document.getElementById('tr-city-chips');
+  if(!el)return;
+  el.innerHTML=window._tripCidades.map((nome,i)=>`
+    <div style="display:flex;align-items:center;gap:6px;background:var(--gray-l);border-radius:7px;padding:5px 8px;font-size:.82em;">
+      <span style="font-weight:700;color:var(--gray);width:16px;">${i+1}.</span>
+      <span style="flex:1;">${esc(nome)}</span>
+      <button type="button" onclick="moveTripCity(${i},-1)" style="border:none;background:none;cursor:pointer;font-size:1em;" ${i===0?'disabled':''}>↑</button>
+      <button type="button" onclick="moveTripCity(${i},1)" style="border:none;background:none;cursor:pointer;font-size:1em;" ${i===window._tripCidades.length-1?'disabled':''}>↓</button>
+      <button type="button" onclick="removeTripCity(${i})" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:1.1em;">×</button>
+    </div>`).join('')||'<p style="font-size:.78em;color:var(--gray);">Nenhuma cidade adicionada ainda.</p>';
+}
+
+function addTripCity(){
+  const inp=document.getElementById('tr-city-search');
+  const nome=inp.value.trim();
+  if(!nome)return;
+  const valido=REGIOES.some(r=>r.cidades.some(c=>c.nome===nome));
+  if(!valido){alert('Cidade não encontrada. Selecione uma opção da lista sugerida.');return;}
+  window._tripCidades.push(nome);
+  inp.value='';
+  renderTripCityChips();
+}
+function moveTripCity(i,dir){
+  const arr=window._tripCidades;
+  const j=i+dir;
+  if(j<0||j>=arr.length)return;
+  [arr[i],arr[j]]=[arr[j],arr[i]];
+  renderTripCityChips();
+}
+function removeTripCity(i){
+  window._tripCidades.splice(i,1);
+  renderTripCityChips();
+}
+
+function saveTripForm(){
+  const nome=document.getElementById('tr-nome').value.trim();
+  if(!nome){alert('Dê um nome pra viagem.');return;}
+  if(!window._tripCidades.length){alert('Adicione pelo menos uma cidade.');return;}
+  const dataInicio=document.getElementById('tr-ini').value;
+  const dataFim=document.getElementById('tr-fim').value;
+  if(editTripTgt){
+    const trip=TR.find(t=>t.id===editTripTgt);
+    const cidadesMudaram=JSON.stringify(trip.cidades)!==JSON.stringify(window._tripCidades);
+    trip.nome=nome;trip.dataInicio=dataInicio;trip.dataFim=dataFim;trip.cidades=[...window._tripCidades];
+    if(cidadesMudaram){trip.kmTotal=null;trip.rotaGeoJSON=null;}
+  }else{
+    TR.push({id:'t_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),nome,dataInicio,dataFim,cidades:[...window._tripCidades],kmTotal:null,rotaGeoJSON:null});
+  }
+  pTR(TR);
+  closeModal();
+  renderTripList();
+  const tab=document.getElementById('tab-viagens');
+  if(tab)tab.querySelector('.rc').textContent=TR.length;
 }
 
 /* ══════════════════════════════════════════
