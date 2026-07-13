@@ -2,7 +2,6 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script>
   // Bloqueia acesso direto a esta página sem passar pelo login do portal.
   if (sessionStorage.getItem('infolink_hub_auth') !== 'ok') {
@@ -10,9 +9,12 @@
   }
 </script>
 <script type="module">
+  // Mesma ferramenta da Auditoria LB (repositório separado), só que aqui
+  // dentro do portal, com o login normal do ultraexpansao em vez do login
+  // próprio da equipe de campo.
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   const fb = initializeApp({
     apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
     authDomain: "isp-manager-ce.firebaseapp.com",
@@ -30,154 +32,934 @@
     });
   };
 
-  // Painel de leitura: mesma coleção (auditoria_lb) que a equipe de campo
-  // preenche na Auditoria LB (repositório separado, login próprio deles) —
-  // aqui é só visualização, com o login normal do portal.
-  onSnapshot(collection(fsDb, 'auditoria_lb'), snap => {
-    const rows = [];
-    snap.forEach(docSnap => rows.push({ protocolo: docSnap.id, ...docSnap.data() }));
-    if(window._renderAuditRows) window._renderAuditRows(rows);
-  }, err => {
-    console.error('Falha ao carregar auditorias:', err);
-    if(window._renderAuditError) window._renderAuditError(err);
+  // ---- Sincronização em tempo real com a nuvem (Firestore) ----
+  // Mesma coleção compartilhada (auditoria_lb) que a Auditoria LB usa —
+  // qualquer alteração feita pela equipe de campo aparece aqui na hora.
+  window._fbSaveAudit = (protocolo, rec) => {
+    return setDoc(doc(fsDb, 'auditoria_lb', String(protocolo)), {
+      status: rec.status,
+      auditor: rec.auditor,
+      data_vistoria: rec.data_vistoria,
+      itens_auditados: rec.itens_auditados,
+      atualizado_em: Date.now(),
+    });
+  };
+
+  onAuthStateChanged(auth, user => {
+    if(!user){
+      window.location.href = '../index.html';
+      return;
+    }
+    window._fbUser = user;
+    onSnapshot(collection(fsDb, 'auditoria_lb'), snap => {
+      const parsed = {};
+      snap.forEach(docSnap => {
+        const d = docSnap.data();
+        parsed[docSnap.id] = {
+          status: d.status || 'pendente',
+          auditor: d.auditor || null,
+          data_vistoria: d.data_vistoria || null,
+          itens_auditados: d.itens_auditados || {},
+        };
+      });
+      if(window._applyAuditData) window._applyAuditData(parsed);
+    }, err => {
+      console.error('Falha no listener de auditorias:', err);
+      if(window._applyAuditError) window._applyAuditError(err);
+    });
   });
 </script>
-<title>Auditoria LB — Painel</title>
+<title>Auditoria LB — Painel (Infolink)</title>
 <style>
-  :root{
-    --green:#6a00b8; --darkgreen:#b91cd0; --cyan:#00d4c8;
-    --bg:#0d0620; --panel:#1a0f2e; --panel2:#221540;
-    --text:#f1eefa; --muted:#a99bc4; --border:#3a2160;
-    --good:#34d399; --amber:#fbbf24; --gray:#8b99b6;
+  :root {
+    --purple: #662d8e;
+    --dark-purple: #2b1042;
+    --cyan: #01e2e2;
+    --bg: #faf8fc;
+    --card: #ffffff;
+    --text: #241a30;
+    --muted: #7a6d8a;
+    --border: #e5dcef;
+    --green: #1a7a3f;
+    --red: #b83232;
   }
-  *{box-sizing:border-box;}
-  body{margin:0;font-family:'Segoe UI',Arial,sans-serif;background:radial-gradient(circle at top left,#2a0a4a,var(--bg) 60%);color:var(--text);min-height:100vh;}
-  header{padding:26px 36px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;}
-  header h1{margin:0;font-size:24px;letter-spacing:.3px;}
-  header h1 span{color:var(--cyan);}
-  header p{margin:4px 0 0;color:var(--muted);font-size:13px;}
-  .badge{background:linear-gradient(135deg,var(--green),var(--darkgreen));padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap;}
-  .logout,.backbtn{background:var(--panel2);color:var(--muted);border:1px solid var(--border);padding:8px 14px;border-radius:8px;font-size:12px;cursor:pointer;text-decoration:none;display:inline-block;}
-  .logout:hover,.backbtn:hover{color:var(--text);}
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    background: linear-gradient(120deg, var(--dark-purple), var(--purple));
+    color: #fff;
+    padding: 28px 32px 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  header::after {
+    content: "";
+    position: absolute;
+    right: -60px;
+    top: -60px;
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(1,226,226,0.25), transparent 70%);
+  }
+  header h1 {
+    margin: 0 0 4px;
+    font-size: 22px;
+    letter-spacing: 0.2px;
+  }
+  header p {
+    margin: 0;
+    color: rgba(255,255,255,0.75);
+    font-size: 13px;
+  }
+  .controls {
+    max-width: 1100px;
+    margin: -22px auto 0;
+    padding: 0 20px;
+  }
+  .panel {
+    background: var(--card);
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(43,16,66,0.12);
+    padding: 18px 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: center;
+  }
+  .search-box {
+    flex: 1;
+    min-width: 220px;
+    position: relative;
+  }
+  .search-box input {
+    width: 100%;
+    padding: 10px 14px 10px 38px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    color: var(--text);
+    outline: none;
+    transition: border-color .15s;
+  }
+  .search-box input:focus { border-color: var(--purple); }
+  .search-box svg {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    stroke: var(--muted);
+  }
+  .search-box .hint {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 10.5px;
+    color: var(--muted);
+    background: #f3edf9;
+    padding: 2px 6px;
+    border-radius: 5px;
+    pointer-events: none;
+  }
+  .months {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .month-btn, .status-btn {
+    border: 1.5px solid var(--border);
+    background: #fff;
+    color: var(--purple);
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .month-btn:hover, .status-btn:hover { border-color: var(--purple); }
+  .month-btn.active, .status-btn.active {
+    background: var(--purple);
+    border-color: var(--purple);
+    color: #fff;
+  }
+  .auditor-row {
+    max-width: 1100px;
+    margin: 12px auto 0;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .auditor-row label {
+    font-size: 12.5px;
+    color: var(--muted);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .auditor-row input {
+    flex: 1;
+    max-width: 280px;
+    padding: 8px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+    outline: none;
+  }
+  .auditor-row input:focus { border-color: var(--purple); }
+  .sync-status {
+    font-size: 11.5px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .sync-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #ccc;
+  }
+  .sync-dot.ok { background: var(--green); }
+  .sync-dot.saving { background: #e0a010; animation: pulse 0.8s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+  .stats {
+    max-width: 1100px;
+    margin: 16px auto 0;
+    padding: 0 20px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .stat {
+    background: var(--card);
+    border-radius: 10px;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+  }
+  .stat .num {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--dark-purple);
+  }
+  .stat .label {
+    font-size: 11.5px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  main {
+    max-width: 1100px;
+    margin: 20px auto 60px;
+    padding: 0 20px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 12px;
+    overflow: hidden;
+    transition: border-color .15s;
+  }
+  .card.vistoriado { border-color: #b9e3c6; }
+  .card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    cursor: pointer;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .card-head:hover { background: #f8f4fc; }
+  .card-head .left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    background: var(--dark-purple);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 6px;
+    letter-spacing: 0.3px;
+  }
+  .os-tag {
+    background: rgba(1,226,226,0.18);
+    color: #0b7a7a;
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+  }
+  .map-pin {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #fff2e0;
+    border: 1px solid #f0d9b5;
+    text-decoration: none;
+    flex-shrink: 0;
+    transition: transform .12s, background .12s;
+  }
+  .map-pin:hover { background: #ffe4b8; transform: scale(1.08); }
+  .map-pin svg { width: 14px; height: 14px; stroke: #a35b00; }
+  .map-pin.disabled {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+  .ceo-tag {
+    background: #e7f5ec;
+    color: #1a7a3f;
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+  }
+  .status-pill {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1.5px solid transparent;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all .12s;
+  }
+  .status-pill.pendente {
+    background: #fdf0f0;
+    color: var(--red);
+    border-color: #f3d4d4;
+  }
+  .status-pill.pendente:hover { background: #fbe2e2; }
+  .status-pill.vistoriado {
+    background: #e7f5ec;
+    color: var(--green);
+    border-color: #b9e3c6;
+  }
+  .meta {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .local-name {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .chevron {
+    width: 18px;
+    height: 18px;
+    stroke: var(--purple);
+    transition: transform .2s;
+    flex-shrink: 0;
+  }
+  .card.open .chevron { transform: rotate(180deg); }
+  .card-body {
+    display: none;
+    border-top: 1px solid var(--border);
+  }
+  .card.open .card-body { display: block; }
+  .desc-row {
+    padding: 10px 16px 0;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .desc-row b { color: var(--text); }
+  .loc-row {
+    padding: 8px 16px 0;
+    font-size: 12.5px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .loc-row .map-link {
+    color: var(--purple);
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .loc-row .map-link:hover { text-decoration: underline; }
+  .audit-info {
+    margin: 10px 16px 0;
+    padding: 8px 12px;
+    background: #f0f9f3;
+    border: 1px solid #cdeada;
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--green);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 16px;
+  }
+  thead th {
+    background: #f5eefb;
+    color: var(--dark-purple);
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  tbody tr:nth-child(even) { background: #fbf9fd; }
+  tbody td.qty { font-weight: 700; color: var(--purple); text-align: right; }
+  tbody tr.ceo-row td { color: #1a7a3f; }
+  tbody tr.ceo-row td.qty { color: #1a7a3f; }
+  td.audit-cell { text-align: right; }
+  .audit-input {
+    width: 64px;
+    padding: 5px 6px;
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    font-size: 12.5px;
+    text-align: right;
+    outline: none;
+  }
+  .audit-input:focus { border-color: var(--purple); }
+  .audit-input.match { border-color: var(--green); background: #f0f9f3; }
+  .audit-input.diff { border-color: var(--red); background: #fdf0f0; }
+  .diff-tag {
+    font-size: 10.5px;
+    font-weight: 700;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 5px;
+  }
+  .diff-tag.match { color: var(--green); background: #e7f5ec; }
+  .diff-tag.diff { color: var(--red); background: #fdf0f0; }
+  .ceo-block {
+    padding: 10px 16px 14px;
+    border-top: 1px dashed var(--border);
+  }
+  .ceo-block .ceo-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #1a7a3f;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 6px;
+  }
+  .ceo-chip {
+    display: inline-block;
+    background: #e7f5ec;
+    color: #1a7a3f;
+    font-size: 11.5px;
+    font-family: 'Consolas', monospace;
+    padding: 3px 8px;
+    border-radius: 6px;
+    margin: 2px 4px 2px 0;
+  }
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 60px 20px;
+    font-size: 14px;
+  }
+  .month-header {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--dark-purple);
+    margin: 22px 0 8px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--cyan);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
 
-  main{padding:36px;max-width:1200px;margin:0 auto;}
-  .stats-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;}
-  .stat{background:linear-gradient(145deg,var(--panel),var(--panel2));border:1px solid var(--border);border-radius:14px;padding:16px 20px;min-width:160px;}
-  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
-  .stat .v{font-size:26px;font-weight:700;margin-top:4px;}
-  .stat .v.cyan{color:var(--cyan);}
-
-  .toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
-  #search{flex:1;min-width:220px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:9px 14px;color:var(--text);font-size:13px;outline:none;}
-  #search:focus{border-color:var(--cyan);}
-
-  .table-wrap{background:var(--panel);border:1px solid var(--border);border-radius:14px;overflow:hidden;overflow-x:auto;}
-  table{width:100%;border-collapse:collapse;min-width:760px;}
-  th{background:var(--panel2);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px;text-align:left;padding:12px 14px;white-space:nowrap;}
-  td{padding:11px 14px;border-top:1px solid var(--border);font-size:13px;white-space:nowrap;}
-  tr:hover td{background:rgba(255,255,255,0.02);}
-  .pill{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;}
-  .pill.vistoriado{background:rgba(52,211,153,.15);color:var(--good);border:1px solid rgba(52,211,153,.35);}
-  .pill.pendente{background:rgba(139,153,182,.15);color:var(--gray);border:1px solid rgba(139,153,182,.35);}
-  .empty{text-align:center;padding:60px 20px;color:var(--muted);}
+  .status-btn[href]{ display:inline-flex; align-items:center; }
 </style>
 </head>
 <body>
 
+<div id="app">
+
 <header>
-  <div>
-    <h1>Auditoria LB <span>· Painel</span></h1>
-    <p>Vistorias de materiais registradas pela equipe de campo (Link Barato) — atualiza em tempo real</p>
-  </div>
-  <div style="display:flex;gap:10px;align-items:center;">
-    <div class="badge">Infolink Telecom</div>
-    <a href="../home.html" class="backbtn">← Voltar</a>
-    <button class="logout" onclick="window._doLogout && window._doLogout()">Sair</button>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+    <div>
+      <h1>Relatório de Materiais Utilizados por Protocolo</h1>
+      <p>Infolink Telecom · Filial Barra · Consumo, caixas de emenda, localização e auditoria de campo por OS — ABNER DA SILVA SOUSA</p>
+    </div>
+    <div style="display:flex;gap:8px;flex-shrink:0;">
+      <a href="../home.html" class="status-btn" style="text-decoration:none;display:inline-flex;align-items:center;">← Voltar</a>
+      <button class="status-btn" onclick="window._doLogout && window._doLogout()">Sair</button>
+    </div>
   </div>
 </header>
 
-<main>
-  <div class="stats-row">
-    <div class="stat"><div class="l">Auditorias registradas</div><div class="v" id="stat-total">—</div></div>
-    <div class="stat"><div class="l">Vistoriadas</div><div class="v cyan" id="stat-vistoriado">—</div></div>
-    <div class="stat"><div class="l">Pendentes / em preenchimento</div><div class="v" id="stat-pendente">—</div></div>
+<div class="controls">
+  <div class="panel">
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="searchInput" type="text" placeholder="Pesquisar por OS, local, material ou nº de série...">
+      <span class="hint">OS / local / material / série</span>
+    </div>
+    <div class="months" id="monthButtons"></div>
+    <div class="months" id="statusButtons"></div>
   </div>
+</div>
 
-  <div class="toolbar">
-    <input id="search" type="text" placeholder="🔍 Buscar por protocolo ou auditor(a)...">
-  </div>
+<div class="auditor-row">
+  <label for="auditorInput">Auditor(a):</label>
+  <input id="auditorInput" type="text" placeholder="Seu nome">
+  <div class="sync-status"><span class="sync-dot" id="syncDot"></span><span id="syncText">carregando auditorias...</span></div>
+  <button id="downloadBtn" class="status-btn" style="margin-left:auto; display:flex; align-items:center; gap:6px;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    Baixar relatório (Excel)
+  </button>
+</div>
 
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Protocolo</th>
-          <th>Status</th>
-          <th>Auditor(a)</th>
-          <th>Data da vistoria</th>
-          <th>Itens auditados</th>
-          <th>Atualizado em</th>
-        </tr>
-      </thead>
-      <tbody id="tbody"></tbody>
-    </table>
-  </div>
-</main>
+<div class="stats" id="statsRow"></div>
 
+<main id="results"></main>
+
+</div><!-- #app -->
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
-let _rows = [];
+const DATA = {"records": [{"protocolo": 3609513, "numero_nota": 647913, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-04-02 22:39:05", "data_encerramento": "2026-04-04 00:29:42", "mes": "2026-04", "local": "GUANACES - CASCAVEL", "maps_url": "https://www.google.com/maps/search/?api=1&query=GUANACES+-+CASCAVEL", "maps_links": [], "descricao_acionamento": "ROMP BACKBONE + CLIENTE LB (IPLINK)", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 200}, {"produto": "FITA BAP 3", "unidade": "UNIDADE", "quantidade": 1}, {"produto": "PARAFUSO J", "unidade": "UNIDADE", "quantidade": 1}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260316100233", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260316100257", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3609836, "numero_nota": 647917, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-04-03 13:12:12", "data_encerramento": "2026-04-04 00:33:18", "mes": "2026-04", "local": "SERRINHA - FORTALEZA", "maps_url": "https://www.google.com/maps/search/?api=1&query=SERRINHA+-+FORTALEZA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO CLIENTE LB - ELITEC", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 200}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 12}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 1}], "caixas_emenda": [{"numero_serie": "NSI20260316100315", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3611254, "numero_nota": 648368, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-04-05 12:39:49", "data_encerramento": "2026-04-06 08:05:57", "mes": "2026-04", "local": "SABIAGUABA - FORTALEZA", "maps_url": "https://www.google.com/maps/search/?api=1&query=SABIAGUABA+-+FORTALEZA", "maps_links": [], "descricao_acionamento": "ROMP BACKBONE + CLIENTE LB (INCLUI)", "materiais": [{"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 12}], "caixas_emenda": []}, {"protocolo": 3611482, "numero_nota": 648370, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-04-05 20:33:13", "data_encerramento": "2026-04-06 08:08:37", "mes": "2026-04", "local": "W S - FORTALEZA", "maps_url": "https://www.google.com/maps/search/?api=1&query=W+S+-+FORTALEZA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 150}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260316100207", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260316100420", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3617738, "numero_nota": 650886, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-04-08 20:58:07", "data_encerramento": "2026-04-09 13:56:54", "mes": "2026-04", "local": "ANCURI - ITAITINGA", "maps_url": "https://www.google.com/maps/search/?api=1&query=ANCURI+-+ITAITINGA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 200}, {"produto": "FITA BAP 3", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260326135402", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260304123612", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3622047, "numero_nota": 653219, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-04-12 10:03:12", "data_encerramento": "2026-04-13 15:10:59", "mes": "2026-04", "local": "GUANACES - CASCAVEL", "maps_url": "https://www.google.com/maps/search/?api=1&query=GUANACES+-+CASCAVEL", "maps_links": [], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 250}, {"produto": "FITA BAP 3", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "PARAFUSO J", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 5}, {"produto": "SUCO, SAFO, SIPA, SUPA", "unidade": "UNIDADE", "quantidade": 6}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 1}], "caixas_emenda": [{"numero_serie": "NSI20260326131647", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3622414, "numero_nota": 653229, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-04-12 21:18:44", "data_encerramento": "2026-04-13 15:14:12", "mes": "2026-04", "local": "EDSON QUEIROZ - FORTALEZA", "maps_url": "https://www.google.com/maps/search/?api=1&query=EDSON+QUEIROZ+-+FORTALEZA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 150}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 25}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260304123001", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260304123225", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3633712, "numero_nota": 657028, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-04-19 21:52:28", "data_encerramento": "2026-04-20 08:42:37", "mes": "2026-04", "local": "PIRAMBU - FORTALEZA", "maps_url": "https://www.google.com/maps/search/?api=1&query=PIRAMBU+-+FORTALEZA", "maps_links": [], "descricao_acionamento": "ROMP BACKBONE + CLIENTE LB (IMPACTUS)", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "ARAME DE ESPINAR GALVANIZADO POLIETILENO", "unidade": "ROLO", "quantidade": 1}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 200}, {"produto": "FITA BAP 3", "unidade": "UNIDADE", "quantidade": 1}, {"produto": "PARAFUSO J", "unidade": "UNIDADE", "quantidade": 1}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 3}, {"produto": "SUCO, SAFO, SIPA, SUPA", "unidade": "UNIDADE", "quantidade": 1}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 1}], "caixas_emenda": [{"numero_serie": "NSI20260407094403", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3631946, "numero_nota": 657019, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-04-17 23:30:31", "data_encerramento": "2026-04-20 08:38:55", "mes": "2026-04", "local": "PAJUÇARA - MARACANAU", "maps_url": "https://www.google.com/maps/search/?api=1&query=PAJUÇARA+-+MARACANAU", "maps_links": [], "descricao_acionamento": "ROMPIMENTO CLIENTE LB - ROTA-TELECOM", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 180}, {"produto": "FITA BAP 3", "unidade": "UNIDADE", "quantidade": 1}, {"produto": "PARAFUSO J", "unidade": "UNIDADE", "quantidade": 1}, {"produto": "SUCO, SAFO, SIPA, SUPA", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 1}], "caixas_emenda": [{"numero_serie": "NSI20260407094148", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3640351, "numero_nota": 660395, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-04-22 23:17:54", "data_encerramento": "2026-04-24 11:33:57", "mes": "2026-04", "local": "VILA VELHA - FORTALEZA", "maps_url": "https://www.google.com/maps/search/?api=1&query=VILA+VELHA+-+FORTALEZA", "maps_links": [], "descricao_acionamento": "ROMP BACKBONE + CLIENTES LB", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 6}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 300}, {"produto": "FITA BAP 3", "unidade": "UNIDADE", "quantidade": 1}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "SUCO, SAFO, SIPA, SUPA", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 48}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 3}], "caixas_emenda": [{"numero_serie": "NSI20260407094256", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260407094419", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260407094246", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3642316, "numero_nota": 660403, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-04-23 23:30:30", "data_encerramento": "2026-04-24 11:51:45", "mes": "2026-04", "local": "BARROSO - FORTALEZA", "maps_url": "https://www.google.com/maps/search/?api=1&query=BARROSO+-+FORTALEZA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO CLIENTE LB - W-NET", "materiais": [{"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 1}], "caixas_emenda": []}, {"protocolo": 3658262, "numero_nota": 667339, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-05-04 21:22:15", "data_encerramento": "2026-05-06 02:08:05", "mes": "2026-05", "local": "CENTRO - FORTALEZA", "maps_url": "https://www.google.com/maps/search/?api=1&query=CENTRO+-+FORTALEZA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 150}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 3}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 25}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260327093319", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260327093552", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3659271, "numero_nota": 667343, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-05-05 14:01:58", "data_encerramento": "2026-05-06 02:10:39", "mes": "2026-05", "local": "COCÓ - FORTALEZA", "maps_url": "https://www.google.com/maps/search/?api=1&query=COCÓ+-+FORTALEZA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "ARAME DE ESPINAR GALVANIZADO POLIETILENO", "unidade": "ROLO", "quantidade": 1}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 200}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260415103552", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260415103623", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3660185, "numero_nota": 667338, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-05-05 22:33:41", "data_encerramento": "2026-05-06 02:05:18", "mes": "2026-05", "local": "SABIAGUABA - FORTALEZA", "maps_url": "https://www.google.com/maps/search/?api=1&query=SABIAGUABA+-+FORTALEZA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 3}], "caixas_emenda": []}, {"protocolo": 3660226, "numero_nota": 667336, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-05-05 23:39:59", "data_encerramento": "2026-05-06 02:02:12", "mes": "2026-05", "local": "CE060 - ARACOIABA", "maps_url": "https://www.google.com/maps/search/?api=1&query=CE060+-+ARACOIABA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 5}], "caixas_emenda": []}, {"protocolo": 3666266, "numero_nota": 670374, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-05-08 18:40:55", "data_encerramento": "2026-05-09 18:09:12", "mes": "2026-05", "local": "SERRINHA - FORTALEZA", "maps_url": "https://www.google.com/maps/search/?api=1&query=SERRINHA+-+FORTALEZA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO CLIENTE LB - ELITEC", "materiais": [{"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 150}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 12}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 1}], "caixas_emenda": [{"numero_serie": "NSI20260415103817", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3668081, "numero_nota": 670739, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-05-10 19:54:51", "data_encerramento": "2026-05-11 10:56:09", "mes": "2026-05", "local": "VILA VELHA - FORTALEZA", "maps_url": "https://www.google.com/maps/search/?api=1&query=VILA+VELHA+-+FORTALEZA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO CLIENTES LB - MWNET & GTLINK", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 6}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 200}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 3}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}], "caixas_emenda": []}, {"protocolo": 3678599, "numero_nota": 675316, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-05-16 11:32:36", "data_encerramento": "2026-05-17 15:40:47", "mes": "2026-05", "local": "SUCATINGA - BEBERIBE", "maps_url": "https://www.google.com/maps/search/?api=1&query=SUCATINGA+-+BEBERIBE", "maps_links": [], "descricao_acionamento": "ROMPIMENTO CLIENTE LB - NETPLUS", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 200}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260512141354", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260512141321", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3681814, "numero_nota": 676479, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-05-18 16:38:35", "data_encerramento": "2026-05-19 10:59:04", "mes": "2026-05", "local": "IPARANA - CAUCAIA", "maps_url": "https://www.google.com/maps/search/?api=1&query=IPARANA+-+CAUCAIA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 200}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260512141404", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260512141413", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3693031, "numero_nota": 680469, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-05-25 01:17:13", "data_encerramento": "2026-05-25 12:50:14", "mes": "2026-05", "local": "BARREIRA", "maps_url": "https://www.google.com/maps/search/?api=1&query=BARREIRA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 6}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 160}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260512141420", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260512141437", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3697147, "numero_nota": 683321, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-05-26 19:00:12", "data_encerramento": "2026-05-28 15:17:37.475649", "mes": "2026-05", "local": "ALTO FECHADO - PACATUBA", "maps_url": "https://www.google.com/maps/search/?api=1&query=ALTO+FECHADO+-+PACATUBA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 150}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 1}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 1}], "caixas_emenda": [{"numero_serie": "NSI20260512141507", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3698555, "numero_nota": 683325, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-05-27 16:50:17", "data_encerramento": "2026-05-28 15:20:07", "mes": "2026-05", "local": "HORTO - MARACANAU", "maps_url": "https://www.google.com/maps/search/?api=1&query=HORTO+-+MARACANAU", "maps_links": [], "descricao_acionamento": "ROMP BACKBONE + CLIENTES LB", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 150}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260512141515", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260512141525", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3700531, "numero_nota": 684570, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-05-28 18:12:58", "data_encerramento": "2026-05-29 19:15:11", "mes": "2026-05", "local": "JUREMA - CAUCAIA", "maps_url": "https://www.google.com/maps/search/?api=1&query=JUREMA+-+CAUCAIA", "maps_links": [], "descricao_acionamento": "ROMP BACKBONE + CLIENTES LB", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 250}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}], "caixas_emenda": []}, {"protocolo": 3707573, "numero_nota": 686924, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-06-01 22:37:42", "data_encerramento": "2026-06-03 11:01:38", "mes": "2026-06", "local": "BR116 - FORTALEZA", "maps_url": "https://www.google.com/maps/place/BR-116,+5810a+-+Aerol%C3%A2ndia,+Fortaleza+-+CE,+60850-012/@-3.7723806,-38.5168285,19.75z/data=!4m6!3m5!1s0x7c74f2e19315b19:0x66cb98946c5308b8!8m2!3d-3.7722705!4d-38.5168722!16s%2Fg%2F11h31_szyb?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D", "maps_links": ["https://www.google.com/maps/place/BR-116,+5810a+-+Aerol%C3%A2ndia,+Fortaleza+-+CE,+60850-012/@-3.7723806,-38.5168285,19.75z/data=!4m6!3m5!1s0x7c74f2e19315b19:0x66cb98946c5308b8!8m2!3d-3.7722705!4d-38.5168722!16s%2Fg%2F11h31_szyb?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D"], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 6}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 250}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 25}], "caixas_emenda": []}, {"protocolo": 3717076, "numero_nota": 689564, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-06-06 19:31:54", "data_encerramento": "2026-06-06 20:14:16", "mes": "2026-06", "local": "JUREMA - CAUCAIA", "maps_url": "https://www.google.com/maps/place/3%C2%B043'16.3%22S+38%C2%B039'24.7%22W/@-3.7211911,-38.6594475,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-3.7211911!4d-38.6568726?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D", "maps_links": ["https://www.google.com/maps/place/3%C2%B043'16.3%22S+38%C2%B039'24.7%22W/@-3.7211911,-38.6594475,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-3.7211911!4d-38.6568726?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D"], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 150}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 1}], "caixas_emenda": [{"numero_serie": "NSI20260527161910", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3717521, "numero_nota": 690465, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-06-07 15:36:25", "data_encerramento": "2026-06-09 07:09:25", "mes": "2026-06", "local": "CENTRO - HORIZONTE", "maps_url": "https://www.google.com/maps/place/4%C2%B005'35.0%22S+38%C2%B029'52.9%22W/@-4.0930415,-38.5006124,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-4.0930415!4d-38.4980375?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D", "maps_links": ["https://www.google.com/maps/place/4%C2%B005'35.0%22S+38%C2%B029'52.9%22W/@-4.0930415,-38.5006124,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-4.0930415!4d-38.4980375?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D", "https://www.google.com/maps/place/4%C2%B005'35.3%22S+38%C2%B029'55.2%22W/@-4.093127,-38.5012449,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-4.093127!4d-38.49867?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D"], "descricao_acionamento": "ROMP BACKBONE + CLIENTE LB (VIANET)", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 150}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 25}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260527161817", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260527161806", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3723496, "numero_nota": 693192, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-06-11 00:57:25", "data_encerramento": "2026-06-11 19:01:50", "mes": "2026-06", "local": "ICARAI - CAUCAIA", "maps_url": "https://www.google.com/maps/place/3%C2%B041'34.2%22S+38%C2%B038'36.7%22W/@-3.6919209,-38.6504512,15.25z/data=!4m4!3m3!8m2!3d-3.6928183!4d-38.64354?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D", "maps_links": ["https://www.google.com/maps/place/3%C2%B041'34.2%22S+38%C2%B038'36.7%22W/@-3.6919209,-38.6504512,15.25z/data=!4m4!3m3!8m2!3d-3.6928183!4d-38.64354?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D", "https://www.google.com/maps/place/3%C2%B041'34.1%22S+38%C2%B038'39.6%22W/@-3.692805,-38.6469082,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-3.692805!4d-38.6443333?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D"], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "ARAME DE ESPINAR GALVANIZADO POLIETILENO", "unidade": "ROLO", "quantidade": 1}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 140}, {"produto": "FITA BAP 3", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "PARAFUSO J", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "SUCO, SAFO, SIPA, SUPA", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260527161740", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260527161717", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3726649, "numero_nota": 694247, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-06-12 18:27:31", "data_encerramento": "2026-06-13 13:52:16.322573", "mes": "2026-06", "local": "ALDEOTA - FORTALEZA", "maps_url": "https://www.google.com/maps/place/Edif%C3%ADcio+Tatiana+Feitosa/@-3.7430821,-38.497571,17z/data=!4m6!3m5!1s0x7c7488fc9f20819:0x92c159c51f3f50cf!8m2!3d-3.7432077!4d-38.4975828!16s%2Fg%2F1v62hwpd?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D", "maps_links": ["https://www.google.com/maps/place/Edif%C3%ADcio+Tatiana+Feitosa/@-3.7430821,-38.497571,17z/data=!4m6!3m5!1s0x7c7488fc9f20819:0x92c159c51f3f50cf!8m2!3d-3.7432077!4d-38.4975828!16s%2Fg%2F1v62hwpd?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D", "https://www.google.com/maps/place/3%C2%B044'34.1%22S+38%C2%B029'52.9%22W/@-3.7428085,-38.5006012,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-3.7428085!4d-38.4980263?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D"], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 150}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260527161832", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260527161854", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3734207, "numero_nota": 697155, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-06-17 21:55:03", "data_encerramento": "2026-06-18 01:03:14", "mes": "2026-06", "local": "CASTELÃO - FORTALEZA", "maps_url": "https://www.google.com/maps/place/3%C2%B048'40.9%22S+38%C2%B030'54.0%22W/@-3.8113824,-38.5181405,16.75z/data=!4m4!3m3!8m2!3d-3.811353!4d-38.5150094?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D", "maps_links": ["https://www.google.com/maps/place/3%C2%B048'40.9%22S+38%C2%B030'54.0%22W/@-3.8113824,-38.5181405,16.75z/data=!4m4!3m3!8m2!3d-3.811353!4d-38.5150094?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D"], "descricao_acionamento": "ROMPIMENTO CLIENTE LB - WKNET", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 6}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 200}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 1}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO 20 X 40MM ' INFOLINK '", "unidade": "UNIDADE", "quantidade": 3}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 1}], "caixas_emenda": [{"numero_serie": "NSI20260527162007", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3737607, "numero_nota": 698853, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-06-19 22:01:58", "data_encerramento": "2026-06-19 22:20:26", "mes": "2026-06", "local": "IPARANA - CAUCAIA", "maps_url": "https://www.google.com/maps/place/3%C2%B041'18.7%22S+38%C2%B039'12.7%22W/@-3.688518,-38.6560953,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-3.688518!4d-38.6535204?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D", "maps_links": ["https://www.google.com/maps/place/3%C2%B041'18.7%22S+38%C2%B039'12.7%22W/@-3.688518,-38.6560953,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-3.688518!4d-38.6535204?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D"], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 8}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 400}, {"produto": "FITA BAP 3", "unidade": "UNIDADE", "quantidade": 6}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 8}, {"produto": "SUCO, SAFO, SIPA, SUPA", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 1}], "caixas_emenda": [{"numero_serie": "NSI20260527161955", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3740184, "numero_nota": 699225, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-06-21 17:33:03", "data_encerramento": "2026-06-21 23:53:55", "mes": "2026-06", "local": "CENTRO - MARANGUAPE", "maps_url": "https://www.google.com/maps/place/3%C2%B053'43.7%22S+38%C2%B041'13.4%22W/@-3.8954834,-38.6896282,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-3.8954834!4d-38.6870533?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D", "maps_links": ["https://www.google.com/maps/place/3%C2%B053'43.7%22S+38%C2%B041'13.4%22W/@-3.8954834,-38.6896282,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-3.8954834!4d-38.6870533?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D", "https://www.google.com/maps/place/3%C2%B053'42.7%22S+38%C2%B041'11.2%22W/@-3.895206,-38.6890154,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-3.895206!4d-38.6864405?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D"], "descricao_acionamento": "ROMPIMENTO CLIENTE LB - CL-TELECOM", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 6}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 200}, {"produto": "FITA BAP 3", "unidade": "UNIDADE", "quantidade": 1}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "SUCO, SAFO, SIPA, SUPA", "unidade": "UNIDADE", "quantidade": 1}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 1}], "caixas_emenda": [{"numero_serie": "NSI20260512141450", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3749933, "numero_nota": 703573, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-06-27 19:13:27", "data_encerramento": "2026-06-27 21:02:14", "mes": "2026-06", "local": "BR116 - FORTALEZA", "maps_url": "https://www.google.com/maps/search/?api=1&query=BR116+-+FORTALEZA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO BACKBONE", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 150}, {"produto": "FITA BAP 3", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 3}, {"produto": "SUCO, SAFO, SIPA, SUPA", "unidade": "UNIDADE", "quantidade": 2}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 24}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260610162708", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260610162558", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3750064, "numero_nota": 703643, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-06-28 08:32:23", "data_encerramento": "2026-06-28 19:51:51", "mes": "2026-06", "local": "CASTELÃO - FORTALEZA", "maps_url": "https://www.google.com/maps/search/?api=1&query=CASTELÃO+-+FORTALEZA", "maps_links": [], "descricao_acionamento": "ROMPIMENTO CLIENTE LB - WKNET", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 200}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 5}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 23}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 3}], "caixas_emenda": [{"numero_serie": "NSI20260611101757", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260610162529", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260603162646", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}, {"protocolo": 3750229, "numero_nota": 703648, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-06-28 12:56:58", "data_encerramento": "2026-06-28 20:16:03", "mes": "2026-06", "local": "HORTO - MARACANAU", "maps_url": "https://www.google.com/maps/search/?api=1&query=HORTO+-+MARACANAU", "maps_links": [], "descricao_acionamento": "ROMP BACKBONE + CLIENTE LB (CL-TELECOM)", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 250}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "TUBETE PROTETOR DE EMENDA", "unidade": "UNIDADE", "quantidade": 21}], "caixas_emenda": []}, {"protocolo": 3750446, "numero_nota": 703650, "responsavel": "ABNER DA SILVA SOUSA", "tipo_os": "ROMPIMENTO - LINK BARATO", "data_abertura": "2026-06-28 20:10:31", "data_encerramento": "2026-06-29 01:31:30", "mes": "2026-06", "local": "CE060 - ARACOIABA", "maps_url": "https://www.google.com/maps/place/R.+Sao+Camilo,+60+-+Aracoiaba,+CE,+62750-000/@-4.3590294,-38.7980763,17z/data=!4m6!3m5!1s0x7bf2fbe3f137695:0xf0f8d2c851c3a595!8m2!3d-4.3592489!4d-38.7984071!16s%2Fg%2F11x7hw7dt4?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D", "maps_links": ["https://www.google.com/maps/place/R.+Sao+Camilo,+60+-+Aracoiaba,+CE,+62750-000/@-4.3590294,-38.7980763,17z/data=!4m6!3m5!1s0x7bf2fbe3f137695:0xf0f8d2c851c3a595!8m2!3d-4.3592489!4d-38.7984071!16s%2Fg%2F11x7hw7dt4?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D", "https://www.google.com/maps/place/4%C2%B021'24.3%22S+38%C2%B047'44.6%22W/@-4.3567433,-38.7982966,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-4.3567433!4d-38.7957217?hl=pt-BR&entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D"], "descricao_acionamento": "ROMP BACKBONE + CLIENTE LB (InNET)", "materiais": [{"produto": "ALÇA MÉDIA (CABO 12 FO)", "unidade": "UNIDADE", "quantidade": 8}, {"produto": "CABO 12FO", "unidade": "METRO", "quantidade": 300}, {"produto": "PLAQUETA DE IDENTIFICAÇÃO \"LINK BARATO\"", "unidade": "UNIDADE", "quantidade": 4}, {"produto": "CAIXA DE EMENDA ÓPTICA - CEO", "unidade": "UNIDADE", "quantidade": 2}], "caixas_emenda": [{"numero_serie": "NSI20260610162613", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}, {"numero_serie": "NSI20260610162655", "patrimonio": "CAIXA DE EMENDA ÓPTICA - CEO (OBJETO)"}]}], "meses": ["2026-04", "2026-05", "2026-06"]};
+const MONTH_NAMES = {
+  "01":"Jan","02":"Fev","03":"Mar","04":"Abr","05":"Mai","06":"Jun",
+  "07":"Jul","08":"Ago","09":"Set","10":"Out","11":"Nov","12":"Dez"
+};
 
-function fmtDataHora(v){
-  if(!v) return '—';
-  const d = new Date(v);
-  if(isNaN(d)) return String(v);
-  return d.toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+let activeMonth = "todos";
+let activeStatus = "todas";
+let searchTerm = "";
+let auditData = {}; // { protocolo: { status, auditor, data_vistoria, itens_auditados: {produto: qtd} } }
+let storageReady = false;
+
+function getAudit(prot) {
+  return auditData[prot] || { status: "pendente", auditor: null, data_vistoria: null, itens_auditados: {} };
 }
 
-function renderAuditRows(rows){
-  _rows = rows.sort((a,b) => (b.atualizado_em||0) - (a.atualizado_em||0));
-  applyFilter();
+function setSyncStatus(state) {
+  const dot = document.getElementById("syncDot");
+  const text = document.getElementById("syncText");
+  dot.className = "sync-dot" + (state === "ok" ? " ok" : state === "saving" ? " saving" : "");
+  text.textContent = state === "ok" ? "auditorias sincronizadas com a equipe (tempo real)"
+    : state === "saving" ? "salvando..."
+    : state === "error" ? "não foi possível sincronizar — alterações só nesta aba"
+    : "carregando auditorias...";
 }
-window._renderAuditRows = renderAuditRows;
 
-function renderAuditError(err){
-  document.getElementById('tbody').innerHTML =
-    `<tr><td colspan="6" class="empty">⚠️ Não foi possível carregar as auditorias. Verifique se as regras do Firestore liberam leitura desta coleção pro seu login.</td></tr>`;
+// Chamado pelo listener em tempo real do Firestore (módulo no <head>)
+// sempre que qualquer pessoa da equipe salva uma auditoria.
+function applyAuditData(parsed) {
+  auditData = parsed;
+  storageReady = true;
+  setSyncStatus("ok");
+  render();
 }
-window._renderAuditError = renderAuditError;
+window._applyAuditData = applyAuditData;
 
-function applyFilter(){
-  const q = document.getElementById('search').value.trim().toLowerCase();
-  const filtered = !q ? _rows : _rows.filter(r =>
-    String(r.protocolo).toLowerCase().includes(q) || (r.auditor||'').toLowerCase().includes(q));
+// Chamado se o listener em tempo real falhar (ex: regras do Firestore
+// ainda não liberando esta coleção pra essa conta) — mostra um erro
+// visível em vez de deixar "carregando..." pra sempre.
+function applyAuditError(err) {
+  storageReady = true;
+  setSyncStatus("error");
+  const results = document.getElementById("results");
+  const isPermission = err && err.code === "permission-denied";
+  results.innerHTML = `<div class="empty">⚠️ Não foi possível carregar as auditorias.<br>` +
+    (isPermission
+      ? "As regras do Firestore ainda não liberam esta conta pra ler/gravar a auditoria — avise quem administra o site."
+      : "Verifique sua conexão e recarregue a página.") +
+    `</div>`;
+}
+window._applyAuditError = applyAuditError;
 
-  const total = _rows.length;
-  const vistoriado = _rows.filter(r => r.status === 'vistoriado').length;
-  document.getElementById('stat-total').textContent = total;
-  document.getElementById('stat-vistoriado').textContent = vistoriado;
-  document.getElementById('stat-pendente').textContent = total - vistoriado;
+async function saveAudit(prot) {
+  if (!window._fbSaveAudit) { setSyncStatus("error"); return; }
+  setSyncStatus("saving");
+  const rec = getAudit(prot);
+  try {
+    await window._fbSaveAudit(prot, rec);
+    setSyncStatus("ok");
+  } catch (e) {
+    setSyncStatus("error");
+    console.error("Falha ao salvar auditoria:", e);
+  }
+}
 
-  const tbody = document.getElementById('tbody');
-  if(!filtered.length){
-    tbody.innerHTML = `<tr><td colspan="6" class="empty">${total ? 'Nenhum resultado pra essa busca.' : 'Nenhuma auditoria registrada ainda.'}</td></tr>`;
+function monthLabel(m) {
+  const [y, mm] = m.split("-");
+  return MONTH_NAMES[mm] + "/" + y;
+}
+
+function renderMonthButtons() {
+  const wrap = document.getElementById("monthButtons");
+  wrap.innerHTML = "";
+  const allBtn = document.createElement("button");
+  allBtn.className = "month-btn" + (activeMonth === "todos" ? " active" : "");
+  allBtn.textContent = "Todos os meses";
+  allBtn.onclick = () => { activeMonth = "todos"; render(); };
+  wrap.appendChild(allBtn);
+  DATA.meses.forEach(m => {
+    const btn = document.createElement("button");
+    btn.className = "month-btn" + (activeMonth === m ? " active" : "");
+    btn.textContent = monthLabel(m);
+    btn.onclick = () => { activeMonth = m; render(); };
+    wrap.appendChild(btn);
+  });
+}
+
+function renderStatusButtons() {
+  const wrap = document.getElementById("statusButtons");
+  wrap.innerHTML = "";
+  const opts = [["todas","Todas"],["pendente","Pendentes"],["vistoriado","Vistoriadas"]];
+  opts.forEach(([val, label]) => {
+    const btn = document.createElement("button");
+    btn.className = "status-btn" + (activeStatus === val ? " active" : "");
+    btn.textContent = label;
+    btn.onclick = () => { activeStatus = val; render(); };
+    wrap.appendChild(btn);
+  });
+}
+
+function matchesSearch(rec, term) {
+  if (!term) return true;
+  term = term.toLowerCase();
+  if (String(rec.protocolo).includes(term)) return true;
+  if (String(rec.numero_nota).includes(term)) return true;
+  if (rec.tipo_os.toLowerCase().includes(term)) return true;
+  if (rec.local && rec.local.toLowerCase().includes(term)) return true;
+  if (rec.descricao_acionamento && rec.descricao_acionamento.toLowerCase().includes(term)) return true;
+  if (rec.caixas_emenda.some(c => c.numero_serie.toLowerCase().includes(term))) return true;
+  return rec.materiais.some(m => m.produto.toLowerCase().includes(term));
+}
+
+function getFiltered() {
+  return DATA.records.filter(r => {
+    const monthOk = activeMonth === "todos" || r.mes === activeMonth;
+    const status = getAudit(r.protocolo).status;
+    const statusOk = activeStatus === "todas" || status === activeStatus;
+    return monthOk && statusOk && matchesSearch(r, searchTerm);
+  });
+}
+
+function renderStats(filtered) {
+  const row = document.getElementById("statsRow");
+  const totalOS = filtered.length;
+  const totalItens = filtered.reduce((s, r) => s + r.materiais.length, 0);
+  const totalCaixas = filtered.reduce((s, r) => s + r.caixas_emenda.length, 0);
+  const locaisUnicos = new Set(filtered.filter(r => r.local).map(r => r.local)).size;
+  const vistoriadas = filtered.filter(r => getAudit(r.protocolo).status === "vistoriado").length;
+
+  row.innerHTML = `
+    <div class="stat"><div class="num">${totalOS}</div><div class="label">Ordens de Serviço</div></div>
+    <div class="stat"><div class="num">${vistoriadas} / ${totalOS}</div><div class="label">Vistoriadas</div></div>
+    <div class="stat"><div class="num">${locaisUnicos}</div><div class="label">Localidades Distintas</div></div>
+    <div class="stat"><div class="num">${totalCaixas}</div><div class="label">Caixas de Emenda (CEO)</div></div>
+  `;
+}
+
+function render() {
+  renderMonthButtons();
+  renderStatusButtons();
+  const filtered = getFiltered();
+  renderStats(filtered);
+  const results = document.getElementById("results");
+  results.innerHTML = "";
+
+  if (!storageReady) {
+    results.innerHTML = '<div class="empty">Carregando dados de auditoria...</div>';
     return;
   }
-  tbody.innerHTML = filtered.map(r => {
-    const nItens = r.itens_auditados ? Object.keys(r.itens_auditados).length : 0;
-    const statusCls = r.status === 'vistoriado' ? 'vistoriado' : 'pendente';
-    return `<tr>
-      <td>${r.protocolo}</td>
-      <td><span class="pill ${statusCls}">${r.status === 'vistoriado' ? 'Vistoriado' : 'Pendente'}</span></td>
-      <td>${r.auditor || '—'}</td>
-      <td>${fmtDataHora(r.data_vistoria)}</td>
-      <td>${nItens}</td>
-      <td>${fmtDataHora(r.atualizado_em)}</td>
-    </tr>`;
-  }).join('');
+
+  if (filtered.length === 0) {
+    results.innerHTML = '<div class="empty">Nenhuma OS encontrada com esse filtro.</div>';
+    return;
+  }
+
+  if (activeMonth === "todos") {
+    DATA.meses.forEach(m => {
+      const group = filtered.filter(r => r.mes === m);
+      if (group.length === 0) return;
+      const h = document.createElement("div");
+      h.className = "month-header";
+      h.textContent = monthLabel(m) + " — " + group.length + " OS";
+      results.appendChild(h);
+      group.forEach(r => results.appendChild(buildCard(r)));
+    });
+  } else {
+    filtered.forEach(r => results.appendChild(buildCard(r)));
+  }
 }
 
-document.getElementById('search').addEventListener('input', applyFilter);
-applyFilter();
+const PIN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>';
+const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><polyline points="20 6 9 17 4 12"/></svg>';
+
+function toggleVistoriado(prot) {
+  const auditor = document.getElementById("auditorInput").value.trim();
+  const current = getAudit(prot);
+  if (current.status === "vistoriado") {
+    auditData[prot] = { ...current, status: "pendente", auditor: null, data_vistoria: null };
+  } else {
+    if (!auditor) {
+      alert("Informe o nome do auditor(a) antes de marcar como vistoriado.");
+      return;
+    }
+    auditData[prot] = { ...current, status: "vistoriado", auditor: auditor, data_vistoria: new Date().toISOString() };
+  }
+  saveAudit(prot);
+  render();
+}
+
+function updateItemAudit(prot, produto, value) {
+  const current = getAudit(prot);
+  const itens = { ...current.itens_auditados };
+  if (value === "" || value === null) {
+    delete itens[produto];
+  } else {
+    itens[produto] = Number(value);
+  }
+  auditData[prot] = { ...current, itens_auditados: itens };
+  saveAudit(prot);
+}
+
+function buildCard(rec) {
+  const audit = getAudit(rec.protocolo);
+  const isVistoriado = audit.status === "vistoriado";
+
+  const card = document.createElement("div");
+  card.className = "card" + (isVistoriado ? " vistoriado" : "");
+
+  const mapPinHtml = rec.maps_url
+    ? `<a class="map-pin" href="${rec.maps_url}" target="_blank" rel="noopener" title="Ver localização de ${rec.local || 'esta OS'} no mapa" onclick="event.stopPropagation()">${PIN_SVG}</a>`
+    : `<span class="map-pin disabled" title="Localização não informada">${PIN_SVG}</span>`;
+
+  const ceoHtml = rec.caixas_emenda.length
+    ? `<span class="ceo-tag">${rec.caixas_emenda.length} CEO${rec.caixas_emenda.length > 1 ? 's' : ''}</span>`
+    : '';
+
+  const statusPillHtml = isVistoriado
+    ? `<button class="status-pill vistoriado" data-prot="${rec.protocolo}">${CHECK_SVG} Vistoriado</button>`
+    : `<button class="status-pill pendente" data-prot="${rec.protocolo}">Marcar vistoriado</button>`;
+
+  const head = document.createElement("div");
+  head.className = "card-head";
+  head.innerHTML = `
+    <div class="left">
+      <span class="badge">Protocolo ${rec.protocolo}</span>
+      <span class="os-tag">Nota ${rec.numero_nota}</span>
+      ${mapPinHtml}
+      <span class="local-name">${rec.local || 'Local não informado'}</span>
+      ${ceoHtml}
+      ${statusPillHtml}
+    </div>
+    <div class="left">
+      <span class="meta">${rec.data_abertura.split(" ")[0]} → ${rec.data_encerramento.split(" ")[0]}</span>
+      <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+  `;
+  head.querySelector(".status-pill").addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleVistoriado(rec.protocolo);
+  });
+  head.addEventListener("click", (e) => {
+    if (e.target.closest(".status-pill") || e.target.closest(".map-pin")) return;
+    card.classList.toggle("open");
+  });
+
+  const body = document.createElement("div");
+  body.className = "card-body";
+
+  if (rec.descricao_acionamento) {
+    const desc = document.createElement("div");
+    desc.className = "desc-row";
+    desc.innerHTML = `<b>Acionamento:</b> ${rec.descricao_acionamento} &nbsp;·&nbsp; <b>Tipo OS:</b> ${rec.tipo_os}`;
+    body.appendChild(desc);
+  }
+
+  if (rec.maps_links && rec.maps_links.length > 1) {
+    const loc = document.createElement("div");
+    loc.className = "loc-row";
+    loc.innerHTML = rec.maps_links.map((url, i) => `<a class="map-link" href="${url}" target="_blank" rel="noopener">📍 Ver CEO ${i+1} no mapa</a>`).join(" ");
+    body.appendChild(loc);
+  }
+
+  if (isVistoriado) {
+    const info = document.createElement("div");
+    info.className = "audit-info";
+    const dt = audit.data_vistoria ? new Date(audit.data_vistoria).toLocaleString("pt-BR") : "";
+    info.innerHTML = `✓ Vistoriado por <b>${audit.auditor}</b> em ${dt}`;
+    body.appendChild(info);
+  }
+
+  const table = document.createElement("table");
+  const theadHtml = `<thead><tr><th>Material</th><th>Unidade</th><th style="text-align:right">Qtd. Sistema</th><th style="text-align:right">Qtd. Auditada</th></tr></thead>`;
+  const rowsHtml = rec.materiais.map(m => {
+    const isCeo = m.produto.includes("CAIXA DE EMENDA");
+    const auditedVal = audit.itens_auditados[m.produto];
+    const hasAudit = auditedVal !== undefined && auditedVal !== null;
+    let cls = "";
+    let diffTag = "";
+    if (hasAudit) {
+      if (Number(auditedVal) === m.quantidade) {
+        cls = "match";
+        diffTag = `<span class="diff-tag match">OK</span>`;
+      } else {
+        cls = "diff";
+        const delta = Number(auditedVal) - m.quantidade;
+        diffTag = `<span class="diff-tag diff">${delta > 0 ? "+" : ""}${delta}</span>`;
+      }
+    }
+    return `<tr class="${isCeo ? 'ceo-row' : ''}">
+      <td>${m.produto}</td>
+      <td>${m.unidade}</td>
+      <td class="qty">${m.quantidade}</td>
+      <td class="audit-cell">
+        <input type="number" class="audit-input ${cls}" min="0"
+          value="${hasAudit ? auditedVal : ''}"
+          data-prot="${rec.protocolo}" data-produto="${m.produto.replace(/"/g,'&quot;')}"
+          placeholder="—">
+        ${diffTag}
+      </td>
+    </tr>`;
+  }).join("");
+  table.innerHTML = theadHtml + `<tbody>${rowsHtml}</tbody>`;
+  table.querySelectorAll(".audit-input").forEach(input => {
+    input.addEventListener("change", (e) => {
+      updateItemAudit(rec.protocolo, e.target.dataset.produto, e.target.value);
+      render();
+      // re-open this card after re-render since render() rebuilds the DOM
+      const reopened = [...document.querySelectorAll(".card")].find(c => c.querySelector(`.status-pill[data-prot="${rec.protocolo}"]`));
+      if (reopened) reopened.classList.add("open");
+    });
+  });
+  body.appendChild(table);
+
+  if (rec.caixas_emenda.length) {
+    const ceoBlock = document.createElement("div");
+    ceoBlock.className = "ceo-block";
+    ceoBlock.innerHTML = `
+      <div class="ceo-title">Nº de série das CEOs utilizadas</div>
+      ${rec.caixas_emenda.map(c => `<span class="ceo-chip">${c.numero_serie}</span>`).join("")}
+    `;
+    body.appendChild(ceoBlock);
+  }
+
+  card.appendChild(head);
+  card.appendChild(body);
+  return card;
+}
+
+document.getElementById("searchInput").addEventListener("input", (e) => {
+  searchTerm = e.target.value.trim();
+  render();
+});
+
+function downloadReport() {
+  if (typeof XLSX === "undefined") {
+    alert("A biblioteca de exportação ainda está carregando. Aguarde um instante e tente novamente.");
+    return;
+  }
+
+  const headers = [
+    "Protocolo","Nº Nota","Mês","Local","Tipo OS","Descrição Acionamento",
+    "Material","Unidade","Qtd. Sistema","Qtd. Auditada","Diferença",
+    "Status Auditoria","Auditor","Data Vistoria"
+  ];
+  const aoa = [headers];
+  const merges = [];
+
+  DATA.records.forEach(rec => {
+    const audit = getAudit(rec.protocolo);
+    const dt = audit.data_vistoria ? new Date(audit.data_vistoria).toLocaleString("pt-BR") : "";
+    const startRow = aoa.length;
+    rec.materiais.forEach(m => {
+      const auditedVal = audit.itens_auditados[m.produto];
+      const hasAudit = auditedVal !== undefined && auditedVal !== null;
+      const diff = hasAudit ? (Number(auditedVal) - m.quantidade) : "";
+      aoa.push([
+        rec.protocolo,
+        rec.numero_nota,
+        monthLabel(rec.mes),
+        rec.local || "",
+        rec.tipo_os,
+        rec.descricao_acionamento || "",
+        m.produto,
+        m.unidade,
+        m.quantidade,
+        hasAudit ? auditedVal : "",
+        diff,
+        audit.status === "vistoriado" ? "Vistoriado" : "Pendente",
+        audit.auditor || "",
+        dt
+      ]);
+    });
+    const endRow = aoa.length - 1;
+    if (endRow > startRow) {
+      // Merge Protocolo..Descrição Acionamento columns (0-5) across this OS's material rows
+      for (let c = 0; c <= 5; c++) {
+        merges.push({ s: { r: startRow, c: c }, e: { r: endRow, c: c } });
+      }
+    }
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!merges"] = merges;
+  ws["!cols"] = [
+    { wch: 11 }, { wch: 10 }, { wch: 9 }, { wch: 24 }, { wch: 26 },
+    { wch: 34 }, { wch: 32 }, { wch: 10 }, { wch: 12 }, { wch: 12 },
+    { wch: 11 }, { wch: 15 }, { wch: 20 }, { wch: 18 }
+  ];
+  ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } }) };
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Auditoria por OS");
+
+  // Sheet 2: resumo por OS
+  const summaryHeaders = ["Protocolo","Nº Nota","Mês","Local","Status Auditoria","Auditor","Data Vistoria","Qtd. Itens","Itens com Diferença"];
+  const summaryRows = [summaryHeaders];
+  DATA.records.forEach(rec => {
+    const audit = getAudit(rec.protocolo);
+    const dt = audit.data_vistoria ? new Date(audit.data_vistoria).toLocaleString("pt-BR") : "";
+    let diffCount = 0;
+    rec.materiais.forEach(m => {
+      const av = audit.itens_auditados[m.produto];
+      if (av !== undefined && av !== null && Number(av) !== m.quantidade) diffCount++;
+    });
+    summaryRows.push([
+      rec.protocolo, rec.numero_nota, monthLabel(rec.mes), rec.local || "",
+      audit.status === "vistoriado" ? "Vistoriado" : "Pendente",
+      audit.auditor || "", dt, rec.materiais.length, diffCount
+    ]);
+  });
+  const ws2 = XLSX.utils.aoa_to_sheet(summaryRows);
+  ws2["!cols"] = [{ wch: 11 }, { wch: 10 }, { wch: 9 }, { wch: 24 }, { wch: 15 }, { wch: 20 }, { wch: 18 }, { wch: 11 }, { wch: 17 }];
+  ws2["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 0, c: summaryHeaders.length - 1 } }) };
+  XLSX.utils.book_append_sheet(wb, ws2, "Resumo por OS");
+
+  const today = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `relatorio_materiais_auditoria_${today}.xlsx`);
+}
+
+document.getElementById("downloadBtn").addEventListener("click", downloadReport);
+
+// A sincronização em tempo real (Firestore) fica no listener do <head>,
+// que chama applyAuditData() sozinho assim que os dados chegam. Aqui só
+// desenhamos a tela uma primeira vez com o estado inicial (vazio).
+render();
 </script>
 
 </body>
