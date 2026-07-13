@@ -344,7 +344,8 @@ function blankEmpresa(nome){
     metaMargem:0, metaPayback:12, multMRR:14, multEBITDA:4,
     custosAtual:[], custosComprador:[], investimentos:[],
     propostas:[], propostaSugEntrada:50, propostaSugParcelas:12,
-    finPrazo:12, finSelic:14.5, finValorOverride:null,
+    finSelic:14.5, finValorOverride:null,
+    finCarenciaTri:3, finParcelasTri:13, finFlatPct:1.6, finIRPct:17.647,
     kmz:null, // {name, dataUrl}
   };
 }
@@ -402,7 +403,7 @@ function demoEmpresa(){
       {nome:"Proposta 3",valor:500000,entrada:50,parcelas:12},
       {nome:"Proposta 4",valor:550000,entrada:50,parcelas:12},
     ],
-    finPrazo:13, finSelic:14.5,
+    finSelic:14.5, finCarenciaTri:3, finParcelasTri:13, finFlatPct:1.6, finIRPct:17.647,
   });
   return e;
 }
@@ -455,6 +456,50 @@ const sumRows = list => list.reduce((s,r)=>s+rowTotal(r),0);
 const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;').replace(/</g,'&lt;');
 
 /* ======================================================================
+   CÁLCULO DE EMPRÉSTIMO (memória de cálculo — carência + SAC trimestral +
+   comissão flat + IR sobre juros, igual à planilha de reestruturação)
+====================================================================== */
+function calcEmprestimo(p, investTotal){
+  const valor = p.finValorOverride!=null ? p.finValorOverride : investTotal;
+  const carencia = Math.max(0, Math.round(p.finCarenciaTri||0));
+  const parcelasAmort = Math.max(1, Math.round(p.finParcelasTri||1));
+  const taxaTri = (p.finSelic||0)/4/100; // Selic a.a. ÷ 4 trimestres, taxa simples
+  const flatPct = (p.finFlatPct||0)/100;
+  const irPct = (p.finIRPct||0)/100;
+  const principalPorParcela = valor/parcelasAmort;
+
+  const linhas = [];
+  const flatValor = valor*flatPct;
+  linhas.push({ parcela:0, dia:0, saldo:valor, principal:0, juros:0, flat:flatValor,
+    semImposto: valor-flatValor, ir:0, comImposto: valor-flatValor, mensalEquiv:null });
+
+  let saldo = valor;
+  const totalPeriodos = carencia+parcelasAmort;
+  for(let k=1;k<=totalPeriodos;k++){
+    const juros = saldo*taxaTri;
+    const principal = k>carencia ? principalPorParcela : 0;
+    const semImposto = juros+principal;
+    const ir = juros*irPct;
+    const comImposto = semImposto+ir;
+    linhas.push({ parcela:k, dia:k*90, saldo, principal, juros, flat:0,
+      semImposto, ir, comImposto, mensalEquiv: comImposto/3 });
+    saldo -= principal;
+  }
+
+  const somaPrincipal = valor;
+  const somaJuros = linhas.reduce((s,l)=>s+l.juros,0);
+  const somaIR = linhas.reduce((s,l)=>s+l.ir,0);
+  const custoTotalEmprestimo = somaJuros+somaIR+flatValor;
+  const totalDesembolsado = somaPrincipal+somaJuros+somaIR;
+
+  const ano1 = linhas.filter(l=>l.parcela>=1&&l.parcela<=4).reduce((s,l)=>s+l.comImposto,0);
+  const reservaMensalAno1 = ano1/12;
+
+  return { valor, carencia, parcelasAmort, taxaTri, flatValor, linhas,
+    somaPrincipal, somaJuros, somaIR, custoTotalEmprestimo, totalDesembolsado, reservaMensalAno1 };
+}
+
+/* ======================================================================
    COMPUTED MODEL (per provider)
 ====================================================================== */
 function compute(p){
@@ -485,17 +530,13 @@ function compute(p){
   const paybackOk = isFinite(payback) && payback<=(p.metaPayback||0);
   const conclusao = (ebitdaPositivo && margemOk && paybackOk) ? "SIM" : "REVISAR";
 
-  const finValor = p.finValorOverride!=null ? p.finValorOverride : investTotal;
-  const i = Math.pow(1+(p.finSelic/100||0),1/12)-1;
-  const n = p.finPrazo||1;
-  const parcelaPrice = i>0 ? finValor*i/(1-Math.pow(1+i,-n)) : finValor/n;
-  const caixaPosParcela = ebitdaComprador - parcelaPrice;
-  const totalPago = parcelaPrice*n;
+  const emprestimo = calcEmprestimo(p, investTotal);
+  emprestimo.caixaPosReserva = ebitdaComprador - emprestimo.reservaMensalAno1;
 
   return { custoAtualTotal, custoCompradorTotal, investTotal, mrr, deducoes,
     ebitdaAtual, ebitdaComprador, margemAtual, margemComprador, custoClienteAtual, custoClienteComprador,
     invPorCliente, invPctMRRano, payback, evMRR, evEBITDAano, tetoMRR, tetoEBITDA, tetoSustentavel,
-    ebitdaPositivo, margemOk, paybackOk, conclusao, finValor, parcelaPrice, caixaPosParcela, totalPago };
+    ebitdaPositivo, margemOk, paybackOk, conclusao, emprestimo };
 }
 
 function proposalCalc(pr, p, m){
@@ -699,19 +740,30 @@ function tplValuation(){
     <div class="panel"><div class="check-list" id="checkList"></div></div>
   </div>
   <div class="sec-block">
-    <h3>Financiamento (referência simplificada)</h3>
-    <p class="hint">Tabela Price mensal — para a estrutura negociada específica, use a planilha completa.</p>
+    <h3>Cálculo de Empréstimo — Financiamento da Entrada</h3>
+    <p class="hint">Memória de cálculo igual à planilha de reestruturação: carência + amortização trimestral (SAC) + comissão flat + IR sobre os juros.</p>
     <div class="panel">
       <div class="field-grid">
-        <div class="field"><label>Valor a financiar (R$)</label><input id="in-fin-valor" type="number" step="1"></div>
-        <div class="field"><label>Prazo (meses)</label><input id="in-fin-prazo" type="number" step="1"></div>
+        <div class="field"><label>Valor do empréstimo (R$)</label><input id="in-fin-valor" type="number" step="1"></div>
         <div class="field"><label>Selic de referência (% a.a.)</label><input id="in-fin-selic" type="number" step="0.1"></div>
+        <div class="field"><label>Carência (trimestres)</label><input id="in-fin-carencia" type="number" step="1"></div>
+        <div class="field"><label>Parcelas trimestrais de principal</label><input id="in-fin-parcelas" type="number" step="1"></div>
+        <div class="field"><label>Comissão flat (%)</label><input id="in-fin-flat" type="number" step="0.01"></div>
+        <div class="field"><label>IR sobre juros (%)</label><input id="in-fin-ir" type="number" step="0.001"></div>
       </div>
       <div class="kpi-row" style="margin-top:16px;">
-        <div class="kpi"><div class="label">Parcela mensal (Price)</div><div class="value" id="kpi-fin-parcela">—</div></div>
-        <div class="kpi"><div class="label">Caixa mensal pós-parcela</div><div class="value" id="kpi-fin-caixa">—</div></div>
-        <div class="kpi"><div class="label">Total pago no prazo</div><div class="value" id="kpi-fin-total">—</div></div>
+        <div class="kpi"><div class="label">Total de juros</div><div class="value" id="kpi-fin-juros">—</div></div>
+        <div class="kpi"><div class="label">Total de IR s/ juros</div><div class="value" id="kpi-fin-ir-total">—</div></div>
+        <div class="kpi"><div class="label">Comissão flat paga</div><div class="value" id="kpi-fin-flat">—</div></div>
+        <div class="kpi"><div class="label">Custo total do empréstimo</div><div class="value" id="kpi-fin-custo">—</div><div class="sub">Juros + IR + flat</div></div>
+        <div class="kpi hi"><div class="label">Reserva mensal recomendada (ano 1)</div><div class="value" id="kpi-fin-reserva">—</div><div class="sub">Guardar todo mês pra cobrir os pagamentos trimestrais</div></div>
+        <div class="kpi"><div class="label">Caixa mensal pós-reserva</div><div class="value" id="kpi-fin-caixa">—</div></div>
       </div>
+      <div class="table-scroll" style="margin-top:18px;"><table id="tbl-emprestimo">
+        <thead><tr><th>Parcela</th><th>Dia</th><th>Saldo Devedor</th><th>Principal</th><th>Juros</th><th>Flat</th><th>Fluxo s/ Impostos</th><th>IR s/ Juros</th><th>Fluxo c/ Impostos</th><th>Vr. Mensal Equiv.</th></tr></thead>
+        <tbody id="emprestimo-body"></tbody>
+      </table></div>
+      <p class="note">Carência: só paga juros a cada trimestre, sem amortizar o principal. Depois da carência, o principal é dividido em parcelas trimestrais iguais (SAC), com juros decrescentes sobre o saldo devedor. Reserva mensal recomendada = soma dos 4 primeiros trimestres (1º ano) ÷ 12.</p>
     </div>
   </div>`;
 }
@@ -897,6 +949,24 @@ function buildPropostasTable(){
   };
 }
 
+function buildEmprestimoTable(emp){
+  const tbody = document.getElementById('emprestimo-body');
+  if(!tbody) return;
+  tbody.innerHTML = emp.linhas.map(l=>`
+    <tr>
+      <td>${l.parcela}</td>
+      <td>${l.dia}</td>
+      <td>${fmtBRL2(l.saldo)}</td>
+      <td>${l.principal?fmtBRL2(l.principal):'—'}</td>
+      <td>${l.juros?fmtBRL2(l.juros):'—'}</td>
+      <td>${l.flat?fmtBRL2(l.flat):'—'}</td>
+      <td>${fmtBRL2(l.semImposto)}</td>
+      <td>${l.ir?fmtBRL2(l.ir):'—'}</td>
+      <td class="computed">${fmtBRL2(l.comImposto)}</td>
+      <td>${l.mensalEquiv!=null?fmtBRL2(l.mensalEquiv):'—'}</td>
+    </tr>`).join('');
+}
+
 /* ======================================================================
    RECOMPUTE (runs on every keystroke — text-only updates, no rebuild)
 ====================================================================== */
@@ -958,10 +1028,14 @@ function recomputeAll(){
   }
 
   const finValEl = document.getElementById('in-fin-valor');
-  if(finValEl && document.activeElement!==finValEl) finValEl.value = Math.round(m.finValor);
-  setText('kpi-fin-parcela', fmtBRL(m.parcelaPrice));
-  setText('kpi-fin-caixa', fmtBRL(m.caixaPosParcela));
-  setText('kpi-fin-total', fmtBRL(m.totalPago));
+  if(finValEl && document.activeElement!==finValEl) finValEl.value = Math.round(m.emprestimo.valor);
+  setText('kpi-fin-juros', fmtBRL(m.emprestimo.somaJuros));
+  setText('kpi-fin-ir-total', fmtBRL(m.emprestimo.somaIR));
+  setText('kpi-fin-flat', fmtBRL(m.emprestimo.flatValor));
+  setText('kpi-fin-custo', fmtBRL(m.emprestimo.custoTotalEmprestimo));
+  setText('kpi-fin-reserva', fmtBRL(m.emprestimo.reservaMensalAno1));
+  setText('kpi-fin-caixa', fmtBRL(m.emprestimo.caixaPosReserva));
+  buildEmprestimoTable(m.emprestimo);
 
   refreshProposalsComputed(p, m);
   renderSidebar();
@@ -1062,8 +1136,11 @@ function fillFields(){
   set('in-metapayback', p.metaPayback);
   set('in-multmrr', p.multMRR);
   set('in-multebitda', p.multEBITDA);
-  set('in-fin-prazo', p.finPrazo);
   set('in-fin-selic', p.finSelic);
+  set('in-fin-carencia', p.finCarenciaTri);
+  set('in-fin-parcelas', p.finParcelasTri);
+  set('in-fin-flat', p.finFlatPct);
+  set('in-fin-ir', p.finIRPct);
   set('pstatus', p.status||"Prospecção");
   applyStatusColor();
 }
@@ -1088,8 +1165,11 @@ function bindAll(){
   bindField('in-metapayback', (p,v)=>p.metaPayback=parseFloat(v)||0);
   bindField('in-multmrr', (p,v)=>p.multMRR=parseFloat(v)||0);
   bindField('in-multebitda', (p,v)=>p.multEBITDA=parseFloat(v)||0);
-  bindField('in-fin-prazo', (p,v)=>p.finPrazo=parseFloat(v)||1);
   bindField('in-fin-selic', (p,v)=>p.finSelic=parseFloat(v)||0);
+  bindField('in-fin-carencia', (p,v)=>p.finCarenciaTri=parseFloat(v)||0);
+  bindField('in-fin-parcelas', (p,v)=>p.finParcelasTri=parseFloat(v)||1);
+  bindField('in-fin-flat', (p,v)=>p.finFlatPct=parseFloat(v)||0);
+  bindField('in-fin-ir', (p,v)=>p.finIRPct=parseFloat(v)||0);
   const finValEl = document.getElementById('in-fin-valor');
   if(finValEl) finValEl.oninput = e => { current().finValorOverride = parseFloat(e.target.value)||0; recomputeAll(); saveApp(); };
 
