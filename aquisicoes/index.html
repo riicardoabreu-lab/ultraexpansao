@@ -409,6 +409,57 @@ function demoEmpresa(){
 }
 
 let app = loadApp();
+(function seedPronetfibra(){
+  if(app.empresas.some(e=>(e.nome||'').toLowerCase().includes('pronetfibra'))) return;
+  const e = blankEmpresa('Pronetfibra Paraipaba (Boa Vista)');
+  Object.assign(e, {
+    status:'Prospecção', comprador:'INFOLINK TELECOM', regiao:'Paraipaba (Boa Vista) / CE',
+    data:'2026-07-13', clientes:925, mrr:73998,
+    custosAtual:[
+      {cat:'DO',item:'Link de Internet',qtd:1,valor:4200},
+      {cat:'DO',item:'Serviços Terceirizados PF/PJ',qtd:1,valor:60.6},
+      {cat:'DO',item:'Assessoria Administrativa',qtd:1,valor:300},
+      {cat:'DO',item:'Publicidade e Marketing',qtd:1,valor:150},
+      {cat:'DO',item:'Licença de Software',qtd:1,valor:350},
+      {cat:'DO',item:'Taxas de Associação',qtd:1,valor:153},
+      {cat:'DF',item:'Consórcio Bradesco',qtd:1,valor:658},
+      {cat:'DO',item:'Aluguel de Bloco IP',qtd:1,valor:1000},
+      {cat:'DP',item:'Comissões Vendedores',qtd:1,valor:532},
+      {cat:'DP',item:'Assistência Médica/Odontológica',qtd:1,valor:320},
+      {cat:'DP',item:'INSS',qtd:1,valor:771.58},
+      {cat:'DO',item:'Rede Elétrica',qtd:1,valor:306.06},
+      {cat:'DO',item:'Consultoria (TI)',qtd:1,valor:500},
+      {cat:'DP',item:'Pró-labore Sócios',qtd:1,valor:3500},
+      {cat:'DP',item:'Salários e Ordenados',qtd:1,valor:9576.98},
+      {cat:'DF',item:'Material de Instalação',qtd:1,valor:5355},
+      {cat:'DF',item:'Material de Rede',qtd:1,valor:2567.81},
+      {cat:'DO',item:'App/ERP Sistema',qtd:3,valor:44.68},
+    ],
+    custosComprador:[
+      {cat:'DO',item:'Transporte L2',qtd:3000,valor:0.5},
+      {cat:'DO',item:'Link IP',qtd:1000,valor:0.6},
+      {cat:'DO',item:'PTTS',qtd:1000,valor:0.45},
+      {cat:'DO',item:'Material de Instalação',qtd:18,valor:256},
+      {cat:'DO',item:'Material de Distribuição',qtd:1,valor:1000},
+      {cat:'DO',item:'Carro Alugado',qtd:2,valor:1648},
+      {cat:'DO',item:'Combustível',qtd:1,valor:1800},
+      {cat:'DP',item:'Técnico de Campo',qtd:2,valor:3685.55},
+      {cat:'DP',item:'Atendente de Loja',qtd:1,valor:1748},
+      {cat:'DO',item:'Aluguel de Loja/POP',qtd:1,valor:800},
+      {cat:'DO',item:'Rede Elétrica',qtd:1,valor:400},
+      {cat:'DI',item:'Impostos',qtd:1,valor:11500},
+      {cat:'DF',item:'INSS',qtd:1,valor:678.99},
+    ],
+    propostas:[
+      {nome:'Nova Proposta',valor:900000,entrada:60,parcelas:12},
+      {nome:'Nova Proposta',valor:980000,entrada:60,parcelas:12},
+      {nome:'Nova Proposta',valor:1000000,entrada:60,parcelas:12},
+    ],
+  });
+  app.empresas.push(e);
+  app.currentId = e.id;
+  saveApp();
+})();
 function loadApp(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
