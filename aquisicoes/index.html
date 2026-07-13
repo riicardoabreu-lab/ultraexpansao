@@ -534,6 +534,7 @@ const fmtNum = n => (isFinite(n)?n:0).toLocaleString('pt-BR',{maximumFractionDig
 const rowTotal = r => (r.qtd||0)*(r.valor||0);
 const sumRows = list => list.reduce((s,r)=>s+rowTotal(r),0);
 const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;').replace(/</g,'&lt;');
+const novoId = prefix => prefix+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 
 /* ======================================================================
    CÁLCULO DE EMPRÉSTIMO (memória de cálculo — carência + SAC trimestral +
@@ -583,6 +584,14 @@ function calcEmprestimo(p, investTotal){
    COMPUTED MODEL (per provider)
 ====================================================================== */
 function compute(p){
+  // Linhas de investimento vinculadas a uma proposta puxam o valor de
+  // entrada (R$) dessa proposta automaticamente, sempre que ela mudar.
+  p.investimentos.forEach(r=>{
+    if(!r.propostaLink) return;
+    const pr = p.propostas.find(x=>x.id===r.propostaLink);
+    if(pr) r.valor = pr.valor*(pr.entrada/100||0);
+  });
+
   const custoAtualTotal = sumRows(p.custosAtual);
   const custoCompradorTotal = sumRows(p.custosComprador);
   const investTotal = sumRows(p.investimentos);
@@ -783,9 +792,9 @@ function tplValuation(){
     <p class="hint">Tudo que o comprador desembolsa para viabilizar a operação.</p>
     <div class="panel">
       <div class="table-scroll"><table id="tbl-invest">
-        <thead><tr><th>Categoria</th><th>Item</th><th>Tipo</th><th>Qtd</th><th>Vr. Unit.</th><th>Total</th><th></th></tr></thead>
+        <thead><tr><th>Categoria</th><th>Item</th><th>Tipo</th><th>Qtd</th><th>Vr. Unit.</th><th>Vincular Proposta</th><th>Total</th><th></th></tr></thead>
         <tbody></tbody>
-        <tfoot><tr><td colspan="5">Investimento total</td><td id="invest-total-geral" class="computed">—</td><td></td></tr></tfoot>
+        <tfoot><tr><td colspan="6">Investimento total</td><td id="invest-total-geral" class="computed">—</td><td></td></tr></tfoot>
       </table></div>
       <button class="add-row" data-add="invest">+ adicionar linha</button>
       <div class="kpi-row" style="margin-top:16px;">
@@ -926,22 +935,34 @@ function buildCostTable(key, tableId){
 
 function buildInvestTable(){
   const p = current();
+  compute(p); // sincroniza r.valor das linhas vinculadas a uma proposta antes de renderizar
   const tbody = document.querySelector('#tbl-invest tbody');
   if(!tbody) return;
-  tbody.innerHTML = p.investimentos.map((r,i)=>`
+  tbody.innerHTML = p.investimentos.map((r,i)=>{
+    const linked = r.propostaLink && p.propostas.find(pr=>pr.id===r.propostaLink);
+    const propostaOptions = `<option value="">— manual —</option>` +
+      p.propostas.map(pr=>`<option value="${pr.id}" ${r.propostaLink===pr.id?'selected':''}>${esc(pr.nome)} (Entrada)</option>`).join('');
+    return `
     <tr data-i="${i}">
       <td><input data-role="cat" type="text" value="${esc(r.cat)}"></td>
       <td><input data-role="item" type="text" value="${esc(r.item)}"></td>
       <td><select data-role="tipo">${tipoOptions(r.tipo)}</select></td>
       <td><input data-role="qtd" type="number" step="0.01" value="${r.qtd}"></td>
-      <td><input data-role="valor" type="number" step="0.01" value="${r.valor}"></td>
+      <td><input data-role="valor" type="number" step="0.01" value="${r.valor}" ${linked?'disabled title="Vindo automaticamente da proposta vinculada"':''}></td>
+      <td><select data-role="propostaLink">${propostaOptions}</select></td>
       <td class="computed" data-role="total">${fmtBRL2(rowTotal(r))}</td>
       <td><button class="rm-btn" data-role="rm">×</button></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
   tbody.oninput = e => {
     const tr = e.target.closest('tr'); if(!tr) return;
     const i = +tr.dataset.i; const role = e.target.dataset.role;
     const row = current().investimentos[i];
+    if(role==='propostaLink'){
+      row.propostaLink = e.target.value || null;
+      recomputeAll(); saveApp(); buildInvestTable();
+      return;
+    }
     if(role==='item') row.item=e.target.value;
     else if(role==='cat') row.cat=e.target.value;
     else if(role==='tipo') row.tipo=e.target.value;
@@ -960,6 +981,7 @@ function buildInvestTable(){
 
 function buildPropostasTable(){
   const p = current();
+  p.propostas.forEach(pr=>{ if(!pr.id) pr.id = novoId('pr'); }); // propostas antigas sem id (compat.)
   const tbody = document.getElementById('propostas-body');
   if(!tbody) return;
   const m = compute(p);
@@ -1258,8 +1280,8 @@ function bindAll(){
       const type = btn.dataset.add; const p = current();
       if(type==='atual'){ p.custosAtual.push({cat:'DO',item:'Novo item',qtd:1,valor:0}); buildCostTable('custosAtual','tbl-atual'); }
       if(type==='comprador'){ p.custosComprador.push({cat:'DO',item:'Novo item',qtd:1,valor:0}); buildCostTable('custosComprador','tbl-comprador'); }
-      if(type==='invest'){ p.investimentos.push({cat:'Outros',item:'Novo item',tipo:'One-off',qtd:1,valor:0}); buildInvestTable(); }
-      if(type==='proposta'){ p.propostas.push({nome:'Nova Proposta',valor:400000,entrada:50,parcelas:12}); buildPropostasTable(); }
+      if(type==='invest'){ p.investimentos.push({cat:'Outros',item:'Novo item',tipo:'One-off',qtd:1,valor:0,propostaLink:null}); buildInvestTable(); }
+      if(type==='proposta'){ p.propostas.push({id:novoId('pr'),nome:'Nova Proposta',valor:400000,entrada:50,parcelas:12}); buildPropostasTable(); buildInvestTable(); }
       recomputeAll(); saveApp();
     };
   });
