@@ -460,6 +460,19 @@ let app = loadApp();
   app.currentId = e.id;
   saveApp();
 })();
+(function seedPronetfibraInvestimentos(){
+  const e = app.empresas.find(e=>(e.nome||'').toLowerCase().includes('pronetfibra'));
+  if(!e || (e.investimentos && e.investimentos.length)) return;
+  e.investimentos = [
+    {cat:'AQUISIÇÃO', item:'Preço de Entrada', tipo:'Compra', qtd:1, valor:500000},
+    {cat:'INTEGRAÇÃO', item:'Integração de Sistema', tipo:'One-off', qtd:1, valor:5000},
+    {cat:'CAPITAL DE GIRO', item:'Reserva de Caixa', tipo:'Capital de giro', qtd:3, valor:350},
+    {cat:'INTEGRAÇÃO', item:'Sistema SGP', tipo:'One-off', qtd:1, valor:0},
+    {cat:'REFORMA', item:'Reforma de Loja', tipo:'One-off', qtd:1, valor:10000},
+    {cat:'INFRAESTRUTURA', item:'Datacenter', tipo:'Capex', qtd:1, valor:8000},
+  ];
+  saveApp();
+})();
 function loadApp(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
