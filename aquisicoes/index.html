@@ -12,7 +12,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   const fb = initializeApp({
     apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
     authDomain: "isp-manager-ce.firebaseapp.com",
@@ -30,31 +30,29 @@
     });
   };
 
-  // ---- Sincronização automática com a nuvem (Firestore) ----
-  // Mesmo projeto Firebase do ISP Manage: quem loga com a mesma conta
-  // compartilha os mesmos dados entre navegadores/dispositivos.
+  // ---- Sincronização em tempo real com a nuvem (Firestore) ----
+  // Mesmo projeto Firebase do ISP Manage: quem loga com a mesma conta vê,
+  // na hora (sem precisar recarregar a página), o que qualquer outra
+  // pessoa salvar em outro navegador/dispositivo. Em caso de edição
+  // simultânea, vale a última que salvou (last write wins).
+  window._lastKnownUpdated = 0;
   window._cloudSave = (data) => {
     if(!window._fbUser) return Promise.resolve();
+    window._lastKnownUpdated = data.updated;
     return setDoc(doc(fsDb, 'aquisicoes_backups', window._fbUser.uid), data);
   };
 
-  onAuthStateChanged(auth, async user => {
+  onAuthStateChanged(auth, user => {
     if(!user) return;
     window._fbUser = user;
-    try{
-      const localEmpty = !localStorage.getItem('plataforma-isp-v1');
-      if(localEmpty && !sessionStorage.getItem('_aquis_cloud_restore_tried')){
-        sessionStorage.setItem('_aquis_cloud_restore_tried', '1');
-        const snap = await getDoc(doc(fsDb, 'aquisicoes_backups', user.uid));
-        if(snap.exists()){
-          const cloud = snap.data();
-          if(cloud.empresas && cloud.empresas.length){
-            localStorage.setItem('plataforma-isp-v1', JSON.stringify({ empresas: cloud.empresas, currentId: cloud.currentId }));
-            window.location.reload();
-          }
-        }
-      }
-    }catch(e){ console.error('Falha ao restaurar Aquisições da nuvem:', e); }
+    onSnapshot(doc(fsDb, 'aquisicoes_backups', user.uid), snap => {
+      if(!snap.exists()) return;
+      const data = snap.data();
+      if(!data.empresas || !data.empresas.length) return;
+      if((data.updated||0) <= (window._lastKnownUpdated||0)) return; // eco do próprio salvamento, ou desatualizado
+      window._lastKnownUpdated = data.updated;
+      if(window._applyRemoteState) window._applyRemoteState(data.empresas);
+    }, err => console.error('Falha no listener de sincronização (Aquisições):', err));
   });
 </script>
 <title>Plataforma de Aquisições ISP</title>
@@ -487,6 +485,24 @@ function saveApp(){
   syncToCloud();
 }
 function current(){ return app.empresas.find(e=>e.id===app.currentId) || app.empresas[0]; }
+
+// ---- Aplica uma atualização recebida em tempo real de outra pessoa ----
+// Preserva o KMZ local (não sincronizado, só o dono do upload tem) e não
+// tira o usuário da empresa que ele está vendo, mesmo que os dados dela
+// tenham mudado.
+function applyRemoteState(remoteEmpresas){
+  const localById = new Map(app.empresas.map(e=>[e.id,e]));
+  app.empresas = remoteEmpresas.map(re=>{
+    const local = localById.get(re.id);
+    return { ...re, kmz: (local && local.kmz) ? local.kmz : (re.kmz || null) };
+  });
+  if(!app.empresas.find(e=>e.id===app.currentId)){
+    app.currentId = app.empresas[0]?.id || null;
+  }
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }catch(e){}
+  renderAll();
+}
+window._applyRemoteState = applyRemoteState;
 
 // ---- Envia os dados para a nuvem (Firestore) alguns instantes após cada
 // alteração, pra outras pessoas logadas com a mesma conta verem os dados
