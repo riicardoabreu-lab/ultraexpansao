@@ -15,6 +15,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
   import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
   const fb = initializeApp({
     apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
     authDomain: "isp-manager-ce.firebaseapp.com",
@@ -25,6 +26,7 @@
   });
   const auth = getAuth(fb);
   const fsDb = getFirestore(fb);
+  const fsStorage = getStorage(fb);
   window._doLogout = function(){
     signOut(auth).finally(()=>{
       sessionStorage.clear();
@@ -41,8 +43,22 @@
       auditor: rec.auditor,
       data_vistoria: rec.data_vistoria,
       itens_auditados: rec.itens_auditados,
+      fotos: rec.fotos || [],
+      observacoes: rec.observacoes || '',
       atualizado_em: Date.now(),
     });
+  };
+
+  // ---- Fotos (Firebase Storage) ----
+  window._fbUploadFoto = async (protocolo, file) => {
+    const path = `auditoria_lb/${protocolo}/${Date.now()}_${file.name}`;
+    const fileRef = ref(fsStorage, path);
+    await uploadBytes(fileRef, file);
+    const url = await getDownloadURL(fileRef);
+    return { url, path, nome: file.name };
+  };
+  window._fbDeleteFoto = (path) => {
+    return deleteObject(ref(fsStorage, path)).catch(err => console.error('Falha ao remover foto do Storage:', err));
   };
 
   onAuthStateChanged(auth, user => {
@@ -60,6 +76,8 @@
           auditor: d.auditor || null,
           data_vistoria: d.data_vistoria || null,
           itens_auditados: d.itens_auditados || {},
+          fotos: d.fotos || [],
+          observacoes: d.observacoes || '',
         };
       });
       if(window._applyAuditData) window._applyAuditData(parsed);
@@ -468,6 +486,43 @@
     border-radius: 6px;
     margin: 2px 4px 2px 0;
   }
+
+  /* ── ABAS (Materiais / Fotos / Obs) ── */
+  .tab-bar {
+    display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--border);
+  }
+  .tab-btn {
+    background: none; border: none; padding: 8px 12px; font-size: 12.5px; font-weight: 600;
+    color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tab-btn:hover { color: var(--purple); }
+  .tab-btn.active { color: var(--purple); border-bottom-color: var(--purple); }
+  .tab-panel { padding: 14px 16px; }
+
+  .foto-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .upload-btn {
+    display: inline-flex; align-items: center; gap: 6px; background: var(--purple); color: #fff;
+    font-size: 12.5px; font-weight: 600; padding: 8px 14px; border-radius: 7px; cursor: pointer;
+  }
+  .upload-btn:hover { opacity: .9; }
+  .foto-status { font-size: 11.5px; color: var(--muted); }
+  .foto-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+  .foto-item { position: relative; width: 96px; height: 96px; }
+  .foto-item img {
+    width: 100%; height: 100%; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); display: block;
+  }
+  .foto-remove {
+    position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--red); color: #fff; border: 2px solid #fff; font-size: 13px; line-height: 1;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .empty-mini { color: var(--muted); font-size: 12.5px; padding: 8px 0; }
+  .obs-textarea {
+    width: 100%; border: 1.5px solid var(--border); border-radius: 8px; padding: 10px 12px;
+    font-family: inherit; font-size: 13px; resize: vertical; outline: none; box-sizing: border-box;
+  }
+  .obs-textarea:focus { border-color: var(--purple); }
+
   .empty {
     text-align: center;
     color: var(--muted);
@@ -542,6 +597,10 @@ const MONTH_NAMES = {
   "07":"Jul","08":"Ago","09":"Set","10":"Out","11":"Nov","12":"Dez"
 };
 
+function esc(s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
 let activeMonth = "todos";
 let activeStatus = "todas";
 let searchTerm = "";
@@ -549,7 +608,7 @@ let auditData = {}; // { protocolo: { status, auditor, data_vistoria, itens_audi
 let storageReady = false;
 
 function getAudit(prot) {
-  return auditData[prot] || { status: "pendente", auditor: null, data_vistoria: null, itens_auditados: {} };
+  return auditData[prot] || { status: "pendente", auditor: null, data_vistoria: null, itens_auditados: {}, fotos: [], observacoes: "" };
 }
 
 function setSyncStatus(state) {
@@ -749,6 +808,53 @@ function updateItemAudit(prot, produto, value) {
   saveAudit(prot);
 }
 
+function reopenCard(prot) {
+  const reopened = [...document.querySelectorAll(".card")].find(c => c.querySelector(`.status-pill[data-prot="${prot}"]`));
+  if (reopened) reopened.classList.add("open");
+}
+
+function updateObservacoes(prot, text) {
+  const current = getAudit(prot);
+  auditData[prot] = { ...current, observacoes: text };
+  saveAudit(prot);
+}
+
+async function addFotos(prot, fileList) {
+  const files = [...fileList].filter(f => f.type.startsWith("image/"));
+  if (!files.length) return;
+  if (!window._fbUploadFoto) { alert("Sincronização indisponível — tente recarregar a página."); return; }
+  const statusEl = document.querySelector(`.foto-status[data-prot="${prot}"]`);
+  if (statusEl) statusEl.textContent = `Enviando ${files.length} foto(s)...`;
+  try {
+    const uploaded = [];
+    for (const file of files) {
+      uploaded.push(await window._fbUploadFoto(prot, file));
+    }
+    const current = getAudit(prot);
+    auditData[prot] = { ...current, fotos: [...(current.fotos || []), ...uploaded] };
+    await saveAudit(prot);
+    render();
+    reopenCard(prot);
+  } catch (e) {
+    console.error("Falha ao enviar foto:", e);
+    alert("Não foi possível enviar a foto. Verifique sua conexão e tente de novo.");
+    render();
+    reopenCard(prot);
+  }
+}
+
+async function removeFoto(prot, index) {
+  if (!confirm("Remover esta foto?")) return;
+  const current = getAudit(prot);
+  const foto = (current.fotos || [])[index];
+  const novas = (current.fotos || []).filter((_, i) => i !== index);
+  auditData[prot] = { ...current, fotos: novas };
+  saveAudit(prot);
+  render();
+  reopenCard(prot);
+  if (foto && foto.path && window._fbDeleteFoto) window._fbDeleteFoto(foto.path);
+}
+
 // Atualiza o "-6"/"OK" ao lado do campo enquanto a pessoa digita, sem
 // redesenhar a tela inteira (senão perderia o foco a cada tecla). O
 // salvamento de verdade (Firestore) só acontece no "change" (ao sair
@@ -845,6 +951,29 @@ function buildCard(rec) {
     body.appendChild(info);
   }
 
+  // ---- Abas: Materiais / Fotos / Obs ----
+  const fotos = audit.fotos || [];
+  const tabBar = document.createElement("div");
+  tabBar.className = "tab-bar";
+  tabBar.innerHTML = `
+    <button type="button" class="tab-btn active" data-tab="materiais">Materiais</button>
+    <button type="button" class="tab-btn" data-tab="fotos">Fotos${fotos.length ? ` (${fotos.length})` : ""}</button>
+    <button type="button" class="tab-btn" data-tab="obs">Obs${audit.observacoes ? " •" : ""}</button>
+  `;
+  tabBar.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const tab = btn.dataset.tab;
+      tabBar.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
+      body.querySelectorAll(".tab-panel").forEach(p => p.style.display = p.dataset.panel === tab ? "" : "none");
+    });
+  });
+  body.appendChild(tabBar);
+
+  const panelMateriais = document.createElement("div");
+  panelMateriais.className = "tab-panel";
+  panelMateriais.dataset.panel = "materiais";
+
   const table = document.createElement("table");
   const theadHtml = `<thead><tr><th>Material</th><th>Unidade</th><th style="text-align:right">Qtd. Sistema</th><th style="text-align:right">Qtd. Auditada</th></tr></thead>`;
   const rowsHtml = rec.materiais.map(m => {
@@ -884,12 +1013,10 @@ function buildCard(rec) {
     input.addEventListener("change", (e) => {
       updateItemAudit(rec.protocolo, e.target.dataset.produto, e.target.value);
       render();
-      // re-open this card after re-render since render() rebuilds the DOM
-      const reopened = [...document.querySelectorAll(".card")].find(c => c.querySelector(`.status-pill[data-prot="${rec.protocolo}"]`));
-      if (reopened) reopened.classList.add("open");
+      reopenCard(rec.protocolo);
     });
   });
-  body.appendChild(table);
+  panelMateriais.appendChild(table);
 
   if (rec.caixas_emenda.length) {
     const ceoBlock = document.createElement("div");
@@ -898,8 +1025,55 @@ function buildCard(rec) {
       <div class="ceo-title">Nº de série das CEOs utilizadas</div>
       ${rec.caixas_emenda.map(c => `<span class="ceo-chip">${c.numero_serie}</span>`).join("")}
     `;
-    body.appendChild(ceoBlock);
+    panelMateriais.appendChild(ceoBlock);
   }
+  body.appendChild(panelMateriais);
+
+  // ---- Aba Fotos ----
+  const panelFotos = document.createElement("div");
+  panelFotos.className = "tab-panel";
+  panelFotos.dataset.panel = "fotos";
+  panelFotos.style.display = "none";
+  panelFotos.innerHTML = `
+    <div class="foto-toolbar">
+      <label class="upload-btn">
+        📷 Adicionar foto
+        <input type="file" accept="image/*" multiple class="foto-input" style="display:none;">
+      </label>
+      <span class="foto-status" data-prot="${rec.protocolo}"></span>
+    </div>
+    <div class="foto-grid">
+      ${fotos.length ? fotos.map((f, i) => `
+        <div class="foto-item">
+          <a href="${esc(f.url)}" target="_blank" rel="noopener"><img src="${esc(f.url)}" loading="lazy" alt=""></a>
+          <button type="button" class="foto-remove" data-idx="${i}" title="Remover">×</button>
+        </div>`).join("") : '<div class="empty-mini">Nenhuma foto ainda.</div>'}
+    </div>
+  `;
+  panelFotos.querySelector(".foto-input").addEventListener("change", (e) => {
+    if (e.target.files && e.target.files.length) addFotos(rec.protocolo, e.target.files);
+    e.target.value = "";
+  });
+  panelFotos.querySelectorAll(".foto-remove").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      removeFoto(rec.protocolo, Number(btn.dataset.idx));
+    });
+  });
+  body.appendChild(panelFotos);
+
+  // ---- Aba Obs ----
+  const panelObs = document.createElement("div");
+  panelObs.className = "tab-panel";
+  panelObs.dataset.panel = "obs";
+  panelObs.style.display = "none";
+  panelObs.innerHTML = `<textarea class="obs-textarea" rows="5" placeholder="Comentários, observações da vistoria...">${esc(audit.observacoes)}</textarea>`;
+  panelObs.querySelector(".obs-textarea").addEventListener("change", (e) => {
+    updateObservacoes(rec.protocolo, e.target.value);
+    render();
+    reopenCard(rec.protocolo);
+  });
+  body.appendChild(panelObs);
 
   card.appendChild(head);
   card.appendChild(body);
