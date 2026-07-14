@@ -761,7 +761,7 @@ function liveUpdateDiff(inputEl) {
   const existingTag = td.querySelector(".diff-tag");
 
   inputEl.classList.remove("match", "diff");
-  if (raw === "") {
+  if (raw === "" || (Number(raw) === 0 && qtySistema !== 0)) {
     if (existingTag) existingTag.remove();
     return;
   }
@@ -854,7 +854,9 @@ function buildCard(rec) {
     let cls = "";
     let diffTag = "";
     if (hasAudit) {
-      if (Number(auditedVal) === m.quantidade) {
+      if (Number(auditedVal) === 0 && m.quantidade !== 0) {
+        // zerado — não marca como diferença
+      } else if (Number(auditedVal) === m.quantidade) {
         cls = "match";
         diffTag = `<span class="diff-tag match">OK</span>`;
       } else {
