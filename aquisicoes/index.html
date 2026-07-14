@@ -361,7 +361,8 @@ function blankEmpresa(nome){
     finSelic:14.5, finValorOverride:null,
     finCarenciaTri:3, finParcelasTri:13, finFlatPct:1.6, finIRPct:17.647,
     kmz:null, // {name} — o arquivo em si fica no IndexedDB deste navegador, não aqui
-    kmzCustoCaixa:0, kmzCustoCeo:0, kmzCustoMetro:0,
+    kmzCustoCaixa:0, kmzCustoCeo:0,
+    kmzCustoMetroRota:0, kmzCustoMetroDerivacao:0, kmzCustoMetroOutro:0,
   };
 }
 
@@ -919,7 +920,7 @@ function tplRede(){
   </div>
   <div class="sec-block" id="kmzStatsBlock" style="display:none;">
     <h3>Quantitativo da rede</h3>
-    <p class="hint">Calculado a partir do arquivo KMZ/KML carregado (classificação de caixa/CEO pelo nome de cada ponto).</p>
+    <p class="hint">Calculado a partir do arquivo KMZ/KML carregado (classificação de caixa/CEO/cabo pelo nome de cada elemento).</p>
     <div class="panel">
       <div class="kpi-row">
         <div class="kpi"><div class="label">Caixas / CTOs</div><div class="value" id="kpi-kmz-caixas">—</div></div>
@@ -930,12 +931,15 @@ function tplRede(){
       <div class="field-grid" style="margin-top:16px;">
         <div class="field"><label>Custo por caixa/CTO (R$)</label><input id="in-kmz-custo-caixa" type="number" step="1"></div>
         <div class="field"><label>Custo por CEO (R$)</label><input id="in-kmz-custo-ceo" type="number" step="1"></div>
-        <div class="field"><label>Custo por metro de cabo (R$)</label><input id="in-kmz-custo-metro" type="number" step="0.1"></div>
       </div>
+      <div class="table-scroll" style="margin-top:16px;"><table>
+        <thead><tr><th>Categoria de cabo</th><th style="text-align:right">Segmentos</th><th style="text-align:right">Metragem</th><th style="text-align:right">Custo/metro (R$)</th><th style="text-align:right">Total</th></tr></thead>
+        <tbody id="kmz-cabos-body"></tbody>
+      </table></div>
       <div class="kpi-row" style="margin-top:16px;">
-        <div class="kpi hi"><div class="label">Valor estimado da rede</div><div class="value" id="kpi-kmz-valor">—</div><div class="sub">Caixas×custo + CEOs×custo + metragem×custo/metro</div></div>
+        <div class="kpi hi"><div class="label">Valor estimado da rede</div><div class="value" id="kpi-kmz-valor">—</div><div class="sub">Caixas×custo + CEOs×custo + Σ(metragem×custo/metro por categoria)</div></div>
       </div>
-      <p class="note">Classificação automática pelo nome do ponto no KMZ (ex: "CT10B", "CTO" → caixa; "CEO" → emenda). Confira visualmente no mapa acima se bateu — nomes fora do padrão entram como "outro" e não contam no quantitativo.</p>
+      <p class="note">Pontos: nomes tipo "CT10B"/"CTO" → caixa; "CEO" → emenda. Cabos: nomes com "ROTA"/"BACKBONE" → rota (backbone); "DERIVAÇÃO"/"DROP"/"RAMAL" → derivação. Confira visualmente no mapa acima se bateu — nomes fora do padrão entram como "outro".</p>
     </div>
   </div>`;
 }
@@ -1456,6 +1460,17 @@ function classifyPlacemark(name, folderName){
   return 'outro';
 }
 
+// Classifica um cabo (LineString) pela categoria de rota no nome — bem
+// mais confiável que tentar extrair bitola/tipo de fibra da descrição
+// (que costuma vir em texto livre, quando vem).
+function classifyLine(name, folderName){
+  const text = ((name||'') + ' ' + (folderName||'')).toUpperCase();
+  if(/\bROTA\b|BACKBONE|BACKBOND/.test(text)) return 'rota';
+  if(/DERIVA[ÇC][ÃA]O|\bDROP\b|\bRAMAL\b/.test(text)) return 'derivacao';
+  return 'outro';
+}
+const LINE_COLORS = { rota:'#fbbf24', derivacao:'#a78bfa', outro:'#8b99b6' };
+
 function haversineMeters(lat1, lon1, lat2, lon2){
   const R = 6371000;
   const toRad = d => d*Math.PI/180;
@@ -1476,6 +1491,9 @@ function parseKML(xmlText){
   const layer = L.layerGroup();
   let count = 0;
   let caixas = 0, ceos = 0, outros = 0, cabosCount = 0, metragemTotal = 0;
+  const cabosPorTipo = {
+    rota:{count:0, metros:0}, derivacao:{count:0, metros:0}, outro:{count:0, metros:0}
+  };
   const coordsToLatLngs = txt => txt.trim().split(/\s+/).filter(Boolean).map(c=>{
     const parts = c.split(',').map(Number); return [parts[1], parts[0]];
   });
@@ -1503,9 +1521,13 @@ function parseKML(xmlText){
     if(line){
       const c = line.getElementsByTagName('coordinates')[0]?.textContent;
       if(c){ const ll = coordsToLatLngs(c); if(ll.length>1){
-        L.polyline(ll, {color:'#fbbf24', weight:3}).bindPopup(popupHtml).addTo(layer);
+        const tipoLinha = classifyLine(name, folderName);
+        const metros = polylineLengthMeters(ll);
+        L.polyline(ll, {color:LINE_COLORS[tipoLinha], weight:3}).bindPopup(popupHtml).addTo(layer);
         cabosCount++;
-        metragemTotal += polylineLengthMeters(ll);
+        metragemTotal += metros;
+        cabosPorTipo[tipoLinha].count++;
+        cabosPorTipo[tipoLinha].metros += metros;
         count++;
       } }
     }
@@ -1515,8 +1537,18 @@ function parseKML(xmlText){
       if(c){ const ll = coordsToLatLngs(c); if(ll.length>2){ L.polygon(ll, {color:'#fb7185', fillOpacity:.15, weight:2}).bindPopup(popupHtml).addTo(layer); count++; } }
     }
   });
-  return {layer, count, stats:{caixas, ceos, outros, cabosCount, metragemTotal}};
+  return {layer, count, stats:{caixas, ceos, outros, cabosCount, metragemTotal, cabosPorTipo}};
 }
+
+function fmtMetros(m){
+  return m>=1000 ? (m/1000).toLocaleString('pt-BR',{maximumFractionDigits:2})+' km' : fmtNum(Math.round(m))+' m';
+}
+
+const KMZ_TIPOS_CABO = [
+  {key:'rota', label:'Rota (backbone)', field:'kmzCustoMetroRota'},
+  {key:'derivacao', label:'Derivação (ramal/drop)', field:'kmzCustoMetroDerivacao'},
+  {key:'outro', label:'Outro / não identificado', field:'kmzCustoMetroOutro'},
+];
 
 function renderKmzStatsPanel(){
   const block = document.getElementById('kmzStatsBlock');
@@ -1528,8 +1560,31 @@ function renderKmzStatsPanel(){
   setText('kpi-kmz-caixas', fmtNum(s.caixas));
   setText('kpi-kmz-ceos', fmtNum(s.ceos));
   setText('kpi-kmz-cabos', fmtNum(s.cabosCount));
-  setText('kpi-kmz-metragem', s.metragemTotal>=1000 ? (s.metragemTotal/1000).toLocaleString('pt-BR',{maximumFractionDigits:2})+' km' : fmtNum(Math.round(s.metragemTotal))+' m');
-  const valor = s.caixas*(p.kmzCustoCaixa||0) + s.ceos*(p.kmzCustoCeo||0) + s.metragemTotal*(p.kmzCustoMetro||0);
+  setText('kpi-kmz-metragem', fmtMetros(s.metragemTotal));
+
+  const tbody = document.getElementById('kmz-cabos-body');
+  if(tbody){
+    tbody.innerHTML = KMZ_TIPOS_CABO.map(t=>{
+      const d = s.cabosPorTipo[t.key] || {count:0, metros:0};
+      return `<tr>
+        <td>${t.label}</td>
+        <td class="qty">${fmtNum(d.count)}</td>
+        <td class="qty">${fmtMetros(d.metros)}</td>
+        <td><input type="number" class="kmz-custo-metro-tipo" data-field="${t.field}" step="0.1" value="${p[t.field]||''}" placeholder="0"></td>
+        <td class="computed">${fmtBRL(d.metros*(p[t.field]||0))}</td>
+      </tr>`;
+    }).join('');
+    tbody.querySelectorAll('.kmz-custo-metro-tipo').forEach(inp=>{
+      inp.oninput = e => {
+        current()[e.target.dataset.field] = parseFloat(e.target.value)||0;
+        renderKmzStatsPanel();
+        saveApp();
+      };
+    });
+  }
+
+  const valorCabos = KMZ_TIPOS_CABO.reduce((sum,t)=> sum + (s.cabosPorTipo[t.key]?.metros||0)*(p[t.field]||0), 0);
+  const valor = s.caixas*(p.kmzCustoCaixa||0) + s.ceos*(p.kmzCustoCeo||0) + valorCabos;
   setText('kpi-kmz-valor', fmtBRL(valor));
 }
 
@@ -1626,7 +1681,7 @@ function bindKmzControls(){
     const a = document.createElement('a'); a.href=url; a.download=stored.name; a.click();
     URL.revokeObjectURL(url);
   };
-  [['in-kmz-custo-caixa','kmzCustoCaixa'],['in-kmz-custo-ceo','kmzCustoCeo'],['in-kmz-custo-metro','kmzCustoMetro']].forEach(([id, field])=>{
+  [['in-kmz-custo-caixa','kmzCustoCaixa'],['in-kmz-custo-ceo','kmzCustoCeo']].forEach(([id, field])=>{
     const el = document.getElementById(id); if(!el) return;
     el.value = current()[field] || '';
     el.oninput = e => { current()[field] = parseFloat(e.target.value)||0; renderKmzStatsPanel(); saveApp(); };
