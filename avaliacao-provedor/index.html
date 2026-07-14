@@ -119,6 +119,7 @@
 <header>
   <div class="topbar-actions">
     <a href="../home.html" class="ghost-btn">← Voltar</a>
+    <button class="ghost-btn" onclick="zerar()">Zerar</button>
     <button class="ghost-btn" onclick="window._doLogout()">Sair</button>
   </div>
   <h1>Calculadora de Avaliação de Provedor</h1>
@@ -247,6 +248,16 @@ function calcular(){
   document.getElementById('tagMultTeto').textContent = multTeto + 'x MRR';
   document.getElementById('tagMultM').textContent = multM + 'x MRR';
   document.getElementById('tagMultC').textContent = multC + 'x MRR';
+}
+
+function zerar(){
+  document.getElementById('clientes').value = '';
+  document.getElementById('mrr').value = '';
+  document.getElementById('multTeto').value = 14;
+  document.getElementById('multM').value = 10;
+  document.getElementById('multC').value = 7;
+  document.getElementById('pctEntrada').value = 50;
+  calcular();
 }
 
 calcular();
