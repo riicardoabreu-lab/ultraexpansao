@@ -12,7 +12,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, doc, setDoc, getDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   const fb = initializeApp({
     apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
     authDomain: "isp-manager-ce.firebaseapp.com",
@@ -40,6 +40,22 @@
     if(!window._fbUser) return Promise.resolve();
     window._lastKnownUpdated = data.updated;
     return setDoc(doc(fsDb, 'aquisicoes_backups', window._fbUser.uid), data);
+  };
+
+  // ---- KMZ na nuvem (documento à parte por provedor) ----
+  // Fica fora do backup principal pra não inflar aquele documento com
+  // arquivos de rede de todos os provedores de uma vez. Só sincroniza se
+  // couber com folga no limite de ~1MB por documento do Firestore.
+  window._fbSaveKmz = (empresaId, kmz) => {
+    if(!window._fbUser) return Promise.resolve();
+    return setDoc(doc(fsDb, 'aquisicoes_kmz', empresaId), { ...kmz, uid: window._fbUser.uid, atualizado_em: Date.now() });
+  };
+  window._fbGetKmz = async (empresaId) => {
+    const snap = await getDoc(doc(fsDb, 'aquisicoes_kmz', empresaId));
+    return snap.exists() ? snap.data() : null;
+  };
+  window._fbDeleteKmz = (empresaId) => {
+    return deleteDoc(doc(fsDb, 'aquisicoes_kmz', empresaId)).catch(err => console.error('Falha ao remover KMZ da nuvem:', err));
   };
 
   onAuthStateChanged(auth, user => {
@@ -503,15 +519,11 @@ function saveApp(){
 function current(){ return app.empresas.find(e=>e.id===app.currentId) || app.empresas[0]; }
 
 // ---- Aplica uma atualização recebida em tempo real de outra pessoa ----
-// Preserva o KMZ local (não sincronizado, só o dono do upload tem) e não
-// tira o usuário da empresa que ele está vendo, mesmo que os dados dela
-// tenham mudado.
+// Não tira o usuário da empresa que ele está vendo, mesmo que os dados
+// dela tenham mudado. O marcador do KMZ (kmz:{name}) vem direto da nuvem
+// agora — o arquivo em si é buscado à parte (getKmzFile) quando preciso.
 function applyRemoteState(remoteEmpresas){
-  const localById = new Map(app.empresas.map(e=>[e.id,e]));
-  app.empresas = remoteEmpresas.map(re=>{
-    const local = localById.get(re.id);
-    return { ...re, kmz: (local && local.kmz) ? local.kmz : (re.kmz || null) };
-  });
+  app.empresas = remoteEmpresas.map(re => ({ ...re, kmz: re.kmz || null }));
   if(!app.empresas.find(e=>e.id===app.currentId)){
     app.currentId = app.empresas[0]?.id || null;
   }
@@ -522,19 +534,15 @@ window._applyRemoteState = applyRemoteState;
 
 // ---- Envia os dados para a nuvem (Firestore) alguns instantes após cada
 // alteração, pra outras pessoas logadas com a mesma conta verem os dados
-// atualizados. O KMZ de cada provedor fica de fora (só localmente), pois em
-// base64 facilmente estouraria o limite de 1MB por documento do Firestore.
+// atualizados. O campo kmz aqui é só o marcador leve ({name}) — o arquivo
+// em si (se pequeno o bastante) sincroniza à parte, via aquisicoes_kmz.
 let _cloudSyncTimer = null;
 function syncToCloud(){
   if(!window._fbUser || !window._cloudSave) return;
   clearTimeout(_cloudSyncTimer);
   _cloudSyncTimer = setTimeout(async ()=>{
     try{
-      const empresasSemKmz = app.empresas.map(e=>{
-        const { kmz, ...rest } = e;
-        return rest;
-      });
-      await window._cloudSave({ empresas: empresasSemKmz, currentId: app.currentId, updated: Date.now() });
+      await window._cloudSave({ empresas: app.empresas, currentId: app.currentId, updated: Date.now() });
     }catch(e){ console.error('Falha ao sincronizar Aquisições com a nuvem:', e); }
   }, 1500);
 }
@@ -897,7 +905,7 @@ function tplRede(){
   return `
   <div class="sec-block">
     <h3>Rede do provedor</h3>
-    <p class="hint">Envie o arquivo KMZ/KML da rede para visualizar no mapa. Fica salvo com este provedor, só neste navegador (não sincroniza na nuvem).</p>
+    <p class="hint">Envie o arquivo KMZ/KML da rede para visualizar no mapa. Sincroniza com a equipe se o arquivo for pequeno (até ~900KB); arquivos maiores ficam só neste navegador.</p>
     <div class="panel">
       <div class="map-toolbar">
         <button class="upload-btn" id="kmzUploadBtn">Carregar KMZ / KML</button>
@@ -1525,12 +1533,33 @@ function renderKmzStatsPanel(){
   setText('kpi-kmz-valor', fmtBRL(valor));
 }
 
+// Limite de folga pra sincronizar o KMZ com a nuvem (documento à parte,
+// dentro do teto de ~1MB por documento do Firestore). Arquivos maiores
+// que isso ficam só neste navegador (IndexedDB), como antes.
+const KMZ_LIMITE_NUVEM = 900000;
+
+// Busca o arquivo local primeiro (rápido); se não achar, tenta a nuvem
+// (outro dispositivo pode ter enviado) e guarda uma cópia local também.
+async function getKmzFile(p){
+  const local = await kmzDbGet(p.id);
+  if(local) return local;
+  if(!window._fbGetKmz) return null;
+  try{
+    const remoto = await window._fbGetKmz(p.id);
+    if(remoto){
+      kmzDbPut(p.id, remoto).catch(()=>{});
+      return remoto;
+    }
+  }catch(e){ console.error('Falha ao buscar KMZ na nuvem:', e); }
+  return null;
+}
+
 async function loadKmlIntoMap(p){
   try{
     if(currentKmlLayer){ leafletMap.removeLayer(currentKmlLayer); currentKmlLayer=null; }
-    const stored = await kmzDbGet(p.id);
+    const stored = await getKmzFile(p);
     if(!stored){
-      document.getElementById('mapMeta').innerHTML = `<span style="color:var(--bad)">Arquivo não encontrado neste navegador — se foi enviado em outro dispositivo, envie de novo aqui (o arquivo fica só local, não sincroniza).</span>`;
+      document.getElementById('mapMeta').innerHTML = `<span style="color:var(--bad)">Arquivo não encontrado (nem neste navegador, nem na nuvem). Envie novamente.</span>`;
       currentKmzStats = null; renderKmzStatsPanel();
       return;
     }
@@ -1559,14 +1588,21 @@ function bindKmzControls(){
     const reader = new FileReader();
     reader.onload = async () => {
       const p = current();
+      const kmzData = { name:file.name, dataUrl:reader.result };
       try{
-        await kmzDbPut(p.id, { name:file.name, dataUrl:reader.result });
+        await kmzDbPut(p.id, kmzData);
         p.kmz = { name:file.name };
         saveApp();
         initMapIfNeeded();
       }catch(e){
         console.error('Falha ao salvar KMZ:', e);
         alert('Não foi possível salvar o arquivo de rede neste navegador (sem espaço ou sem suporte a IndexedDB).');
+        return;
+      }
+      if(kmzData.dataUrl.length <= KMZ_LIMITE_NUVEM && window._fbSaveKmz){
+        window._fbSaveKmz(p.id, kmzData).catch(e=>console.error('Falha ao sincronizar KMZ com a nuvem:', e));
+      }else if(kmzData.dataUrl.length > KMZ_LIMITE_NUVEM){
+        alert('Este arquivo é grande demais pra sincronizar com a equipe — fica salvo só neste navegador. Se precisar que apareça em outro dispositivo, envie um KMZ menor ou peça pra enviar direto lá também.');
       }
     };
     reader.readAsDataURL(file);
@@ -1576,14 +1612,15 @@ function bindKmzControls(){
     if(!confirm('Remover o arquivo de rede deste provedor?')) return;
     const p = current();
     try{ await kmzDbDelete(p.id); }catch(e){}
+    if(window._fbDeleteKmz) window._fbDeleteKmz(p.id);
     p.kmz = null; saveApp();
     currentKmzStats = null;
     initMapIfNeeded();
   };
   document.getElementById('kmzDownloadBtn').onclick = async () => {
     const p = current(); if(!p.kmz) return;
-    const stored = await kmzDbGet(p.id);
-    if(!stored){ alert('Arquivo não encontrado neste navegador.'); return; }
+    const stored = await getKmzFile(p);
+    if(!stored){ alert('Arquivo não encontrado (nem local, nem na nuvem).'); return; }
     const blob = dataUrlToBlob(stored.dataUrl);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href=url; a.download=stored.name; a.click();
