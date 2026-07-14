@@ -344,7 +344,8 @@ function blankEmpresa(nome){
     propostas:[], propostaSugEntrada:50, propostaSugParcelas:12,
     finSelic:14.5, finValorOverride:null,
     finCarenciaTri:3, finParcelasTri:13, finFlatPct:1.6, finIRPct:17.647,
-    kmz:null, // {name, dataUrl}
+    kmz:null, // {name} — o arquivo em si fica no IndexedDB deste navegador, não aqui
+    kmzCustoCaixa:0, kmzCustoCeo:0, kmzCustoMetro:0,
   };
 }
 
@@ -470,6 +471,21 @@ let app = loadApp();
     {cat:'INFRAESTRUTURA', item:'Datacenter', tipo:'Capex', qtd:1, valor:8000},
   ];
   saveApp();
+})();
+// Migração: qualquer KMZ que tenha ficado no formato antigo (dataUrl
+// pesado dentro do próprio localStorage) vai pro IndexedDB, e o registro
+// aqui fica só com o nome (evita re-salvar o JSON gigante de novo).
+(function migrarKmzParaIndexedDb(){
+  let migrou = false;
+  app.empresas.forEach(e=>{
+    if(e.kmz && e.kmz.dataUrl){
+      const dataUrl = e.kmz.dataUrl, name = e.kmz.name;
+      e.kmz = { name };
+      migrou = true;
+      kmzDbPut(e.id, { name, dataUrl }).catch(err=>console.error('Falha ao migrar KMZ para IndexedDB:', err));
+    }
+  });
+  if(migrou) saveApp();
 })();
 function loadApp(){
   try{
@@ -881,7 +897,7 @@ function tplRede(){
   return `
   <div class="sec-block">
     <h3>Rede do provedor</h3>
-    <p class="hint">Envie o arquivo KMZ/KML da rede para visualizar no mapa. Fica salvo com este provedor.</p>
+    <p class="hint">Envie o arquivo KMZ/KML da rede para visualizar no mapa. Fica salvo com este provedor, só neste navegador (não sincroniza na nuvem).</p>
     <div class="panel">
       <div class="map-toolbar">
         <button class="upload-btn" id="kmzUploadBtn">Carregar KMZ / KML</button>
@@ -891,6 +907,27 @@ function tplRede(){
       </div>
       <div id="mapHolder"></div>
       <div class="map-meta" id="mapMeta"></div>
+    </div>
+  </div>
+  <div class="sec-block" id="kmzStatsBlock" style="display:none;">
+    <h3>Quantitativo da rede</h3>
+    <p class="hint">Calculado a partir do arquivo KMZ/KML carregado (classificação de caixa/CEO pelo nome de cada ponto).</p>
+    <div class="panel">
+      <div class="kpi-row">
+        <div class="kpi"><div class="label">Caixas / CTOs</div><div class="value" id="kpi-kmz-caixas">—</div></div>
+        <div class="kpi"><div class="label">CEOs (emenda)</div><div class="value" id="kpi-kmz-ceos">—</div></div>
+        <div class="kpi"><div class="label">Segmentos de cabo</div><div class="value" id="kpi-kmz-cabos">—</div></div>
+        <div class="kpi"><div class="label">Metragem total</div><div class="value" id="kpi-kmz-metragem">—</div></div>
+      </div>
+      <div class="field-grid" style="margin-top:16px;">
+        <div class="field"><label>Custo por caixa/CTO (R$)</label><input id="in-kmz-custo-caixa" type="number" step="1"></div>
+        <div class="field"><label>Custo por CEO (R$)</label><input id="in-kmz-custo-ceo" type="number" step="1"></div>
+        <div class="field"><label>Custo por metro de cabo (R$)</label><input id="in-kmz-custo-metro" type="number" step="0.1"></div>
+      </div>
+      <div class="kpi-row" style="margin-top:16px;">
+        <div class="kpi hi"><div class="label">Valor estimado da rede</div><div class="value" id="kpi-kmz-valor">—</div><div class="sub">Caixas×custo + CEOs×custo + metragem×custo/metro</div></div>
+      </div>
+      <p class="note">Classificação automática pelo nome do ponto no KMZ (ex: "CT10B", "CTO" → caixa; "CEO" → emenda). Confira visualmente no mapa acima se bateu — nomes fora do padrão entram como "outro" e não contam no quantitativo.</p>
     </div>
   </div>`;
 }
@@ -1297,9 +1334,53 @@ function applyTab(){
 }
 
 /* ======================================================================
+   ARMAZENAMENTO DO ARQUIVO KMZ/KML (IndexedDB)
+   O arquivo em si (base64) NUNCA vai para o localStorage/app JSON — só
+   cabe uns 5-10MB no total ali, e um KMZ de rede real estoura isso fácil.
+   Fica guardado à parte, neste navegador, indexado pelo id do provedor.
+====================================================================== */
+const KMZ_DB_NAME = 'aquisicoes_kmz_db';
+const KMZ_STORE = 'arquivos';
+function openKmzDb(){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open(KMZ_DB_NAME, 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore(KMZ_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function kmzDbPut(id, value){
+  const db = await openKmzDb();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(KMZ_STORE, 'readwrite');
+    tx.objectStore(KMZ_STORE).put(value, id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function kmzDbGet(id){
+  const db = await openKmzDb();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(KMZ_STORE, 'readonly');
+    const req = tx.objectStore(KMZ_STORE).get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function kmzDbDelete(id){
+  const db = await openKmzDb();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(KMZ_STORE, 'readwrite');
+    tx.objectStore(KMZ_STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/* ======================================================================
    KMZ / KML MAP
 ====================================================================== */
-let leafletMap = null, currentKmlLayer = null;
+let leafletMap = null, currentKmlLayer = null, currentKmzStats = null;
 const TILE_LAYERS = {
   osm: { url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', opts:{maxZoom:19, attribution:'&copy; OpenStreetMap'} },
   esri: { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', opts:{maxZoom:19, attribution:'&copy; Esri'} },
@@ -1318,6 +1399,8 @@ function initMapIfNeeded(){
     document.getElementById('kmzDownloadBtn').style.display='none';
     document.getElementById('kmzRemoveBtn').style.display='none';
     document.getElementById('mapMeta').innerHTML='';
+    currentKmzStats = null;
+    renderKmzStatsPanel();
     return;
   }
   if(!holder.querySelector('#map')) holder.innerHTML = `<div id="map"></div>`;
@@ -1355,12 +1438,36 @@ async function extractKMLFromBlob(blob, filename){
   return new TextDecoder('utf-8').decode(buf);
 }
 
+// Classifica um ponto (Caixa/CTO x CEO) pelo nome/pasta do placemark.
+// Cobre tanto nomes completos ("CTO", "CAIXA DE EMENDA") quanto siglas
+// comuns em projetos reais (ex: "CT10B", "CT1.OT" = caixa; "CEO AEREA" = CEO).
+function classifyPlacemark(name, folderName){
+  const text = ((name||'') + ' ' + (folderName||'')).toUpperCase();
+  if(/\bCEO\b|CAIXA DE EMENDA/.test(text)) return 'ceo';
+  if(/\bCTO\b|CT\d|CAIXA TERMINAL|\bNAP\b|\bCAIXA\b/.test(text)) return 'caixa';
+  return 'outro';
+}
+
+function haversineMeters(lat1, lon1, lat2, lon2){
+  const R = 6371000;
+  const toRad = d => d*Math.PI/180;
+  const dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function polylineLengthMeters(latlngs){
+  let total = 0;
+  for(let i=1;i<latlngs.length;i++) total += haversineMeters(latlngs[i-1][0], latlngs[i-1][1], latlngs[i][0], latlngs[i][1]);
+  return total;
+}
+
 function parseKML(xmlText){
   const doc = new DOMParser().parseFromString(xmlText, "text/xml");
   if(doc.querySelector('parsererror')) throw new Error('KML inválido ou corrompido.');
   const placemarks = [...doc.getElementsByTagName('Placemark')];
   const layer = L.layerGroup();
   let count = 0;
+  let caixas = 0, ceos = 0, outros = 0, cabosCount = 0, metragemTotal = 0;
   const coordsToLatLngs = txt => txt.trim().split(/\s+/).filter(Boolean).map(c=>{
     const parts = c.split(',').map(Number); return [parts[1], parts[0]];
   });
@@ -1368,13 +1475,18 @@ function parseKML(xmlText){
     const name = pm.getElementsByTagName('name')[0]?.textContent?.trim() || '';
     const desc = pm.getElementsByTagName('description')[0]?.textContent?.trim() || '';
     const popupHtml = `<b>${name||'Sem nome'}</b>${desc?'<br>'+desc.slice(0,200):''}`;
+    const folderEl = pm.closest ? pm.closest('Folder') : null;
+    const folderName = folderEl ? (folderEl.getElementsByTagName('name')[0]?.textContent?.trim() || '') : '';
 
     const point = pm.getElementsByTagName('Point')[0];
     if(point){
       const c = point.getElementsByTagName('coordinates')[0]?.textContent;
       if(c){ const [lon,lat] = c.trim().split(',').map(Number);
         if(isFinite(lat)&&isFinite(lon)){
-          L.circleMarker([lat,lon], {radius:5, color:'#00d4c8', fillColor:'#00d4c8', fillOpacity:.9, weight:1.5}).bindPopup(popupHtml).addTo(layer);
+          const tipo = classifyPlacemark(name, folderName);
+          const cor = tipo==='ceo' ? '#fb923c' : tipo==='caixa' ? '#00d4c8' : '#8b99b6';
+          L.circleMarker([lat,lon], {radius:5, color:cor, fillColor:cor, fillOpacity:.9, weight:1.5}).bindPopup(popupHtml).addTo(layer);
+          if(tipo==='ceo') ceos++; else if(tipo==='caixa') caixas++; else outros++;
           count++;
         }
       }
@@ -1382,7 +1494,12 @@ function parseKML(xmlText){
     const line = pm.getElementsByTagName('LineString')[0];
     if(line){
       const c = line.getElementsByTagName('coordinates')[0]?.textContent;
-      if(c){ const ll = coordsToLatLngs(c); if(ll.length>1){ L.polyline(ll, {color:'#fbbf24', weight:3}).bindPopup(popupHtml).addTo(layer); count++; } }
+      if(c){ const ll = coordsToLatLngs(c); if(ll.length>1){
+        L.polyline(ll, {color:'#fbbf24', weight:3}).bindPopup(popupHtml).addTo(layer);
+        cabosCount++;
+        metragemTotal += polylineLengthMeters(ll);
+        count++;
+      } }
     }
     const poly = pm.getElementsByTagName('Polygon')[0];
     if(poly){
@@ -1390,22 +1507,46 @@ function parseKML(xmlText){
       if(c){ const ll = coordsToLatLngs(c); if(ll.length>2){ L.polygon(ll, {color:'#fb7185', fillOpacity:.15, weight:2}).bindPopup(popupHtml).addTo(layer); count++; } }
     }
   });
-  return {layer, count};
+  return {layer, count, stats:{caixas, ceos, outros, cabosCount, metragemTotal}};
+}
+
+function renderKmzStatsPanel(){
+  const block = document.getElementById('kmzStatsBlock');
+  if(!block) return;
+  if(!currentKmzStats){ block.style.display = 'none'; return; }
+  block.style.display = '';
+  const p = current();
+  const s = currentKmzStats;
+  setText('kpi-kmz-caixas', fmtNum(s.caixas));
+  setText('kpi-kmz-ceos', fmtNum(s.ceos));
+  setText('kpi-kmz-cabos', fmtNum(s.cabosCount));
+  setText('kpi-kmz-metragem', s.metragemTotal>=1000 ? (s.metragemTotal/1000).toLocaleString('pt-BR',{maximumFractionDigits:2})+' km' : fmtNum(Math.round(s.metragemTotal))+' m');
+  const valor = s.caixas*(p.kmzCustoCaixa||0) + s.ceos*(p.kmzCustoCeo||0) + s.metragemTotal*(p.kmzCustoMetro||0);
+  setText('kpi-kmz-valor', fmtBRL(valor));
 }
 
 async function loadKmlIntoMap(p){
   try{
     if(currentKmlLayer){ leafletMap.removeLayer(currentKmlLayer); currentKmlLayer=null; }
-    const blob = dataUrlToBlob(p.kmz.dataUrl);
-    const kmlText = await extractKMLFromBlob(blob, p.kmz.name);
-    const {layer, count} = parseKML(kmlText);
+    const stored = await kmzDbGet(p.id);
+    if(!stored){
+      document.getElementById('mapMeta').innerHTML = `<span style="color:var(--bad)">Arquivo não encontrado neste navegador — se foi enviado em outro dispositivo, envie de novo aqui (o arquivo fica só local, não sincroniza).</span>`;
+      currentKmzStats = null; renderKmzStatsPanel();
+      return;
+    }
+    const blob = dataUrlToBlob(stored.dataUrl);
+    const kmlText = await extractKMLFromBlob(blob, stored.name);
+    const {layer, count, stats} = parseKML(kmlText);
     layer.addTo(leafletMap);
     currentKmlLayer = layer;
     const bounds = layer.getBounds ? layer.getBounds() : null;
     if(count>0 && bounds && bounds.isValid()) leafletMap.fitBounds(bounds, {padding:[30,30]});
-    document.getElementById('mapMeta').innerHTML = `<span>Arquivo: <b style="color:var(--text)">${esc(p.kmz.name)}</b></span><span>Elementos: <b style="color:var(--text)">${count}</b></span>`;
+    document.getElementById('mapMeta').innerHTML = `<span>Arquivo: <b style="color:var(--text)">${esc(stored.name)}</b></span><span>Elementos: <b style="color:var(--text)">${count}</b></span>`;
+    currentKmzStats = stats;
+    renderKmzStatsPanel();
   }catch(err){
     document.getElementById('mapMeta').innerHTML = `<span style="color:var(--bad)">Erro ao ler o arquivo: ${esc(err.message)}</span>`;
+    currentKmzStats = null; renderKmzStatsPanel();
   }
 }
 
@@ -1416,26 +1557,44 @@ function bindKmzControls(){
     const file = input.files[0]; if(!file) return;
     if(!/\.(kmz|kml)$/i.test(file.name)){ alert('Envie um arquivo .kmz ou .kml'); return; }
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const p = current();
-      p.kmz = { name:file.name, dataUrl:reader.result };
-      saveApp();
-      initMapIfNeeded();
+      try{
+        await kmzDbPut(p.id, { name:file.name, dataUrl:reader.result });
+        p.kmz = { name:file.name };
+        saveApp();
+        initMapIfNeeded();
+      }catch(e){
+        console.error('Falha ao salvar KMZ:', e);
+        alert('Não foi possível salvar o arquivo de rede neste navegador (sem espaço ou sem suporte a IndexedDB).');
+      }
     };
     reader.readAsDataURL(file);
     input.value = '';
   };
-  document.getElementById('kmzRemoveBtn').onclick = () => {
+  document.getElementById('kmzRemoveBtn').onclick = async () => {
     if(!confirm('Remover o arquivo de rede deste provedor?')) return;
-    current().kmz = null; saveApp(); initMapIfNeeded();
+    const p = current();
+    try{ await kmzDbDelete(p.id); }catch(e){}
+    p.kmz = null; saveApp();
+    currentKmzStats = null;
+    initMapIfNeeded();
   };
-  document.getElementById('kmzDownloadBtn').onclick = () => {
+  document.getElementById('kmzDownloadBtn').onclick = async () => {
     const p = current(); if(!p.kmz) return;
-    const blob = dataUrlToBlob(p.kmz.dataUrl);
+    const stored = await kmzDbGet(p.id);
+    if(!stored){ alert('Arquivo não encontrado neste navegador.'); return; }
+    const blob = dataUrlToBlob(stored.dataUrl);
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href=url; a.download=p.kmz.name; a.click();
+    const a = document.createElement('a'); a.href=url; a.download=stored.name; a.click();
     URL.revokeObjectURL(url);
   };
+  [['in-kmz-custo-caixa','kmzCustoCaixa'],['in-kmz-custo-ceo','kmzCustoCeo'],['in-kmz-custo-metro','kmzCustoMetro']].forEach(([id, field])=>{
+    const el = document.getElementById(id); if(!el) return;
+    el.value = current()[field] || '';
+    el.oninput = e => { current()[field] = parseFloat(e.target.value)||0; renderKmzStatsPanel(); saveApp(); };
+  });
+  renderKmzStatsPanel();
 }
 
 /* ======================================================================
