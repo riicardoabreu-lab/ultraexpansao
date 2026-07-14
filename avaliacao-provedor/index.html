@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+  // Bloqueia acesso direto a esta página sem passar pelo login do portal.
+  if (sessionStorage.getItem('infolink_hub_auth') !== 'ok') {
+    window.location.href = '../index.html';
+  }
+</script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  const fb = initializeApp({
+    apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
+    authDomain: "isp-manager-ce.firebaseapp.com",
+    projectId: "isp-manager-ce",
+    storageBucket: "isp-manager-ce.firebasestorage.app",
+    messagingSenderId: "374725918192",
+    appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
+  });
+  const auth = getAuth(fb);
+  window._doLogout = function(){
+    signOut(auth).finally(()=>{
+      sessionStorage.clear();
+      window.location.href = '../index.html';
+    });
+  };
+</script>
+<title>Calculadora de Avaliação de Provedor · Infolink</title>
+<style>
+  :root{
+    --roxo:#662d8e;
+    --roxo-escuro:#2b1042;
+    --ciano:#01e2e2;
+    --bg:#f5f3f8;
+    --card:#ffffff;
+    --texto:#231433;
+    --texto-suave:#6b5d7d;
+    --borda:#e3ddec;
+    --verde:#1a9e5c;
+    --vermelho:#c23b3b;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'Segoe UI', Roboto, -apple-system, sans-serif;
+    background:linear-gradient(180deg, var(--roxo-escuro) 0%, var(--roxo-escuro) 140px, var(--bg) 140px);
+    color:var(--texto);
+    padding-bottom:60px;
+  }
+  header{ padding:26px 20px 40px; text-align:center; color:#fff; position:relative; }
+  header h1{ margin:0; font-size:1.45rem; letter-spacing:.3px; }
+  header p{ margin:0; color:var(--ciano); font-size:.88rem; font-weight:600; }
+  .topbar-actions{ position:absolute; top:16px; right:20px; display:flex; gap:8px; }
+  .ghost-btn{
+    background:rgba(255,255,255,.08); color:#fff; border:1px solid rgba(255,255,255,.25);
+    padding:8px 14px; border-radius:8px; font-size:12px; cursor:pointer; text-decoration:none;
+    display:inline-block;
+  }
+  .ghost-btn:hover{ background:rgba(255,255,255,.16); }
+  .wrap{ max-width:960px; margin:0 auto; padding:0 16px; }
+  .card{
+    background:var(--card); border-radius:14px; padding:22px 24px;
+    box-shadow:0 8px 24px rgba(43,16,66,.08); margin-top:-30px; margin-bottom:18px;
+    border:1px solid var(--borda);
+  }
+  .card h2{
+    font-size:1rem; margin:0 0 4px; color:var(--roxo-escuro);
+    display:flex; align-items:center; gap:8px;
+  }
+  .card h2::before{ content:""; width:4px; height:17px; background:var(--ciano); border-radius:2px; display:inline-block; }
+  .card-sub{ font-size:.76rem; color:var(--texto-suave); margin:0 0 16px 12px; }
+  .grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .grid3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; }
+  .grid4{ display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:14px; }
+  @media (max-width:640px){ .grid{grid-template-columns:1fr;} .grid3{grid-template-columns:1fr;} .grid4{grid-template-columns:1fr;} }
+  label{ display:block; font-size:.78rem; font-weight:600; color:var(--texto-suave); margin-bottom:6px; }
+  input{
+    width:100%; padding:10px 12px; border:1.5px solid var(--borda); border-radius:8px;
+    font-size:.95rem; color:var(--texto); background:#fbfaff; transition:border-color .15s;
+  }
+  input:focus{ outline:none; border-color:var(--roxo); }
+  .field{ margin-bottom:2px; }
+  .field.editavel label{ color:var(--roxo); }
+  .summary{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+  @media (max-width:760px){ .summary{grid-template-columns:1fr 1fr;} }
+  .stat{ background:var(--bg); border-radius:10px; padding:13px 14px; text-align:center; }
+  .stat .v{ font-size:1.1rem; font-weight:700; color:var(--roxo-escuro); }
+  .stat .l{ font-size:.68rem; color:var(--texto-suave); text-transform:uppercase; letter-spacing:.3px; margin-top:2px; }
+  .stat.pos .v{ color:var(--verde); }
+  .stat.neg .v{ color:var(--vermelho); }
+  .benchmark{
+    background:linear-gradient(160deg,var(--roxo-escuro),#3d1f57);
+    border-radius:12px; padding:16px 20px; color:#fff; margin-bottom:18px;
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;
+  }
+  .benchmark .txt{ font-size:.8rem; opacity:.85; }
+  .benchmark .val{ font-size:1.3rem; font-weight:800; color:var(--ciano); }
+  .ofertas{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  @media (max-width:700px){ .ofertas{grid-template-columns:1fr;} }
+  .oferta{ border-radius:12px; padding:18px; color:#fff; }
+  .oferta.conservadora{ background:linear-gradient(160deg,#3d1f57,#2b1042); }
+  .oferta.moderada{ background:linear-gradient(160deg,var(--roxo),#4a2166); }
+  .oferta.agressiva{ background:linear-gradient(160deg,#01c2c2,#017a7a); }
+  .oferta .tag{ font-size:.66rem; font-weight:700; letter-spacing:.5px; text-transform:uppercase; opacity:.85; }
+  .oferta .mult{ font-size:.74rem; opacity:.8; margin-top:2px; }
+  .oferta .valor{ font-size:1.4rem; font-weight:800; margin-top:10px; line-height:1.15; }
+  .oferta .linha{
+    display:flex; justify-content:space-between; font-size:.76rem; opacity:.92;
+    margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,.18);
+  }
+  .rodape-nota{ font-size:.73rem; color:var(--texto-suave); margin-top:16px; line-height:1.5; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="topbar-actions">
+    <a href="../home.html" class="ghost-btn">← Voltar</a>
+    <button class="ghost-btn" onclick="window._doLogout()">Sair</button>
+  </div>
+  <h1>Calculadora de Avaliação de Provedor</h1>
+</header>
+
+<div class="wrap">
+
+  <div class="card">
+    <h2>Dados da operação</h2>
+    <div class="grid">
+      <div class="field">
+        <label for="clientes">Clientes ativos</label>
+        <input type="number" id="clientes" placeholder="Ex: 700" oninput="calcular()">
+      </div>
+      <div class="field">
+        <label for="mrr">Receita mensal (MRR) (R$)</label>
+        <input type="number" id="mrr" placeholder="Ex: 50000" oninput="calcular()">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Indicadores calculados</h2>
+    <div class="summary">
+      <div class="stat">
+        <div class="v" id="ticketMedio">R$ 0</div>
+        <div class="l">Ticket médio</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Multiplicadores EV/MRR das propostas</h2>
+    <div class="grid4">
+      <div class="field editavel">
+        <label for="multTeto">Máxima / Teto (x MRR)</label>
+        <input type="number" id="multTeto" value="14" step="0.5" oninput="calcular()">
+      </div>
+      <div class="field editavel">
+        <label for="multM">Moderada (x MRR)</label>
+        <input type="number" id="multM" value="10" step="0.5" oninput="calcular()">
+      </div>
+      <div class="field editavel">
+        <label for="multC">Conservadora (x MRR)</label>
+        <input type="number" id="multC" value="7" step="0.5" oninput="calcular()">
+      </div>
+      <div class="field editavel">
+        <label for="pctEntrada">Percentual de entrada (%)</label>
+        <input type="number" id="pctEntrada" value="50" step="1" oninput="calcular()">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Propostas de compra</h2>
+    <div class="ofertas">
+      <div class="oferta agressiva">
+        <div class="tag">Proposta 1 · Máxima (teto)</div>
+        <div class="mult" id="tagMultTeto">14x MRR</div>
+        <div class="valor" id="valorTeto">R$ 0</div>
+        <div class="linha"><span id="lblEntradaTeto">Entrada</span><span id="entradaTeto">R$ 0</span></div>
+        <div class="linha"><span>10x</span><span id="parc10Teto">R$ 0</span></div>
+        <div class="linha"><span>12x</span><span id="parc12Teto">R$ 0</span></div>
+        <div class="linha"><span>Valor/cliente</span><span id="ppcTeto">R$ 0</span></div>
+      </div>
+      <div class="oferta moderada">
+        <div class="tag">Proposta 2 · Moderada</div>
+        <div class="mult" id="tagMultM">10x MRR</div>
+        <div class="valor" id="valorM">R$ 0</div>
+        <div class="linha"><span id="lblEntradaM">Entrada</span><span id="entradaM">R$ 0</span></div>
+        <div class="linha"><span>10x</span><span id="parc10M">R$ 0</span></div>
+        <div class="linha"><span>12x</span><span id="parc12M">R$ 0</span></div>
+        <div class="linha"><span>Valor/cliente</span><span id="ppcM">R$ 0</span></div>
+      </div>
+      <div class="oferta conservadora">
+        <div class="tag">Proposta 3 · Conservadora</div>
+        <div class="mult" id="tagMultC">7x MRR</div>
+        <div class="valor" id="valorC">R$ 0</div>
+        <div class="linha"><span id="lblEntradaC">Entrada</span><span id="entradaC">R$ 0</span></div>
+        <div class="linha"><span>10x</span><span id="parc10C">R$ 0</span></div>
+        <div class="linha"><span>12x</span><span id="parc12C">R$ 0</span></div>
+        <div class="linha"><span>Valor/cliente</span><span id="ppcC">R$ 0</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function fmt(v){
+  if(isNaN(v)) v = 0;
+  return v.toLocaleString('pt-BR', {style:'currency', currency:'BRL', maximumFractionDigits:0});
+}
+function fmtPct(v){
+  if(isNaN(v)) v = 0;
+  return v.toLocaleString('pt-BR', {maximumFractionDigits:1}) + '%';
+}
+
+function calcular(){
+  const clientes = parseFloat(document.getElementById('clientes').value) || 0;
+  const mrr = parseFloat(document.getElementById('mrr').value) || 0;
+
+  const multTeto = parseFloat(document.getElementById('multTeto').value) || 0;
+  const multM = parseFloat(document.getElementById('multM').value) || 0;
+  const multC = parseFloat(document.getElementById('multC').value) || 0;
+  const pctEntrada = parseFloat(document.getElementById('pctEntrada').value) || 0;
+
+  const ticketMedio = clientes > 0 ? mrr / clientes : 0;
+
+  document.getElementById('ticketMedio').textContent = fmt(ticketMedio);
+
+  function preencherOferta(sufixo, mult){
+    const valor = mrr * mult;
+    const entrada = valor * (pctEntrada/100);
+    document.getElementById('valor'+sufixo).textContent = fmt(valor);
+    document.getElementById('lblEntrada'+sufixo).textContent = 'Entrada ' + pctEntrada + '%';
+    document.getElementById('entrada'+sufixo).textContent = fmt(entrada);
+    document.getElementById('parc10'+sufixo).textContent = fmt(entrada/10);
+    document.getElementById('parc12'+sufixo).textContent = fmt(entrada/12);
+    document.getElementById('ppc'+sufixo).textContent = fmt(clientes > 0 ? valor/clientes : 0);
+  }
+  preencherOferta('Teto', multTeto);
+  preencherOferta('M', multM);
+  preencherOferta('C', multC);
+
+  document.getElementById('tagMultTeto').textContent = multTeto + 'x MRR';
+  document.getElementById('tagMultM').textContent = multM + 'x MRR';
+  document.getElementById('tagMultC').textContent = multC + 'x MRR';
+}
+
+calcular();
+</script>
+
+</body>
+</html>
