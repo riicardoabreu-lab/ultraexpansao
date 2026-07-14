@@ -939,7 +939,7 @@ function tplRede(){
       <div class="kpi-row" style="margin-top:16px;">
         <div class="kpi hi"><div class="label">Valor estimado da rede</div><div class="value" id="kpi-kmz-valor">—</div><div class="sub">Caixas×custo + CEOs×custo + Σ(metragem×custo/metro por categoria)</div></div>
       </div>
-      <p class="note">Pontos: nomes tipo "CT10B"/"CTO" → caixa; "CEO" → emenda. Cabos: procura a bitola (ex: "12 FO", "24FO") no nome/descrição de cada linha do KMZ. Se o KMZ não tiver essa informação escrita, o cabo cai em "Não identificado" — dá pra precificar ele também, só não separado por bitola. Confira visualmente no mapa acima se a classificação bateu.</p>
+      <p class="note">Pontos: nomes tipo "CT10B"/"CTO" → caixa; "CEO" → emenda. Cabos: primeiro procura a bitola escrita direto no nome/descrição da linha (ex: "12 FO"); se não achar, usa a <b>cor da linha</b> no KMZ cruzada com uma legenda de cores escrita em alguma descrição do arquivo (ex: "VERDE = 6 FO"). Cor sem legenda correspondente vira "Cabo cor X (bitola não identificada)" — ainda dá pra precificar, só não sabe a bitola exata. Confira visualmente no mapa acima se a classificação bateu.</p>
     </div>
   </div>`;
 }
@@ -1464,17 +1464,75 @@ function classifyPlacemark(name, folderName){
 // 24FO...), procurando no nome e na descrição do placemark. Quando um
 // mesmo cabo menciona mais de uma bitola (rota com vários trechos), fica
 // com a maior — normalmente é o tronco principal daquele segmento.
+// 1ª tentativa: bitola escrita direto no nome/descrição do próprio cabo
+// (ex: "CABO 12FO"). Mais direto quando existe.
 function classifyLineModel(name, desc){
   const text = ((name||'') + ' ' + (desc||'')).toUpperCase();
   const bitolas = [...text.matchAll(/(\d+)\s*F\.?O\.?\b/g)].map(m=>parseInt(m[1],10)).filter(n=>isFinite(n));
   if(!bitolas.length) return null;
   return Math.max(...bitolas);
 }
-const MODEL_PALETTE = ['#fbbf24','#a78bfa','#34d399','#60a5fa','#f472b6','#fb923c','#facc15','#38bdf8'];
-function corPorModelo(chave){
-  if(chave==='outro') return '#8b99b6';
-  const n = Number(chave);
-  return MODEL_PALETTE[isFinite(n) ? n % MODEL_PALETTE.length : 0];
+
+// 2ª tentativa (mais comum na prática): a cor da linha no KMZ indica a
+// bitola, com uma legenda escrita em algum lugar do arquivo (ex: "FIBRA
+// VERDE = 6 FO"). Resolve a cor de cada Placemark através de Style/StyleMap.
+const NAMED_LINE_COLORS = [
+  {name:'verde', rgb:[0,255,0]}, {name:'amarela', rgb:[255,255,0]},
+  {name:'ciano', rgb:[0,255,255]}, {name:'azul', rgb:[0,0,255]},
+  {name:'vermelha', rgb:[255,0,0]}, {name:'branca', rgb:[255,255,255]},
+  {name:'preta', rgb:[0,0,0]}, {name:'laranja', rgb:[255,165,0]},
+  {name:'roxa', rgb:[160,32,240]}, {name:'rosa', rgb:[255,0,255]},
+];
+const NOME_COR_NORM = {AMARELO:'amarela', BRANCO:'branca', PRETO:'preta', VERMELHO:'vermelha', ROXO:'roxa'};
+
+function kmlColorToRgb(hex){
+  if(!hex || hex.length!==8) return null;
+  return [parseInt(hex.slice(6,8),16), parseInt(hex.slice(4,6),16), parseInt(hex.slice(2,4),16)]; // aabbggrr -> rgb
+}
+function nomeCorMaisProxima(rgb){
+  let melhor = null, menorDist = Infinity;
+  NAMED_LINE_COLORS.forEach(c=>{
+    const d = (rgb[0]-c.rgb[0])**2 + (rgb[1]-c.rgb[1])**2 + (rgb[2]-c.rgb[2])**2;
+    if(d < menorDist){ menorDist = d; melhor = c.name; }
+  });
+  return melhor;
+}
+// Varre todas as descrições do KML procurando algo como "VERDE = 6 FO".
+function extrairLegendaCoresFO(doc){
+  const legenda = {};
+  const texto = [...doc.getElementsByTagName('description')].map(d=>d.textContent||'').join(' \n ').toUpperCase();
+  const re = /(VERDE|AMARELA|AMARELO|BRANCA|BRANCO|PRETA|PRETO|AZUL|VERMELHA|VERMELHO|LARANJA|ROXA|ROXO|CIANO|ROSA)S?\s*[:=]?\s*(\d+)\s*F\.?O\.?\b/g;
+  let m;
+  while((m = re.exec(texto))){
+    legenda[NOME_COR_NORM[m[1]] || m[1].toLowerCase()] = parseInt(m[2],10);
+  }
+  return legenda;
+}
+function buildStyleColorMaps(doc){
+  const styleColor = new Map(); // id do Style -> cor (aabbggrr)
+  [...doc.getElementsByTagName('Style')].forEach(el=>{
+    const id = el.getAttribute('id'); if(!id) return;
+    const cor = el.getElementsByTagName('LineStyle')[0]?.getElementsByTagName('color')[0]?.textContent?.trim();
+    if(cor) styleColor.set(id, cor);
+  });
+  const styleMap = new Map(); // id do StyleMap -> id do Style "normal"
+  [...doc.getElementsByTagName('StyleMap')].forEach(el=>{
+    const id = el.getAttribute('id'); if(!id) return;
+    const par = [...el.getElementsByTagName('Pair')].find(p=>p.getElementsByTagName('key')[0]?.textContent?.trim()==='normal');
+    const url = par?.getElementsByTagName('styleUrl')[0]?.textContent?.trim();
+    if(url) styleMap.set(id, url.replace(/^#/,''));
+  });
+  return {styleColor, styleMap};
+}
+function resolveLineColorHex(styleUrlRaw, maps){
+  let ref = (styleUrlRaw||'').replace(/^#/,'');
+  if(!ref) return null;
+  const visitados = new Set();
+  while(!maps.styleColor.has(ref) && maps.styleMap.has(ref) && !visitados.has(ref)){
+    visitados.add(ref);
+    ref = maps.styleMap.get(ref);
+  }
+  return maps.styleColor.get(ref) || null;
 }
 
 function haversineMeters(lat1, lon1, lat2, lon2){
@@ -1498,6 +1556,8 @@ function parseKML(xmlText){
   let count = 0;
   let caixas = 0, ceos = 0, outros = 0, cabosCount = 0, metragemTotal = 0;
   const cabosPorModelo = {}; // preenchido dinamicamente conforme as bitolas encontradas
+  const styleMaps = buildStyleColorMaps(doc);
+  const legendaCoresFO = extrairLegendaCoresFO(doc);
   const coordsToLatLngs = txt => txt.trim().split(/\s+/).filter(Boolean).map(c=>{
     const parts = c.split(',').map(Number); return [parts[1], parts[0]];
   });
@@ -1525,11 +1585,24 @@ function parseKML(xmlText){
     if(line){
       const c = line.getElementsByTagName('coordinates')[0]?.textContent;
       if(c){ const ll = coordsToLatLngs(c); if(ll.length>1){
-        const bitola = classifyLineModel(name, desc);
-        const chave = bitola!=null ? String(bitola) : 'outro';
-        const label = bitola!=null ? bitola+' FO' : 'Não identificado';
+        const styleUrlRaw = pm.getElementsByTagName('styleUrl')[0]?.textContent?.trim() || '';
+        const colorHex = resolveLineColorHex(styleUrlRaw, styleMaps);
+        const rgbReal = colorHex ? kmlColorToRgb(colorHex) : null;
+
+        let chave, label;
+        const bitolaDireta = classifyLineModel(name, desc);
+        if(bitolaDireta != null){
+          chave = String(bitolaDireta); label = bitolaDireta+' FO';
+        } else {
+          const nomeCor = rgbReal ? nomeCorMaisProxima(rgbReal) : null;
+          const fo = nomeCor ? legendaCoresFO[nomeCor] : undefined;
+          if(fo != null){ chave = String(fo); label = fo+' FO'; }
+          else if(nomeCor){ chave = 'cor_'+nomeCor; label = 'Cabo cor '+nomeCor.charAt(0).toUpperCase()+nomeCor.slice(1)+' (bitola não identificada)'; }
+          else { chave = 'outro'; label = 'Não identificado'; }
+        }
+        const corLinha = rgbReal ? '#'+rgbReal.map(v=>v.toString(16).padStart(2,'0')).join('') : '#8b99b6';
         const metros = polylineLengthMeters(ll);
-        L.polyline(ll, {color:corPorModelo(chave), weight:3}).bindPopup(popupHtml).addTo(layer);
+        L.polyline(ll, {color:corLinha, weight:3}).bindPopup(popupHtml).addTo(layer);
         cabosCount++;
         metragemTotal += metros;
         if(!cabosPorModelo[chave]) cabosPorModelo[chave] = {label, count:0, metros:0};
