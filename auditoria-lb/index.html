@@ -803,7 +803,7 @@ function reopenCard(prot) {
 
 function updateObservacoes(prot, text) {
   const current = getAudit(prot);
-  auditData[prot] = { ...current, observacoes: text };
+  auditData[prot] = { ...current, observacoes: text.trim() };
   saveAudit(prot);
 }
 
@@ -980,7 +980,7 @@ function buildCard(rec) {
   tabBar.innerHTML = `
     <button type="button" class="tab-btn active" data-tab="materiais">Materiais</button>
     <button type="button" class="tab-btn" data-tab="fotos">Fotos${fotos.length ? ` (${fotos.length})` : ""}</button>
-    <button type="button" class="tab-btn" data-tab="obs">Obs${audit.observacoes ? " •" : ""}</button>
+    <button type="button" class="tab-btn" data-tab="obs">Obs${audit.observacoes && audit.observacoes.trim() ? " •" : ""}</button>
   `;
   tabBar.querySelectorAll(".tab-btn").forEach(btn => {
     btn.addEventListener("click", (e) => {
