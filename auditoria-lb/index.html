@@ -565,10 +565,22 @@ function setSyncStatus(state) {
 // Chamado pelo listener em tempo real do Firestore (módulo no <head>)
 // sempre que qualquer pessoa da equipe salva uma auditoria.
 function applyAuditData(parsed) {
+  // Guarda quais cards estão abertos antes de redesenhar (o próprio
+  // salvamento ecoa de volta pelo listener em tempo real e recriava a
+  // tela do zero, fechando o card que a pessoa estava usando).
+  const openProtocolos = [...document.querySelectorAll(".card.open")]
+    .map(c => c.querySelector(".status-pill")?.dataset.prot)
+    .filter(Boolean);
+
   auditData = parsed;
   storageReady = true;
   setSyncStatus("ok");
   render();
+
+  openProtocolos.forEach(prot => {
+    const card = [...document.querySelectorAll(".card")].find(c => c.querySelector(`.status-pill[data-prot="${prot}"]`));
+    if (card) card.classList.add("open");
+  });
 }
 window._applyAuditData = applyAuditData;
 
