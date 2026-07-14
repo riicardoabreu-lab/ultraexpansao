@@ -737,6 +737,33 @@ function updateItemAudit(prot, produto, value) {
   saveAudit(prot);
 }
 
+// Atualiza o "-6"/"OK" ao lado do campo enquanto a pessoa digita, sem
+// redesenhar a tela inteira (senão perderia o foco a cada tecla). O
+// salvamento de verdade (Firestore) só acontece no "change" (ao sair
+// do campo), como já era.
+function liveUpdateDiff(inputEl) {
+  const td = inputEl.closest("td");
+  const tr = inputEl.closest("tr");
+  const qtySistema = Number(tr.querySelector("td.qty").textContent);
+  const raw = inputEl.value;
+  const existingTag = td.querySelector(".diff-tag");
+
+  inputEl.classList.remove("match", "diff");
+  if (raw === "") {
+    if (existingTag) existingTag.remove();
+    return;
+  }
+  const val = Number(raw);
+  const isMatch = val === qtySistema;
+  const delta = val - qtySistema;
+  const html = isMatch
+    ? `<span class="diff-tag match">OK</span>`
+    : `<span class="diff-tag diff">${delta > 0 ? "+" : ""}${delta}</span>`;
+  if (existingTag) existingTag.outerHTML = html;
+  else td.insertAdjacentHTML("beforeend", html);
+  inputEl.classList.add(isMatch ? "match" : "diff");
+}
+
 function buildCard(rec) {
   const audit = getAudit(rec.protocolo);
   const isVistoriado = audit.status === "vistoriado";
@@ -839,6 +866,7 @@ function buildCard(rec) {
   }).join("");
   table.innerHTML = theadHtml + `<tbody>${rowsHtml}</tbody>`;
   table.querySelectorAll(".audit-input").forEach(input => {
+    input.addEventListener("input", (e) => liveUpdateDiff(e.target));
     input.addEventListener("change", (e) => {
       updateItemAudit(rec.protocolo, e.target.dataset.produto, e.target.value);
       render();
