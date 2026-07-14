@@ -15,7 +15,6 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
   import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
   const fb = initializeApp({
     apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
     authDomain: "isp-manager-ce.firebaseapp.com",
@@ -26,7 +25,6 @@
   });
   const auth = getAuth(fb);
   const fsDb = getFirestore(fb);
-  const fsStorage = getStorage(fb);
   window._doLogout = function(){
     signOut(auth).finally(()=>{
       sessionStorage.clear();
@@ -37,6 +35,8 @@
   // ---- Sincronização em tempo real com a nuvem (Firestore) ----
   // Mesma coleção compartilhada (auditoria_lb) que a Auditoria LB usa —
   // qualquer alteração feita pela equipe de campo aparece aqui na hora.
+  // As fotos ficam comprimidas (base64) dentro do próprio documento — o
+  // projeto está no plano gratuito (Spark), sem Firebase Storage.
   window._fbSaveAudit = (protocolo, rec) => {
     return setDoc(doc(fsDb, 'auditoria_lb', String(protocolo)), {
       status: rec.status,
@@ -47,18 +47,6 @@
       observacoes: rec.observacoes || '',
       atualizado_em: Date.now(),
     });
-  };
-
-  // ---- Fotos (Firebase Storage) ----
-  window._fbUploadFoto = async (protocolo, file) => {
-    const path = `auditoria_lb/${protocolo}/${Date.now()}_${file.name}`;
-    const fileRef = ref(fsStorage, path);
-    await uploadBytes(fileRef, file);
-    const url = await getDownloadURL(fileRef);
-    return { url, path, nome: file.name };
-  };
-  window._fbDeleteFoto = (path) => {
-    return deleteObject(ref(fsStorage, path)).catch(err => console.error('Falha ao remover foto do Storage:', err));
   };
 
   onAuthStateChanged(auth, user => {
@@ -819,40 +807,74 @@ function updateObservacoes(prot, text) {
   saveAudit(prot);
 }
 
+// Redimensiona e comprime a imagem no navegador antes de salvar — o
+// Firestore tem limite de ~1MB por documento, e não há Firebase Storage
+// configurado (projeto no plano gratuito), então as fotos ficam como
+// base64 dentro do próprio registro da auditoria.
+function compressImage(file, maxDim = 1000, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Falha ao ler o arquivo"));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Arquivo não é uma imagem válida"));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) { height = Math.round(height * (maxDim / width)); width = maxDim; }
+          else { width = Math.round(width * (maxDim / height)); height = maxDim; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+const FOTOS_LIMITE_BYTES = 900000; // margem de segurança dentro do limite de ~1MB por documento do Firestore
+
 async function addFotos(prot, fileList) {
   const files = [...fileList].filter(f => f.type.startsWith("image/"));
   if (!files.length) return;
-  if (!window._fbUploadFoto) { alert("Sincronização indisponível — tente recarregar a página."); return; }
   const statusEl = document.querySelector(`.foto-status[data-prot="${prot}"]`);
-  if (statusEl) statusEl.textContent = `Enviando ${files.length} foto(s)...`;
+  if (statusEl) statusEl.textContent = `Processando ${files.length} foto(s)...`;
   try {
-    const uploaded = [];
-    for (const file of files) {
-      uploaded.push(await window._fbUploadFoto(prot, file));
-    }
     const current = getAudit(prot);
-    auditData[prot] = { ...current, fotos: [...(current.fotos || []), ...uploaded] };
+    const novasFotos = [...(current.fotos || [])];
+    let cheio = false;
+    for (const file of files) {
+      const dataUrl = await compressImage(file);
+      const tamanhoAtual = novasFotos.reduce((s, f) => s + f.data.length, 0);
+      if (tamanhoAtual + dataUrl.length > FOTOS_LIMITE_BYTES) { cheio = true; break; }
+      novasFotos.push({ data: dataUrl, nome: file.name, enviado_em: Date.now() });
+    }
+    auditData[prot] = { ...current, fotos: novasFotos };
     await saveAudit(prot);
     render();
     reopenCard(prot);
+    if (cheio) alert("Limite de espaço para fotos deste protocolo atingido — remova alguma foto antiga antes de adicionar novas.");
   } catch (e) {
-    console.error("Falha ao enviar foto:", e);
-    alert("Não foi possível enviar a foto. Verifique sua conexão e tente de novo.");
+    console.error("Falha ao processar foto:", e);
+    alert("Não foi possível processar a foto. Tente outra imagem.");
     render();
     reopenCard(prot);
+  } finally {
+    if (statusEl) statusEl.textContent = "";
   }
 }
 
-async function removeFoto(prot, index) {
+function removeFoto(prot, index) {
   if (!confirm("Remover esta foto?")) return;
   const current = getAudit(prot);
-  const foto = (current.fotos || [])[index];
   const novas = (current.fotos || []).filter((_, i) => i !== index);
   auditData[prot] = { ...current, fotos: novas };
   saveAudit(prot);
   render();
   reopenCard(prot);
-  if (foto && foto.path && window._fbDeleteFoto) window._fbDeleteFoto(foto.path);
 }
 
 // Atualiza o "-6"/"OK" ao lado do campo enquanto a pessoa digita, sem
@@ -1045,7 +1067,7 @@ function buildCard(rec) {
     <div class="foto-grid">
       ${fotos.length ? fotos.map((f, i) => `
         <div class="foto-item">
-          <a href="${esc(f.url)}" target="_blank" rel="noopener"><img src="${esc(f.url)}" loading="lazy" alt=""></a>
+          <a href="${esc(f.data)}" target="_blank" rel="noopener"><img src="${esc(f.data)}" loading="lazy" alt=""></a>
           <button type="button" class="foto-remove" data-idx="${i}" title="Remover">×</button>
         </div>`).join("") : '<div class="empty-mini">Nenhuma foto ainda.</div>'}
     </div>
