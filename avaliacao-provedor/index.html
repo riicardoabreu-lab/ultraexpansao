@@ -181,8 +181,10 @@
         <div class="mult" id="tagMultTeto">14x MRR</div>
         <div class="valor" id="valorTeto">R$ 0</div>
         <div class="linha"><span id="lblEntradaTeto">Entrada</span><span id="entradaTeto">R$ 0</span></div>
+        <div class="linha"><span>Restante</span><span id="restanteTeto">R$ 0</span></div>
         <div class="linha"><span>10x</span><span id="parc10Teto">R$ 0</span></div>
         <div class="linha"><span>12x</span><span id="parc12Teto">R$ 0</span></div>
+        <div class="linha"><span>15x</span><span id="parc15Teto">R$ 0</span></div>
         <div class="linha"><span>Valor/cliente</span><span id="ppcTeto">R$ 0</span></div>
       </div>
       <div class="oferta moderada">
@@ -190,8 +192,10 @@
         <div class="mult" id="tagMultM">10x MRR</div>
         <div class="valor" id="valorM">R$ 0</div>
         <div class="linha"><span id="lblEntradaM">Entrada</span><span id="entradaM">R$ 0</span></div>
+        <div class="linha"><span>Restante</span><span id="restanteM">R$ 0</span></div>
         <div class="linha"><span>10x</span><span id="parc10M">R$ 0</span></div>
         <div class="linha"><span>12x</span><span id="parc12M">R$ 0</span></div>
+        <div class="linha"><span>15x</span><span id="parc15M">R$ 0</span></div>
         <div class="linha"><span>Valor/cliente</span><span id="ppcM">R$ 0</span></div>
       </div>
       <div class="oferta conservadora">
@@ -199,8 +203,10 @@
         <div class="mult" id="tagMultC">7x MRR</div>
         <div class="valor" id="valorC">R$ 0</div>
         <div class="linha"><span id="lblEntradaC">Entrada</span><span id="entradaC">R$ 0</span></div>
+        <div class="linha"><span>Restante</span><span id="restanteC">R$ 0</span></div>
         <div class="linha"><span>10x</span><span id="parc10C">R$ 0</span></div>
         <div class="linha"><span>12x</span><span id="parc12C">R$ 0</span></div>
+        <div class="linha"><span>15x</span><span id="parc15C">R$ 0</span></div>
         <div class="linha"><span>Valor/cliente</span><span id="ppcC">R$ 0</span></div>
       </div>
     </div>
@@ -234,11 +240,14 @@ function calcular(){
   function preencherOferta(sufixo, mult){
     const valor = mrr * mult;
     const entrada = valor * (pctEntrada/100);
+    const restante = valor - entrada;
     document.getElementById('valor'+sufixo).textContent = fmt(valor);
     document.getElementById('lblEntrada'+sufixo).textContent = 'Entrada ' + pctEntrada + '%';
     document.getElementById('entrada'+sufixo).textContent = fmt(entrada);
-    document.getElementById('parc10'+sufixo).textContent = fmt(entrada/10);
-    document.getElementById('parc12'+sufixo).textContent = fmt(entrada/12);
+    document.getElementById('restante'+sufixo).textContent = fmt(restante);
+    document.getElementById('parc10'+sufixo).textContent = fmt(restante/10);
+    document.getElementById('parc12'+sufixo).textContent = fmt(restante/12);
+    document.getElementById('parc15'+sufixo).textContent = fmt(restante/15);
     document.getElementById('ppc'+sufixo).textContent = fmt(clientes > 0 ? valor/clientes : 0);
   }
   preencherOferta('Teto', multTeto);
