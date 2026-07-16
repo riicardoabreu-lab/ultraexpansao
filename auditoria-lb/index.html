@@ -88,6 +88,7 @@
     --border: #e5dcef;
     --green: #1a7a3f;
     --red: #b83232;
+    --orange: #b8720f;
   }
   * { box-sizing: border-box; }
   body {
@@ -276,6 +277,7 @@
     transition: border-color .15s;
   }
   .card.vistoriado { border-color: #b9e3c6; }
+  .card.inconsistente { border-color: #f0dba8; }
   .card-head {
     display: flex;
     justify-content: space-between;
@@ -336,29 +338,31 @@
     padding: 3px 8px;
     border-radius: 6px;
   }
-  .status-pill {
+  .status-group {
+    display: inline-flex;
+    border-radius: 7px;
+    overflow: hidden;
+    border: 1.5px solid var(--border);
+  }
+  .status-opt {
     font-size: 11px;
     font-weight: 700;
-    padding: 4px 10px;
-    border-radius: 6px;
-    border: 1.5px solid transparent;
+    padding: 5px 9px;
+    border: none;
+    border-right: 1.5px solid var(--border);
+    background: #fff;
+    color: var(--muted);
     cursor: pointer;
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
     transition: all .12s;
   }
-  .status-pill.pendente {
-    background: #fdf0f0;
-    color: var(--red);
-    border-color: #f3d4d4;
-  }
-  .status-pill.pendente:hover { background: #fbe2e2; }
-  .status-pill.vistoriado {
-    background: #e7f5ec;
-    color: var(--green);
-    border-color: #b9e3c6;
-  }
+  .status-opt:last-child { border-right: none; }
+  .status-opt:hover { background: #f3edf9; }
+  .status-opt.active.pendente { background: #fdf0f0; color: var(--red); }
+  .status-opt.active.vistoriado { background: #e7f5ec; color: var(--green); }
+  .status-opt.active.inconsistente { background: #fbf0dc; color: var(--orange); }
   .meta {
     font-size: 12px;
     color: var(--muted);
@@ -409,6 +413,11 @@
     border-radius: 8px;
     font-size: 12px;
     color: var(--green);
+  }
+  .audit-info.inconsistente {
+    background: #fdf6e8;
+    border-color: #f0dba8;
+    color: var(--orange);
   }
   table {
     width: 100%;
@@ -616,7 +625,7 @@ function applyAuditData(parsed) {
   // salvamento ecoa de volta pelo listener em tempo real e recriava a
   // tela do zero, fechando o card que a pessoa estava usando).
   const openProtocolos = [...document.querySelectorAll(".card.open")]
-    .map(c => c.querySelector(".status-pill")?.dataset.prot)
+    .map(c => c.querySelector(".status-group")?.dataset.prot)
     .filter(Boolean);
 
   auditData = parsed;
@@ -625,7 +634,7 @@ function applyAuditData(parsed) {
   render();
 
   openProtocolos.forEach(prot => {
-    const card = [...document.querySelectorAll(".card")].find(c => c.querySelector(`.status-pill[data-prot="${prot}"]`));
+    const card = [...document.querySelectorAll(".card")].find(c => c.querySelector(`.status-group[data-prot="${prot}"]`));
     if (card) card.classList.add("open");
   });
 }
@@ -685,7 +694,7 @@ function renderMonthButtons() {
 function renderStatusButtons() {
   const wrap = document.getElementById("statusButtons");
   wrap.innerHTML = "";
-  const opts = [["todas","Todas"],["pendente","Pendentes"],["vistoriado","Vistoriadas"]];
+  const opts = [["todas","Todas"],["pendente","Não vistoriadas"],["vistoriado","Vistoriadas OK"],["inconsistente","Inconsistentes"]];
   opts.forEach(([val, label]) => {
     const btn = document.createElement("button");
     btn.className = "status-btn" + (activeStatus === val ? " active" : "");
@@ -723,10 +732,12 @@ function renderStats(filtered) {
   const totalCaixas = filtered.reduce((s, r) => s + r.caixas_emenda.length, 0);
   const locaisUnicos = new Set(filtered.filter(r => r.local).map(r => r.local)).size;
   const vistoriadas = filtered.filter(r => getAudit(r.protocolo).status === "vistoriado").length;
+  const inconsistentes = filtered.filter(r => getAudit(r.protocolo).status === "inconsistente").length;
 
   row.innerHTML = `
     <div class="stat"><div class="num">${totalOS}</div><div class="label">Ordens de Serviço</div></div>
-    <div class="stat"><div class="num">${vistoriadas} / ${totalOS}</div><div class="label">Vistoriadas</div></div>
+    <div class="stat"><div class="num">${vistoriadas} / ${totalOS}</div><div class="label">Vistoriadas OK</div></div>
+    <div class="stat"><div class="num">${inconsistentes} / ${totalOS}</div><div class="label">Inconsistentes</div></div>
     <div class="stat"><div class="num">${locaisUnicos}</div><div class="label">Localidades Distintas</div></div>
     <div class="stat"><div class="num">${totalCaixas}</div><div class="label">Caixas de Emenda (CEO)</div></div>
   `;
@@ -768,20 +779,24 @@ function render() {
 const PIN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>';
 const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><polyline points="20 6 9 17 4 12"/></svg>';
 
-function toggleVistoriado(prot) {
+const STATUS_LABELS = { pendente: "não vistoriado", vistoriado: "vistoriado OK", inconsistente: "inconsistente" };
+
+function setStatus(prot, newStatus) {
   const auditor = document.getElementById("auditorInput").value.trim();
   const current = getAudit(prot);
-  if (current.status === "vistoriado") {
+  if (current.status === newStatus) return;
+  if (newStatus === "pendente") {
     auditData[prot] = { ...current, status: "pendente", auditor: null, data_vistoria: null };
   } else {
     if (!auditor) {
-      alert("Informe o nome do auditor(a) antes de marcar como vistoriado.");
+      alert(`Informe o nome do auditor(a) antes de marcar como ${STATUS_LABELS[newStatus]}.`);
       return;
     }
-    auditData[prot] = { ...current, status: "vistoriado", auditor: auditor, data_vistoria: new Date().toISOString() };
+    auditData[prot] = { ...current, status: newStatus, auditor: auditor, data_vistoria: new Date().toISOString() };
   }
   saveAudit(prot);
   render();
+  reopenCard(prot);
 }
 
 function updateItemAudit(prot, produto, value) {
@@ -797,7 +812,7 @@ function updateItemAudit(prot, produto, value) {
 }
 
 function reopenCard(prot) {
-  const reopened = [...document.querySelectorAll(".card")].find(c => c.querySelector(`.status-pill[data-prot="${prot}"]`));
+  const reopened = [...document.querySelectorAll(".card")].find(c => c.querySelector(`.status-group[data-prot="${prot}"]`));
   if (reopened) reopened.classList.add("open");
 }
 
@@ -906,10 +921,12 @@ function liveUpdateDiff(inputEl) {
 
 function buildCard(rec) {
   const audit = getAudit(rec.protocolo);
-  const isVistoriado = audit.status === "vistoriado";
+  const status = audit.status || "pendente";
+  const isVistoriado = status === "vistoriado";
+  const isInconsistente = status === "inconsistente";
 
   const card = document.createElement("div");
-  card.className = "card" + (isVistoriado ? " vistoriado" : "");
+  card.className = "card" + (status !== "pendente" ? " " + status : "");
 
   const mapPinHtml = rec.maps_url
     ? `<a class="map-pin" href="${rec.maps_url}" target="_blank" rel="noopener" title="Ver localização de ${rec.local || 'esta OS'} no mapa" onclick="event.stopPropagation()">${PIN_SVG}</a>`
@@ -919,9 +936,12 @@ function buildCard(rec) {
     ? `<span class="ceo-tag">${rec.caixas_emenda.length} CEO${rec.caixas_emenda.length > 1 ? 's' : ''}</span>`
     : '';
 
-  const statusPillHtml = isVistoriado
-    ? `<button class="status-pill vistoriado" data-prot="${rec.protocolo}">${CHECK_SVG} Vistoriado</button>`
-    : `<button class="status-pill pendente" data-prot="${rec.protocolo}">Marcar vistoriado</button>`;
+  const statusGroupHtml = `
+    <div class="status-group" data-prot="${rec.protocolo}">
+      <button class="status-opt pendente${status === 'pendente' ? ' active' : ''}" data-val="pendente">Não vistoriado</button>
+      <button class="status-opt vistoriado${status === 'vistoriado' ? ' active' : ''}" data-val="vistoriado">${CHECK_SVG} OK</button>
+      <button class="status-opt inconsistente${status === 'inconsistente' ? ' active' : ''}" data-val="inconsistente">Inconsistente</button>
+    </div>`;
 
   const head = document.createElement("div");
   head.className = "card-head";
@@ -932,19 +952,21 @@ function buildCard(rec) {
       ${mapPinHtml}
       <span class="local-name">${rec.local || 'Local não informado'}</span>
       ${ceoHtml}
-      ${statusPillHtml}
+      ${statusGroupHtml}
     </div>
     <div class="left">
       <span class="meta">${rec.data_abertura.split(" ")[0]} → ${rec.data_encerramento.split(" ")[0]}</span>
       <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
     </div>
   `;
-  head.querySelector(".status-pill").addEventListener("click", (e) => {
-    e.stopPropagation();
-    toggleVistoriado(rec.protocolo);
+  head.querySelectorAll(".status-opt").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setStatus(rec.protocolo, btn.dataset.val);
+    });
   });
   head.addEventListener("click", (e) => {
-    if (e.target.closest(".status-pill") || e.target.closest(".map-pin")) return;
+    if (e.target.closest(".status-group") || e.target.closest(".map-pin")) return;
     card.classList.toggle("open");
   });
 
@@ -965,11 +987,13 @@ function buildCard(rec) {
     body.appendChild(loc);
   }
 
-  if (isVistoriado) {
+  if (isVistoriado || isInconsistente) {
     const info = document.createElement("div");
-    info.className = "audit-info";
+    info.className = "audit-info" + (isInconsistente ? " inconsistente" : "");
     const dt = audit.data_vistoria ? new Date(audit.data_vistoria).toLocaleString("pt-BR") : "";
-    info.innerHTML = `✓ Vistoriado por <b>${audit.auditor}</b> em ${dt}`;
+    info.innerHTML = isInconsistente
+      ? `⚠ Marcado como inconsistente por <b>${audit.auditor}</b> em ${dt}`
+      : `✓ Vistoriado por <b>${audit.auditor}</b> em ${dt}`;
     body.appendChild(info);
   }
 
@@ -1141,7 +1165,7 @@ function downloadReport() {
         m.quantidade,
         hasAudit ? auditedVal : "",
         diff,
-        audit.status === "vistoriado" ? "Vistoriado" : "Pendente",
+        audit.status === "vistoriado" ? "Vistoriado OK" : audit.status === "inconsistente" ? "Inconsistente" : "Não vistoriado",
         audit.auditor || "",
         dt
       ]);
@@ -1180,7 +1204,7 @@ function downloadReport() {
     });
     summaryRows.push([
       rec.protocolo, rec.numero_nota, monthLabel(rec.mes), rec.local || "",
-      audit.status === "vistoriado" ? "Vistoriado" : "Pendente",
+      audit.status === "vistoriado" ? "Vistoriado OK" : audit.status === "inconsistente" ? "Inconsistente" : "Não vistoriado",
       audit.auditor || "", dt, rec.materiais.length, diffCount
     ]);
   });
