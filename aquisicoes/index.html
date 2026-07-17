@@ -180,6 +180,7 @@
   }
   .phead input.pname-input:hover, .phead input.pname-input:focus{ border-bottom-color:var(--border); outline:none; }
   .status-select-wrap{ margin-top:9px; }
+  .status-row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   select.status-select{
     appearance:none; -webkit-appearance:none; border:1px solid var(--border); border-radius:20px;
     padding:6px 30px 6px 13px; font-family:var(--mono); font-size:11.5px; font-weight:600; cursor:pointer;
@@ -188,6 +189,21 @@
     background-repeat:no-repeat; background-position:right 12px center;
   }
   select.status-select:focus{ outline:none; box-shadow:0 0 0 3px rgba(0,212,200,.18); }
+  .motivo-toggle{
+    display:none; align-items:center; gap:6px; border:1px solid var(--border); border-radius:20px;
+    padding:6px 13px; font-family:var(--mono); font-size:11.5px; font-weight:600; cursor:pointer;
+    background:var(--bg-inset); color:var(--text-dim);
+  }
+  .motivo-toggle:hover{ color:var(--text); border-color:#fb7185; }
+  .motivo-toggle.filled{ color:#fb7185; border-color:#fb718555; background:#fb71851a; }
+  .motivo-toggle .dot{ width:6px; height:6px; border-radius:50%; background:#fb7185; display:none; }
+  .motivo-toggle.filled .dot{ display:inline-block; }
+  .motivo-textarea{
+    display:none; width:100%; max-width:520px; margin-top:8px; background:var(--bg-inset);
+    border:1px solid var(--border); border-radius:10px; padding:10px 12px; color:var(--text);
+    font-family:inherit; font-size:12.5px; min-height:64px; resize:vertical;
+  }
+  .motivo-textarea:focus{ outline:none; border-color:#fb7185; }
   .phead-kpis{ display:flex; gap:22px; margin-left:auto; flex-wrap:wrap; max-width:100%; }
   .phead-kpis .k{ text-align:right; }
   .phead-kpis .k .l{ font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.06em; }
@@ -352,7 +368,7 @@ function blankEmpresa(nome){
   return {
     id: 'e_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
     nome: nome || "Novo provedor",
-    status: "Prospecção",
+    status: "Prospecção", motivoDescarte:"",
     comprador:"INFOLINK TELECOM", regiao:"", data:new Date().toISOString().slice(0,10),
     clientes:0, mrr:0, impostosPct:0, pddPct:0,
     metaMargem:0, metaPayback:12, multMRR:14, multEBITDA:4,
@@ -738,7 +754,11 @@ function mainSkeleton(){
         <div>
           <input class="pname-input" id="pname" type="text">
           <div class="status-select-wrap">
-            <select id="pstatus" class="status-select">${STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}</select>
+            <div class="status-row">
+              <select id="pstatus" class="status-select">${STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}</select>
+              <button type="button" id="motivoToggle" class="motivo-toggle"><span class="dot"></span>Motivo</button>
+            </div>
+            <textarea id="in-motivo" class="motivo-textarea" placeholder="Motivo do descarte (fica salvo para consultar depois)..."></textarea>
           </div>
         </div>
         <div class="phead-kpis" id="pheadKpis"></div>
@@ -1293,7 +1313,10 @@ function fillFields(){
   set('in-fin-flat', p.finFlatPct);
   set('in-fin-ir', p.finIRPct);
   set('pstatus', p.status||"Prospecção");
+  set('in-motivo', p.motivoDescarte||"");
+  const motivoTa = document.getElementById('in-motivo'); if(motivoTa) motivoTa.style.display = 'none';
   applyStatusColor();
+  updateMotivoUI();
 }
 function applyStatusColor(){
   const sel = document.getElementById('pstatus'); if(!sel) return;
@@ -1302,9 +1325,37 @@ function applyStatusColor(){
   sel.style.setProperty('--status-fg', color);
   sel.style.borderColor = color+'55';
 }
+function updateMotivoUI(){
+  const p = current(); if(!p) return;
+  const toggle = document.getElementById('motivoToggle');
+  const sel = document.getElementById('pstatus');
+  if(!toggle || !sel) return;
+  const isDescartado = sel.value === 'Descartado';
+  toggle.style.display = isDescartado ? 'inline-flex' : 'none';
+  if(!isDescartado){ const ta = document.getElementById('in-motivo'); if(ta) ta.style.display = 'none'; }
+  toggle.classList.toggle('filled', !!(p.motivoDescarte && p.motivoDescarte.trim()));
+}
 function bindAll(){
   bindField('pname', (p,v)=>{ p.nome=v; });
-  document.getElementById('pstatus').onchange = e => { current().status = e.target.value; applyStatusColor(); saveApp(); renderSidebar(); };
+  document.getElementById('pstatus').onchange = e => {
+    current().status = e.target.value;
+    applyStatusColor();
+    updateMotivoUI();
+    if(e.target.value === 'Descartado'){
+      const ta = document.getElementById('in-motivo');
+      ta.style.display = 'block';
+      ta.focus();
+    }
+    saveApp(); renderSidebar();
+  };
+  bindField('in-motivo', (p,v)=>p.motivoDescarte=v);
+  document.getElementById('in-motivo').addEventListener('input', updateMotivoUI);
+  document.getElementById('motivoToggle').onclick = () => {
+    const ta = document.getElementById('in-motivo');
+    const opening = ta.style.display === 'none' || !ta.style.display;
+    ta.style.display = opening ? 'block' : 'none';
+    if(opening) ta.focus();
+  };
   bindField('in-comprador', (p,v)=>p.comprador=v);
   bindField('in-regiao', (p,v)=>p.regiao=v);
   bindField('in-data', (p,v)=>p.data=v);
