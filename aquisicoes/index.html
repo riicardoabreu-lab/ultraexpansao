@@ -267,6 +267,18 @@
   .computed{ color:var(--text-dim); font-family:var(--mono); }
   .rm-btn{ background:transparent; border:1px solid var(--border); color:var(--text-faint); width:26px; height:26px; border-radius:6px; cursor:pointer; font-size:14px; line-height:1; }
   .rm-btn:hover{ border-color:var(--bad); color:var(--bad); }
+
+  /* Tabela de propostas: muitas colunas — compacta pra caber sem scroll horizontal */
+  #tbl-propostas{ min-width:0; }
+  #tbl-propostas th, #tbl-propostas td{ padding:5px 3px; }
+  #tbl-propostas th{ font-size:9px; }
+  #tbl-propostas td.computed{ font-size:11px; }
+  #tbl-propostas input, #tbl-propostas select{ font-size:10.5px; padding:5px 4px; min-width:0; }
+  #tbl-propostas td:nth-child(1) input{ min-width:52px; }
+  #tbl-propostas td:nth-child(2) input{ min-width:72px; }
+  #tbl-propostas td:nth-child(3) input, #tbl-propostas td:nth-child(6) input{ min-width:30px; }
+  #tbl-propostas .badge{ padding:3px 6px; font-size:9.5px; }
+  #tbl-propostas .rm-btn{ width:20px; height:20px; font-size:11px; }
   .add-row{ margin-top:10px; background:var(--bg-inset); border:1px dashed var(--border); color:var(--text-dim); padding:9px 14px; border-radius:7px; font-size:12.5px; cursor:pointer; }
   .add-row:hover{ border-color:var(--accent); color:var(--accent); }
 
@@ -1056,6 +1068,20 @@ function buildInvestTable(){
   };
 }
 
+function refreshPropostaRowComputed(tr, pr){
+  const p = current(); const m = compute(p);
+  const c = proposalCalc(pr, p, m);
+  tr.querySelector('[data-role="entradaR"]').textContent = fmtBRL(c.entradaR);
+  tr.querySelector('[data-role="saldoFin"]').textContent = fmtBRL(c.saldoFin);
+  tr.querySelector('[data-role="parcela"]').textContent = fmtBRL(c.parcela);
+  tr.querySelector('[data-role="porCliente"]').textContent = fmtBRL2(c.porCliente);
+  tr.querySelector('[data-role="evMRRi"]').textContent = fmtMult(c.evMRRi);
+  tr.querySelector('[data-role="evEBITDAi"]').textContent = fmtMult(c.evEBITDAi);
+  tr.querySelector('[data-role="paybackI"]').textContent = isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A';
+  tr.querySelector('[data-role="caixaMensal"]').textContent = fmtBRL(c.caixaMensal);
+  const badge = tr.querySelector('[data-role="badge"]');
+  if(badge){ badge.className = 'badge '+(c.viavel==='SIM'?'sim':(c.viavel==='NÃO'?'nao':'rev')); badge.textContent = c.viavel; }
+}
 function buildPropostasTable(){
   const p = current();
   p.propostas.forEach(pr=>{ if(!pr.id) pr.id = novoId('pr'); }); // propostas antigas sem id (compat.)
@@ -1067,7 +1093,7 @@ function buildPropostasTable(){
     const cls = c.viavel==='SIM'?'sim':(c.viavel==='NÃO'?'nao':'rev');
     return `<tr data-i="${i}">
       <td><input data-role="nome" type="text" value="${esc(pr.nome)}"></td>
-      <td><input data-role="valor" type="number" step="1000" value="${pr.valor}"></td>
+      <td><input data-role="valor" type="text" inputmode="numeric" value="${fmtMoneyInput(pr.valor)}"></td>
       <td><input data-role="entrada" type="number" step="1" value="${pr.entrada}"></td>
       <td class="computed" data-role="entradaR">${fmtBRL(c.entradaR)}</td>
       <td class="computed" data-role="saldoFin">${fmtBRL(c.saldoFin)}</td>
@@ -1088,18 +1114,18 @@ function buildPropostasTable(){
   const clsS = cs.viavel==='SIM'?'sim':(cs.viavel==='NÃO'?'nao':'rev');
   rows += `<tr data-i="sug" style="background:rgba(0,212,200,.06);">
       <td><em>${esc(sug.nome)}</em></td>
-      <td class="computed" style="color:var(--accent);font-weight:600;" data-role="valor">${fmtBRL(sug.valor)}</td>
+      <td class="computed" style="color:var(--accent);font-weight:600;">${fmtBRL(sug.valor)}</td>
       <td><input data-role="entrada" type="number" step="1" value="${sug.entrada}"></td>
-      <td class="computed">${fmtBRL(cs.entradaR)}</td>
-      <td class="computed">${fmtBRL(cs.saldoFin)}</td>
+      <td class="computed" data-role="entradaR">${fmtBRL(cs.entradaR)}</td>
+      <td class="computed" data-role="saldoFin">${fmtBRL(cs.saldoFin)}</td>
       <td><input data-role="parcelas" type="number" step="1" value="${sug.parcelas}"></td>
-      <td class="computed">${fmtBRL(cs.parcela)}</td>
-      <td class="computed">${fmtBRL2(cs.porCliente)}</td>
-      <td class="computed">${fmtMult(cs.evMRRi)}</td>
-      <td class="computed">${fmtMult(cs.evEBITDAi)}</td>
-      <td class="computed">${isFinite(cs.paybackI)?cs.paybackI.toFixed(1):'N/A'}</td>
-      <td class="computed">${fmtBRL(cs.caixaMensal)}</td>
-      <td><span class="badge ${clsS}">${cs.viavel}</span></td>
+      <td class="computed" data-role="parcela">${fmtBRL(cs.parcela)}</td>
+      <td class="computed" data-role="porCliente">${fmtBRL2(cs.porCliente)}</td>
+      <td class="computed" data-role="evMRRi">${fmtMult(cs.evMRRi)}</td>
+      <td class="computed" data-role="evEBITDAi">${fmtMult(cs.evEBITDAi)}</td>
+      <td class="computed" data-role="paybackI">${isFinite(cs.paybackI)?cs.paybackI.toFixed(1):'N/A'}</td>
+      <td class="computed" data-role="caixaMensal">${fmtBRL(cs.caixaMensal)}</td>
+      <td><span class="badge ${clsS}" data-role="badge">${cs.viavel}</span></td>
       <td></td>
     </tr>`;
   tbody.innerHTML = rows;
@@ -1111,14 +1137,26 @@ function buildPropostasTable(){
     if(tr.dataset.i==='sug'){
       if(role==='entrada') p2.propostaSugEntrada = parseFloat(e.target.value)||0;
       else if(role==='parcelas') p2.propostaSugParcelas = parseFloat(e.target.value)||1;
-      buildPropostasTable(); recomputeAll(); saveApp(); return;
+      else return;
+      recomputeAll(); saveApp();
+      refreshPropostaRowComputed(tr, compute(p2).propostaSugerida);
+      return;
     }
     const i = +tr.dataset.i; const row = p2.propostas[i];
-    if(role==='nome') row.nome=e.target.value;
-    else if(role==='valor') row.valor=parseFloat(e.target.value)||0;
+    if(role==='nome'){ row.nome=e.target.value; return; }
+    else if(role==='valor'){
+      const digitsBeforeCursor = e.target.value.slice(0, e.target.selectionStart).replace(/\D/g,'').length;
+      const raw = parseMoneyInput(e.target.value);
+      e.target.value = fmtMoneyInput(raw);
+      let pos=0, digits=0;
+      while(pos<e.target.value.length && digits<digitsBeforeCursor){ if(/\d/.test(e.target.value[pos])) digits++; pos++; }
+      e.target.setSelectionRange(pos,pos);
+      row.valor = raw;
+    }
     else if(role==='entrada') row.entrada=parseFloat(e.target.value)||0;
     else if(role==='parcelas') row.parcelas=parseFloat(e.target.value)||1;
-    buildPropostasTable(); recomputeAll(); saveApp();
+    recomputeAll(); saveApp();
+    refreshPropostaRowComputed(tr, row);
   };
   tbody.onclick = e => {
     if(e.target.dataset.role!=='rm') return;
