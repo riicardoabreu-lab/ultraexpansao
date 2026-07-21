@@ -28,6 +28,9 @@ PROVIDER_ALIASES = {
     "BIT WAVE": "BITWAVE",
     "GL": "GL TELECOM",
     "PROVEDOR NET": "PROVEDORNET",
+    "NEW WORD": "NEW WORLD",
+    "LINKBARATO": "LINK BARATO",
+    "CONDOMINIO FECHADO": "CONDOMÍNIO FECHADO",
 }
 
 
@@ -84,6 +87,27 @@ def recompute_city_totals(city):
     city["providers"] = providers
 
 
+def merge_alias_leftovers(D):
+    """Funde no dashboard inteiro entradas salvas com o nome antigo de um
+    provedor que passou a ter alias (ex: rodadas anteriores salvaram
+    "NEW WORD" antes desse alias existir). Sem isso, o nome antigo fica
+    órfão duplicado ao lado do nome canônico novo."""
+    def merge_dict(provs):
+        for src, tgt in PROVIDER_ALIASES.items():
+            if src in provs:
+                old = provs.pop(src)
+                cur = provs.get(tgt, {"cx": 0.0, "clientes": 0.0})
+                provs[tgt] = {"cx": cur["cx"] + old["cx"], "clientes": cur["clientes"] + old["clientes"]}
+
+    for city in D.get("cidades", {}).values():
+        for bairro in city.get("bairros", {}).values():
+            merge_dict(bairro.get("providers", {}))
+        merge_dict(city.get("providers", {}))
+    for bairro in D.get("fortaleza", {}).get("bairros", {}).values():
+        merge_dict(bairro.get("providers", {}))
+    merge_dict(D.get("provedores_geral", {}))
+
+
 def count_caixas_by_bairro_provider(content_json_path):
     with open(content_json_path, encoding="utf-8") as f:
         data = json.load(f)
@@ -121,9 +145,11 @@ def main():
     start, end, json_str = extract_d_object(html)
     D = json.loads(json_str)
 
-    beberibe = D["cidades"]["BEBERIBE"]
     if "provedores_geral" not in D:
         D["provedores_geral"] = {}
+    merge_alias_leftovers(D)
+
+    beberibe = D["cidades"]["BEBERIBE"]
 
     print(f"{'BAIRRO':<20}{'PROVEDOR':<25}{'ANTES':>8}{'AGORA':>8}{'DELTA':>8}")
     for bairro, providers in sorted(counts.items()):

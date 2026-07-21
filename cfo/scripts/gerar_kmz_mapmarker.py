@@ -25,6 +25,24 @@ CATEGORY_BASE_HUE = {
     "CONDOMINIOS": 0.0,
 }
 
+# Normalização de nomes de provedor: o banco bruto do Map Marker tem
+# variações de espaço/acento/digitação do mesmo provedor (ex: "BIT WAVE"
+# vs "BITWAVE"). Mapeia pra forma canônica escolhida pela contagem
+# majoritária de cada variante nos dados de Beberibe.
+PROVIDER_ALIASES = {
+    "BIT WAVE": "BITWAVE",
+    "GL": "GL TELECOM",
+    "PROVEDOR NET": "PROVEDORNET",
+    "NEW WORD": "NEW WORLD",
+    "LINKBARATO": "LINK BARATO",
+    "CONDOMINIO FECHADO": "CONDOMÍNIO FECHADO",
+}
+
+
+def normalize_provider(name):
+    name = name.strip()
+    return PROVIDER_ALIASES.get(name, name)
+
 
 def provider_color_kml(name):
     """Cor determinística por provedor, formato KML aabbggrr."""
@@ -54,7 +72,8 @@ def build_kml(content_json_path, cidade):
         parts = folder["name"].split("/")
         if len(parts) < 4 or parts[0].strip().upper() != cidade.upper():
             continue
-        bairro, categoria, provedor = parts[1].strip(), parts[2].strip(), parts[3].strip()
+        bairro, categoria = parts[1].strip(), parts[2].strip()
+        provedor = normalize_provider(parts[3])
         lat = geo["data"]["latitude"]
         lon = geo["data"]["longitude"]
         tree[bairro][categoria][provedor].append((lat, lon))
