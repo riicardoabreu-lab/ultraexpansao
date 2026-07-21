@@ -1165,8 +1165,17 @@ function buildKmzMap(doc){
   });
 
   kmzAllMarkers.forEach(m=>m.marker.addTo(kmzMapInst));
-  if(allBounds.length) kmzMapInst.fitBounds(allBounds, {padding:[20,20]});
-  setTimeout(()=>kmzMapInst && kmzMapInst.invalidateSize(), 80);
+  // invalidateSize() TEM que rodar antes do fitBounds: a aba KMZ está
+  // escondida (display:none) até o usuário clicar nela, então o Leaflet
+  // mede o contêiner com tamanho errado no momento do L.map(...). Se o
+  // fitBounds calcular o centro/zoom em cima desse tamanho errado, o mapa
+  // fica com o centro deslocado — e como o invalidateSize() só ajusta o
+  // tamanho (não recalcula o centro), o erro persistia mesmo dando zoom.
+  setTimeout(()=>{
+    if(!kmzMapInst) return;
+    kmzMapInst.invalidateSize();
+    if(allBounds.length) kmzMapInst.fitBounds(allBounds, {padding:[20,20]});
+  }, 80);
 
   renderKmzBairroList();
   renderKmzProviderList();
