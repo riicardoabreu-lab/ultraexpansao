@@ -236,12 +236,11 @@
 
   .field{ display:flex; flex-direction:column; gap:5px; }
   .field label{ font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.06em; }
-  .field input, .field select, .field textarea{
+  .field input, .field select{
     background:var(--bg-inset); border:1px solid var(--border); color:var(--text); font-family:var(--mono);
     font-size:13.5px; padding:9px 10px; border-radius:7px; width:100%;
   }
-  .field textarea{ font-family:inherit; resize:vertical; }
-  .field input:focus, .field select:focus, .field textarea:focus, table input:focus, table select:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(0,212,200,.15); }
+  .field input:focus, .field select:focus, table input:focus, table select:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(0,212,200,.15); }
   .field-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; }
 
   .kpi-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
@@ -377,7 +376,7 @@ function blankEmpresa(nome){
     propostas:[], propostaSugEntrada:50, propostaSugParcelas:12,
     finSelic:14.5, finValorOverride:null,
     finCarenciaTri:3, finParcelasTri:13, finFlatPct:1.6, finIRPct:17.647,
-    intencaoVendaValor:0, intencaoVendaObs:"",
+    intencaoVendaValor:0,
     kmz:null, // {name} — o arquivo em si fica no IndexedDB deste navegador, não aqui
     kmzCustoCaixa:0, kmzCustoCeo:0,
     kmzCustoMetroPorModelo:{}, // ex: {"12": 2.5, "24": 4, "outro": 1.8} — R$/metro por bitola de fibra
@@ -769,13 +768,11 @@ function mainSkeleton(){
     <div class="tabbar" id="tabbar">
       <button data-tab="custos">Custos &amp; EBITDA</button>
       <button data-tab="valuation">Investimento &amp; Valuation</button>
-      <button data-tab="intencao">Intenção de Venda</button>
       <button data-tab="propostas">Propostas</button>
       <button data-tab="rede">Rede (KMZ)</button>
     </div>
     <div class="tabpanel" data-panel="custos">${tplCustos()}</div>
     <div class="tabpanel" data-panel="valuation">${tplValuation()}</div>
-    <div class="tabpanel" data-panel="intencao">${tplIntencao()}</div>
     <div class="tabpanel" data-panel="propostas">${tplPropostas()}</div>
     <div class="tabpanel" data-panel="rede">${tplRede()}</div>
     <footer>Plataforma local — nenhum dado sai deste navegador. Cada provedor é salvo separadamente e pode ser exportado em JSON.</footer>
@@ -795,6 +792,7 @@ function tplCustos(){
         <div class="field"><label>MRR mensal (R$)</label><input id="in-mrr" type="number" min="0" step="1"></div>
         <div class="field"><label>Impostos sobre receita (%)</label><input id="in-impostos" type="number" min="0" step="0.1"></div>
         <div class="field"><label>Inadimplência / PDD (%)</label><input id="in-pdd" type="number" min="0" step="0.1"></div>
+        <div class="field"><label>Valor pedido pelo provedor (R$)</label><input id="in-intencao-valor" type="number" min="0" step="1"></div>
       </div>
     </div>
   </div>
@@ -902,27 +900,6 @@ function tplValuation(){
         <tbody id="emprestimo-body"></tbody>
       </table></div>
       <p class="note">Carência: só paga juros a cada trimestre, sem amortizar o principal. Depois da carência, o principal é dividido em parcelas trimestrais iguais (SAC), com juros decrescentes sobre o saldo devedor. Reserva mensal recomendada = soma dos 4 primeiros trimestres (1º ano) ÷ 12.</p>
-    </div>
-  </div>`;
-}
-
-function tplIntencao(){
-  return `
-  <div class="sec-block">
-    <h3>Intenção de venda do provedor</h3>
-    <p class="hint">Valor que o provedor pediu pela operação — compare com a oferta máx. sustentável calculada em Investimento &amp; Valuation.</p>
-    <div class="panel">
-      <div class="field-grid">
-        <div class="field"><label>Valor pedido pelo provedor (R$)</label><input id="in-intencao-valor" type="number" min="0" step="1"></div>
-      </div>
-      <div class="kpi-row" style="margin-top:16px;">
-        <div class="kpi"><div class="label">Oferta máx. sustentável</div><div class="value" id="kpi-intencao-sustentavel">—</div></div>
-        <div class="kpi hi"><div class="label">Diferença (pedido − sustentável)</div><div class="value" id="kpi-intencao-gap">—</div></div>
-      </div>
-      <div class="field" style="margin-top:16px;">
-        <label>Observações</label>
-        <textarea id="in-intencao-obs" rows="4" placeholder="Contexto da negociação, condições, prazo, etc."></textarea>
-      </div>
     </div>
   </div>`;
 }
@@ -1205,11 +1182,6 @@ function recomputeAll(){
   setText('kpi-tetosustentavel', fmtBRL(m.tetoSustentavel));
   renderGauge(p, m);
 
-  setText('kpi-intencao-sustentavel', fmtBRL(m.tetoSustentavel));
-  const gapIntencao = (p.intencaoVendaValor||0) - m.tetoSustentavel;
-  const gapEl = document.getElementById('kpi-intencao-gap');
-  if(gapEl){ gapEl.textContent = (gapIntencao>0?'+':'')+fmtBRL2(gapIntencao); gapEl.style.color = gapIntencao>0?'var(--bad)':'var(--good)'; }
-
   const checks = [
     {label:'EBITDA positivo', val:fmtBRL(m.ebitdaComprador), meta:'> R$ 0', ok:m.ebitdaPositivo},
     {label:'Margem EBITDA ≥ meta', val:fmtPct(m.margemComprador), meta:fmtPct(p.metaMargem/100||0), ok:m.margemOk},
@@ -1343,7 +1315,6 @@ function fillFields(){
   set('in-fin-flat', p.finFlatPct);
   set('in-fin-ir', p.finIRPct);
   set('in-intencao-valor', p.intencaoVendaValor);
-  set('in-intencao-obs', p.intencaoVendaObs);
   set('pstatus', p.status||"Prospecção");
   set('in-motivo', p.motivoDescarte||"");
   const motivoTa = document.getElementById('in-motivo'); if(motivoTa) motivoTa.style.display = 'none';
@@ -1405,7 +1376,6 @@ function bindAll(){
   bindField('in-fin-flat', (p,v)=>p.finFlatPct=parseFloat(v)||0);
   bindField('in-fin-ir', (p,v)=>p.finIRPct=parseFloat(v)||0);
   bindField('in-intencao-valor', (p,v)=>p.intencaoVendaValor=parseFloat(v)||0);
-  bindField('in-intencao-obs', (p,v)=>p.intencaoVendaObs=v);
   const finValEl = document.getElementById('in-fin-valor');
   if(finValEl) finValEl.oninput = e => { current().finValorOverride = parseFloat(e.target.value)||0; recomputeAll(); saveApp(); };
 
