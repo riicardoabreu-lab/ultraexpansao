@@ -1564,11 +1564,11 @@ async function extractKMLFromBlob(blob, filename){
 
 // Classifica um ponto (Caixa/CTO x CEO) pelo nome/pasta do placemark.
 // Cobre tanto nomes completos ("CTO", "CAIXA DE EMENDA") quanto siglas
-// comuns em projetos reais (ex: "CT10B", "CT1.OT" = caixa; "CEO AEREA" = CEO).
+// comuns em projetos reais (ex: "CT10B", "CT1.OT", "CX01" = caixa; "CEO AEREA" = CEO).
 function classifyPlacemark(name, folderName){
   const text = ((name||'') + ' ' + (folderName||'')).toUpperCase();
   if(/\bCEO\b|CAIXA DE EMENDA/.test(text)) return 'ceo';
-  if(/\bCTO\b|CT\d|CAIXA TERMINAL|\bNAP\b|\bCAIXA\b/.test(text)) return 'caixa';
+  if(/\bCTO\b|CT\d|CX\d|CAIXA TERMINAL|\bNAP\b|\bCAIXA\b/.test(text)) return 'caixa';
   return 'outro';
 }
 
