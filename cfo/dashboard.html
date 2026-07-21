@@ -100,6 +100,7 @@
   .kmz-item:hover{color:var(--text);}
   .kmz-dot{width:9px;height:9px;border-radius:50%;flex:none;}
   .kmz-item .cnt{margin-left:auto;color:var(--muted);font-size:11px;}
+  .kmz-name:hover{color:var(--cyan);text-decoration:underline;}
   @media(max-width:900px){#kmzBody{grid-template-columns:1fr !important;}}
   ::-webkit-scrollbar{width:8px;height:8px;}
   ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
@@ -290,11 +291,20 @@
         <div>
           <div class="panel" style="padding:12px;margin-bottom:10px;">
             <h3 style="font-size:13px;margin:0 0 8px;">Bairros <small id="kmzBairroCount"></small></h3>
+            <p style="font-size:11px;color:var(--muted);margin:0 0 6px;">Clique no nome pra isolar só os provedores daquele bairro.</p>
+            <div style="display:flex;gap:6px;margin-bottom:8px;">
+              <button type="button" class="state-btn" id="kmzBairroAll" style="padding:4px 10px;font-size:11px;">Selecionar tudo</button>
+              <button type="button" class="state-btn" id="kmzBairroNone" style="padding:4px 10px;font-size:11px;">Desmarcar tudo</button>
+            </div>
             <div id="kmzBairroList" style="max-height:200px;overflow:auto;"></div>
           </div>
           <div class="panel" style="padding:12px;">
             <h3 style="font-size:13px;margin:0 0 8px;">Provedores <small id="kmzProvCount"></small></h3>
             <input type="text" id="kmzProvFilter" placeholder="Filtrar provedor..." style="width:100%;margin-bottom:8px;">
+            <div style="display:flex;gap:6px;margin-bottom:8px;">
+              <button type="button" class="state-btn" id="kmzProvAll" style="padding:4px 10px;font-size:11px;">Selecionar tudo</button>
+              <button type="button" class="state-btn" id="kmzProvNone" style="padding:4px 10px;font-size:11px;">Desmarcar tudo</button>
+            </div>
             <div id="kmzProvList" style="max-height:380px;overflow:auto;"></div>
           </div>
         </div>
@@ -1190,17 +1200,41 @@ function applyKmzVisibility(){
   });
 }
 
+function providersInBairro(bairro){
+  const set = new Set();
+  kmzAllMarkers.forEach(m=>{ if(m.bairro===bairro) set.add(m.provider); });
+  return set;
+}
+
+// Clicar no NOME do bairro isola ele: marca só esse bairro e só os
+// provedores que existem nele (desmarca o resto). O checkbox continua
+// livre pra ligar/desligar bairros individualmente sem isolar.
+function isolateBairro(bairro){
+  kmzCheckedBairros = new Set([bairro]);
+  kmzCheckedProviders = providersInBairro(bairro);
+  applyKmzVisibility();
+  renderKmzBairroList();
+  renderKmzProviderList(document.getElementById('kmzProvFilter').value);
+}
+
 function renderKmzBairroList(){
   const el = document.getElementById('kmzBairroList');
   const names = Object.keys(kmzBairroCount).sort();
   document.getElementById('kmzBairroCount').textContent = `(${names.length})`;
-  el.innerHTML = names.map(n=>`
-    <label class="kmz-item"><input type="checkbox" checked data-bairro="1" value="${n.replace(/"/g,'&quot;')}">${n}<span class="cnt">${kmzBairroCount[n]}</span></label>`).join('');
+  el.innerHTML = names.map(n=>{
+    const esc = n.replace(/"/g,'&quot;');
+    const checked = kmzCheckedBairros.has(n) ? 'checked' : '';
+    return `<label class="kmz-item"><input type="checkbox" ${checked} data-bairro="1" value="${esc}">
+      <span class="kmz-name" data-isolate-bairro="${esc}" title="Isolar este bairro">${n}</span><span class="cnt">${kmzBairroCount[n]}</span></label>`;
+  }).join('');
   el.querySelectorAll('input[data-bairro]').forEach(cb=>{
     cb.onchange = () => {
       if(cb.checked) kmzCheckedBairros.add(cb.value); else kmzCheckedBairros.delete(cb.value);
       applyKmzVisibility();
     };
+  });
+  el.querySelectorAll('[data-isolate-bairro]').forEach(span=>{
+    span.onclick = (e) => { e.preventDefault(); isolateBairro(span.dataset.isolateBairro); };
   });
 }
 
@@ -1208,9 +1242,12 @@ function renderKmzProviderList(filter=''){
   const el = document.getElementById('kmzProvList');
   const names = Object.keys(kmzProviderCount).filter(n=>n.toLowerCase().includes(filter.toLowerCase())).sort();
   document.getElementById('kmzProvCount').textContent = `(${Object.keys(kmzProviderCount).length})`;
-  el.innerHTML = names.map(n=>`
-    <label class="kmz-item"><input type="checkbox" checked data-prov="1" value="${n.replace(/"/g,'&quot;')}">
-      <span class="kmz-dot" style="background:${kmzProviderColor[n]}"></span>${n}<span class="cnt">${kmzProviderCount[n]}</span></label>`).join('');
+  el.innerHTML = names.map(n=>{
+    const esc = n.replace(/"/g,'&quot;');
+    const checked = kmzCheckedProviders.has(n) ? 'checked' : '';
+    return `<label class="kmz-item"><input type="checkbox" ${checked} data-prov="1" value="${esc}">
+      <span class="kmz-dot" style="background:${kmzProviderColor[n]}"></span>${n}<span class="cnt">${kmzProviderCount[n]}</span></label>`;
+  }).join('');
   el.querySelectorAll('input[data-prov]').forEach(cb=>{
     cb.onchange = () => {
       if(cb.checked) kmzCheckedProviders.add(cb.value); else kmzCheckedProviders.delete(cb.value);
@@ -1220,6 +1257,22 @@ function renderKmzProviderList(filter=''){
 }
 
 document.getElementById('kmzProvFilter').addEventListener('input', e=>renderKmzProviderList(e.target.value));
+document.getElementById('kmzBairroAll').addEventListener('click', () => {
+  kmzCheckedBairros = new Set(Object.keys(kmzBairroCount));
+  applyKmzVisibility(); renderKmzBairroList();
+});
+document.getElementById('kmzBairroNone').addEventListener('click', () => {
+  kmzCheckedBairros = new Set();
+  applyKmzVisibility(); renderKmzBairroList();
+});
+document.getElementById('kmzProvAll').addEventListener('click', () => {
+  kmzCheckedProviders = new Set(Object.keys(kmzProviderCount));
+  applyKmzVisibility(); renderKmzProviderList(document.getElementById('kmzProvFilter').value);
+});
+document.getElementById('kmzProvNone').addEventListener('click', () => {
+  kmzCheckedProviders = new Set();
+  applyKmzVisibility(); renderKmzProviderList(document.getElementById('kmzProvFilter').value);
+});
 populateKmzCitySelect();
 
 renderAddTable();
