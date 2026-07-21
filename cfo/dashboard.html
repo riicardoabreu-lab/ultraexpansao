@@ -1229,7 +1229,15 @@ function renderKmzBairroList(){
   }).join('');
   el.querySelectorAll('input[data-bairro]').forEach(cb=>{
     cb.onchange = () => {
-      if(cb.checked) kmzCheckedBairros.add(cb.value); else kmzCheckedBairros.delete(cb.value);
+      if(cb.checked){
+        kmzCheckedBairros.add(cb.value);
+        // marcar o bairro também liga os provedores dele (senão, se a lista de
+        // provedores estiver toda desmarcada, o bairro fica marcado mas nada aparece)
+        providersInBairro(cb.value).forEach(p => kmzCheckedProviders.add(p));
+        renderKmzProviderList(document.getElementById('kmzProvFilter').value);
+      } else {
+        kmzCheckedBairros.delete(cb.value);
+      }
       applyKmzVisibility();
     };
   });
@@ -1259,7 +1267,8 @@ function renderKmzProviderList(filter=''){
 document.getElementById('kmzProvFilter').addEventListener('input', e=>renderKmzProviderList(e.target.value));
 document.getElementById('kmzBairroAll').addEventListener('click', () => {
   kmzCheckedBairros = new Set(Object.keys(kmzBairroCount));
-  applyKmzVisibility(); renderKmzBairroList();
+  kmzCheckedProviders = new Set(Object.keys(kmzProviderCount));
+  applyKmzVisibility(); renderKmzBairroList(); renderKmzProviderList(document.getElementById('kmzProvFilter').value);
 });
 document.getElementById('kmzBairroNone').addEventListener('click', () => {
   kmzCheckedBairros = new Set();
