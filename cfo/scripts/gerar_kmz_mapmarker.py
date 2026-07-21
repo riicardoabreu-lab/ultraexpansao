@@ -73,6 +73,8 @@ def build_kml(content_json_path, cidade):
         if len(parts) < 4 or parts[0].strip().upper() != cidade.upper():
             continue
         bairro, categoria = parts[1].strip(), parts[2].strip()
+        if categoria.upper() != "CAIXAS":
+            continue  # só caixas de atendimento — sem CEO/emendas, sem condomínios
         provedor = normalize_provider(parts[3])
         lat = geo["data"]["latitude"]
         lon = geo["data"]["longitude"]
