@@ -242,6 +242,9 @@
   }
   .field input:focus, .field select:focus, table input:focus, table select:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(0,212,200,.15); }
   .field-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; }
+  .field .money{ position:relative; }
+  .field .money .prefix{ position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--text-faint); font-family:var(--mono); font-size:13.5px; pointer-events:none; }
+  .field .money input{ padding-left:30px; }
 
   .kpi-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
   .kpi{ background:var(--bg-panel); border:1px solid var(--border); border-radius:var(--radius); padding:15px 17px; }
@@ -789,10 +792,10 @@ function tplCustos(){
         <div class="field"><label>Região / Cidade</label><input id="in-regiao" type="text"></div>
         <div class="field"><label>Data da análise</label><input id="in-data" type="date"></div>
         <div class="field"><label>Clientes ativos</label><input id="in-clientes" type="number" min="0" step="1"></div>
-        <div class="field"><label>MRR mensal (R$)</label><input id="in-mrr" type="number" min="0" step="1"></div>
+        <div class="field"><label>MRR mensal (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-mrr" type="number" min="0" step="1"></div></div>
         <div class="field"><label>Impostos sobre receita (%)</label><input id="in-impostos" type="number" min="0" step="0.1"></div>
         <div class="field"><label>Inadimplência / PDD (%)</label><input id="in-pdd" type="number" min="0" step="0.1"></div>
-        <div class="field"><label>Valor pedido pelo provedor (R$)</label><input id="in-intencao-valor" type="number" min="0" step="1"></div>
+        <div class="field"><label>Valor pedido pelo provedor (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-intencao-valor" type="number" min="0" step="1"></div></div>
       </div>
     </div>
   </div>
@@ -880,7 +883,7 @@ function tplValuation(){
     <p class="hint">Memória de cálculo igual à planilha de reestruturação: carência + amortização trimestral (SAC) + comissão flat + IR sobre os juros.</p>
     <div class="panel">
       <div class="field-grid">
-        <div class="field"><label>Valor do empréstimo (R$)</label><input id="in-fin-valor" type="number" step="1"></div>
+        <div class="field"><label>Valor do empréstimo (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-fin-valor" type="number" step="1"></div></div>
         <div class="field"><label>Selic de referência (% a.a.)</label><input id="in-fin-selic" type="number" step="0.1"></div>
         <div class="field"><label>Carência (trimestres)</label><input id="in-fin-carencia" type="number" step="1"></div>
         <div class="field"><label>Parcelas trimestrais de principal</label><input id="in-fin-parcelas" type="number" step="1"></div>
@@ -951,8 +954,8 @@ function tplRede(){
         <div class="kpi"><div class="label">Metragem total</div><div class="value" id="kpi-kmz-metragem">—</div></div>
       </div>
       <div class="field-grid" style="margin-top:16px;">
-        <div class="field"><label>Custo por caixa/CTO (R$)</label><input id="in-kmz-custo-caixa" type="number" step="1"></div>
-        <div class="field"><label>Custo por CEO (R$)</label><input id="in-kmz-custo-ceo" type="number" step="1"></div>
+        <div class="field"><label>Custo por caixa/CTO (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-kmz-custo-caixa" type="number" step="1"></div></div>
+        <div class="field"><label>Custo por CEO (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-kmz-custo-ceo" type="number" step="1"></div></div>
       </div>
       <div class="table-scroll" style="margin-top:16px;"><table>
         <thead><tr><th>Categoria de cabo</th><th style="text-align:right">Segmentos</th><th style="text-align:right">Metragem</th><th style="text-align:right">Custo/metro (R$)</th><th style="text-align:right">Total</th></tr></thead>
