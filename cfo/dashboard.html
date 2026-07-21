@@ -1127,7 +1127,7 @@ async function loadKmzCity(key){
 
 function buildKmzMap(doc){
   if(!kmzMapInst){
-    kmzMapInst = L.map('kmzMap', { preferCanvas:true }).setView([-4.0,-38.4], 10);
+    kmzMapInst = L.map('kmzMap').setView([-4.0,-38.4], 10);
     // Satélite como padrão: o mapa de ruas do OpenStreetMap tem cobertura
     // fraca no litoral (faixa de dunas/lagoas de Beberibe etc.), desenhando
     // como "água" trechos que na verdade são areia/estradas com povoados —
