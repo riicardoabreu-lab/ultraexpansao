@@ -12,6 +12,9 @@
 </script>
 <title>Map Marker Coleta — Dashboard Consolidado</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root{
     --green:#6a00b8; --darkgreen:#b91cd0; --cyan:#00d4c8;
@@ -93,6 +96,11 @@
   .chip.active{background:var(--cyan);color:#062018;border-color:var(--cyan);font-weight:700;}
 
   .footer-note{margin-top:14px;font-size:11px;color:var(--muted);line-height:1.6;border-top:1px solid var(--border);padding-top:14px;}
+  .kmz-item{display:flex;align-items:center;gap:7px;padding:3px 2px;font-size:12.5px;cursor:pointer;user-select:none;}
+  .kmz-item:hover{color:var(--text);}
+  .kmz-dot{width:9px;height:9px;border-radius:50%;flex:none;}
+  .kmz-item .cnt{margin-left:auto;color:var(--muted);font-size:11px;}
+  @media(max-width:900px){#kmzBody{grid-template-columns:1fr !important;}}
   ::-webkit-scrollbar{width:8px;height:8px;}
   ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
 </style>
@@ -124,6 +132,7 @@
   <button class="tab-btn" data-tab="confirmar">A Confirmar</button>
   <button class="tab-btn" data-tab="analise">Análise</button>
   <button class="tab-btn" data-tab="pesquisa">Pesquisa</button>
+  <button class="tab-btn" data-tab="kmz">KMZ</button>
   <button class="tab-btn" data-tab="adicionar" style="margin-left:auto;background:linear-gradient(135deg,var(--green),var(--darkgreen));color:#fff;border-color:var(--green);">+ Adicionar Dados</button>
 </nav>
 
@@ -265,6 +274,31 @@
           </tr></thead>
           <tbody></tbody>
         </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- KMZ -->
+  <section class="tab" id="kmz">
+    <div class="panel">
+      <h3>Mapa de Rede — KMZ do Map Marker <small>Pontos coletados em campo (caixas, emendas, condomínios), organizados por cidade → bairro → provedor</small></h3>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
+        <select id="kmzCitySelect" style="min-width:240px;"></select>
+        <span id="kmzStatus" style="color:var(--muted);font-size:12.5px;"></span>
+      </div>
+      <div id="kmzBody" style="display:grid;grid-template-columns:270px 1fr;gap:14px;">
+        <div>
+          <div class="panel" style="padding:12px;margin-bottom:10px;">
+            <h3 style="font-size:13px;margin:0 0 8px;">Bairros <small id="kmzBairroCount"></small></h3>
+            <div id="kmzBairroList" style="max-height:200px;overflow:auto;"></div>
+          </div>
+          <div class="panel" style="padding:12px;">
+            <h3 style="font-size:13px;margin:0 0 8px;">Provedores <small id="kmzProvCount"></small></h3>
+            <input type="text" id="kmzProvFilter" placeholder="Filtrar provedor..." style="width:100%;margin-bottom:8px;">
+            <div id="kmzProvList" style="max-height:380px;overflow:auto;"></div>
+          </div>
+        </div>
+        <div id="kmzMap" style="height:660px;border-radius:10px;border:1px solid var(--border);"></div>
       </div>
     </div>
   </section>
@@ -1010,6 +1044,165 @@ document.getElementById('downloadBtn').addEventListener('click', ()=>{
   }
   setTimeout(()=>{ statusEl.textContent=''; }, 4000);
 });
+
+// ================= ABA KMZ (mapa por cidade/bairro/provedor) =================
+const KMZ_CATALOG = {
+  BEBERIBE: { display_name: 'Beberibe', estado: 'Ceará', path: 'kmz/BEBERIBE.kmz' },
+};
+
+let kmzMapInst = null;
+let kmzAllMarkers = []; // [{marker, bairro, provider}]
+let kmzCheckedBairros = new Set();
+let kmzCheckedProviders = new Set();
+let kmzProviderColor = {};
+let kmzProviderCount = {};
+let kmzBairroCount = {};
+
+function populateKmzCitySelect(){
+  const sel = document.getElementById('kmzCitySelect');
+  const keys = Object.keys(KMZ_CATALOG);
+  sel.innerHTML = '<option value="">Selecione uma cidade...</option>' +
+    keys.map(k=>`<option value="${k}">${KMZ_CATALOG[k].display_name} (${KMZ_CATALOG[k].estado})</option>`).join('');
+  sel.onchange = () => loadKmzCity(sel.value);
+}
+
+// O mapa só é criado quando a aba KMZ é aberta pela 1ª vez — inicializar o
+// Leaflet com o container ainda escondido (display:none) faz o fitBounds
+// calcular tudo errado (mesmo problema já visto no painel de Aquisições).
+let kmzInitialized = false;
+document.querySelector('.tab-btn[data-tab="kmz"]').addEventListener('click', () => {
+  const keys = Object.keys(KMZ_CATALOG);
+  if(!kmzInitialized){
+    kmzInitialized = true;
+    if(keys.length){
+      document.getElementById('kmzCitySelect').value = keys[0];
+      loadKmzCity(keys[0]);
+    }
+  } else if(kmzMapInst){
+    setTimeout(()=>kmzMapInst.invalidateSize(), 50);
+  }
+});
+
+function kmlColorToCss(hex){
+  if(!hex || hex.length!==8) return '#00d4c8';
+  return '#'+hex.slice(6,8)+hex.slice(4,6)+hex.slice(2,4);
+}
+
+async function loadKmzCity(key){
+  const status = document.getElementById('kmzStatus');
+  document.getElementById('kmzBairroList').innerHTML = '';
+  document.getElementById('kmzProvList').innerHTML = '';
+  kmzAllMarkers.forEach(m=>{ if(kmzMapInst && kmzMapInst.hasLayer(m.marker)) kmzMapInst.removeLayer(m.marker); });
+  kmzAllMarkers = []; kmzCheckedBairros = new Set(); kmzCheckedProviders = new Set();
+  kmzProviderColor = {}; kmzProviderCount = {}; kmzBairroCount = {};
+  const cat = KMZ_CATALOG[key];
+  if(!cat) return;
+
+  status.textContent = 'Carregando KMZ...';
+  try{
+    const res = await fetch(cat.path);
+    if(!res.ok) throw new Error('arquivo não encontrado ('+res.status+')');
+    const buf = await res.arrayBuffer();
+    const zip = await JSZip.loadAsync(buf);
+    const kmlEntry = Object.values(zip.files).find(f=>/\.kml$/i.test(f.name));
+    if(!kmlEntry) throw new Error('nenhum .kml dentro do KMZ');
+    const kmlText = await kmlEntry.async('text');
+    const doc = new DOMParser().parseFromString(kmlText, 'text/xml');
+    buildKmzMap(doc);
+    status.textContent = `${kmzAllMarkers.length.toLocaleString('pt-BR')} pontos carregados`;
+  }catch(err){
+    status.textContent = 'Erro ao carregar KMZ: ' + err.message;
+  }
+}
+
+function buildKmzMap(doc){
+  if(!kmzMapInst){
+    kmzMapInst = L.map('kmzMap', { preferCanvas:true }).setView([-4.0,-38.4], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap'}).addTo(kmzMapInst);
+  }
+
+  const styleColor = {};
+  [...doc.getElementsByTagName('Style')].forEach(s=>{
+    const id = s.getAttribute('id');
+    const c = s.getElementsByTagName('IconStyle')[0]?.getElementsByTagName('color')[0]?.textContent;
+    if(id && c) styleColor[id] = kmlColorToCss(c);
+  });
+
+  const docEl = doc.getElementsByTagName('Document')[0];
+  const bairroFolders = [...docEl.children].filter(c=>c.tagName==='Folder');
+  const allBounds = [];
+
+  bairroFolders.forEach(bf=>{
+    const bairroName = bf.getElementsByTagName('name')[0]?.textContent || '(sem nome)';
+    kmzCheckedBairros.add(bairroName);
+    [...bf.getElementsByTagName('Placemark')].forEach(pm=>{
+      const provider = pm.getElementsByTagName('name')[0]?.textContent || '(sem provedor)';
+      const styleUrl = (pm.getElementsByTagName('styleUrl')[0]?.textContent||'').replace('#','');
+      const color = styleColor[styleUrl] || '#00d4c8';
+      const coordsText = pm.getElementsByTagName('coordinates')[0]?.textContent;
+      if(!coordsText) return;
+      const [lon,lat] = coordsText.trim().split(',').map(Number);
+      if(!isFinite(lat) || !isFinite(lon)) return;
+
+      const marker = L.circleMarker([lat,lon], {radius:4, color, fillColor:color, fillOpacity:.9, weight:1})
+        .bindPopup(`<b>${provider}</b><br>${bairroName}`);
+      kmzAllMarkers.push({ marker, bairro: bairroName, provider });
+      kmzCheckedProviders.add(provider);
+      kmzProviderColor[provider] = color;
+      kmzProviderCount[provider] = (kmzProviderCount[provider]||0) + 1;
+      kmzBairroCount[bairroName] = (kmzBairroCount[bairroName]||0) + 1;
+      allBounds.push([lat,lon]);
+    });
+  });
+
+  kmzAllMarkers.forEach(m=>m.marker.addTo(kmzMapInst));
+  if(allBounds.length) kmzMapInst.fitBounds(allBounds, {padding:[20,20]});
+  setTimeout(()=>kmzMapInst && kmzMapInst.invalidateSize(), 80);
+
+  renderKmzBairroList();
+  renderKmzProviderList();
+}
+
+function applyKmzVisibility(){
+  kmzAllMarkers.forEach(({marker, bairro, provider})=>{
+    const shouldShow = kmzCheckedBairros.has(bairro) && kmzCheckedProviders.has(provider);
+    const isShown = kmzMapInst.hasLayer(marker);
+    if(shouldShow && !isShown) marker.addTo(kmzMapInst);
+    else if(!shouldShow && isShown) kmzMapInst.removeLayer(marker);
+  });
+}
+
+function renderKmzBairroList(){
+  const el = document.getElementById('kmzBairroList');
+  const names = Object.keys(kmzBairroCount).sort();
+  document.getElementById('kmzBairroCount').textContent = `(${names.length})`;
+  el.innerHTML = names.map(n=>`
+    <label class="kmz-item"><input type="checkbox" checked data-bairro="1" value="${n.replace(/"/g,'&quot;')}">${n}<span class="cnt">${kmzBairroCount[n]}</span></label>`).join('');
+  el.querySelectorAll('input[data-bairro]').forEach(cb=>{
+    cb.onchange = () => {
+      if(cb.checked) kmzCheckedBairros.add(cb.value); else kmzCheckedBairros.delete(cb.value);
+      applyKmzVisibility();
+    };
+  });
+}
+
+function renderKmzProviderList(filter=''){
+  const el = document.getElementById('kmzProvList');
+  const names = Object.keys(kmzProviderCount).filter(n=>n.toLowerCase().includes(filter.toLowerCase())).sort();
+  document.getElementById('kmzProvCount').textContent = `(${Object.keys(kmzProviderCount).length})`;
+  el.innerHTML = names.map(n=>`
+    <label class="kmz-item"><input type="checkbox" checked data-prov="1" value="${n.replace(/"/g,'&quot;')}">
+      <span class="kmz-dot" style="background:${kmzProviderColor[n]}"></span>${n}<span class="cnt">${kmzProviderCount[n]}</span></label>`).join('');
+  el.querySelectorAll('input[data-prov]').forEach(cb=>{
+    cb.onchange = () => {
+      if(cb.checked) kmzCheckedProviders.add(cb.value); else kmzCheckedProviders.delete(cb.value);
+      applyKmzVisibility();
+    };
+  });
+}
+
+document.getElementById('kmzProvFilter').addEventListener('input', e=>renderKmzProviderList(e.target.value));
+populateKmzCitySelect();
 
 renderAddTable();
 renderDashboard();
