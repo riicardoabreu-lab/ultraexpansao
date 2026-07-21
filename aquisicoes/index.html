@@ -1623,7 +1623,7 @@ function parseKML(xmlText){
   const doc = new DOMParser().parseFromString(xmlText, "text/xml");
   if(doc.querySelector('parsererror')) throw new Error('KML inválido ou corrompido.');
   const placemarks = [...doc.getElementsByTagName('Placemark')];
-  const layer = L.layerGroup();
+  const layer = L.featureGroup();
   let count = 0;
   let caixas = 0, ceos = 0, outros = 0, cabosCount = 0, metragemTotal = 0;
   const cabosPorModelo = {}; // preenchido dinamicamente conforme as bitolas encontradas
