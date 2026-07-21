@@ -1153,7 +1153,8 @@ function buildKmzMap(doc){
       if(!isFinite(lat) || !isFinite(lon)) return;
 
       const marker = L.circleMarker([lat,lon], {radius:4, color, fillColor:color, fillOpacity:.9, weight:1})
-        .bindPopup(`<b>${provider}</b><br>${bairroName}`);
+        .bindPopup(`<b>${provider}</b><br>${bairroName}<br>${lat.toFixed(6)}, ${lon.toFixed(6)}<br>`
+          + `<a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" rel="noopener">Abrir no Google Maps ↗</a>`);
       kmzAllMarkers.push({ marker, bairro: bairroName, provider });
       kmzCheckedProviders.add(provider);
       kmzProviderColor[provider] = color;
