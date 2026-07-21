@@ -276,7 +276,7 @@
   #tbl-propostas input, #tbl-propostas select{ font-size:10.5px; padding:5px 4px; min-width:0; }
   #tbl-propostas td:nth-child(1) input{ min-width:52px; }
   #tbl-propostas td:nth-child(2) input{ min-width:72px; }
-  #tbl-propostas td:nth-child(3) input, #tbl-propostas td:nth-child(6) input{ min-width:30px; }
+  #tbl-propostas td:nth-child(3) input, #tbl-propostas td:nth-child(6) input{ width:38px; min-width:0; text-align:center; }
   #tbl-propostas .badge{ padding:3px 6px; font-size:9.5px; }
   #tbl-propostas .rm-btn{ width:20px; height:20px; font-size:11px; }
   .add-row{ margin-top:10px; background:var(--bg-inset); border:1px dashed var(--border); color:var(--text-dim); padding:9px 14px; border-radius:7px; font-size:12.5px; cursor:pointer; }
@@ -929,8 +929,8 @@ function tplPropostas(){
     <div class="panel">
       <div class="table-scroll"><table id="tbl-propostas">
         <thead><tr>
-          <th>Proposta</th><th>Oferta (R$)</th><th>Entrada %</th><th>Entrada R$</th><th>Saldo Fin.</th>
-          <th>Parcelas</th><th>Vr. Parcela</th><th>R$/Cliente</th><th>EV/MRR</th><th>EV/EBITDA</th>
+          <th>Proposta</th><th>Oferta (R$)</th><th>Entr. %</th><th>Entrada R$</th><th>Saldo Fin.</th>
+          <th>Parc.</th><th>Vr. Parcela</th><th>R$/Cliente</th><th>EV/MRR</th><th>EV/EBITDA</th>
           <th>Payback (m)</th><th>Caixa Mensal</th><th>Viável?</th><th></th>
         </tr></thead>
         <tbody id="propostas-body"></tbody>
