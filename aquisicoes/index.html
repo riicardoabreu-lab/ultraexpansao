@@ -629,17 +629,8 @@ function calcEmprestimo(p, investTotal){
    COMPUTED MODEL (per provider)
 ====================================================================== */
 function compute(p){
-  // Linhas de investimento vinculadas a uma proposta puxam o valor de
-  // entrada (R$) dessa proposta automaticamente, sempre que ela mudar.
-  p.investimentos.forEach(r=>{
-    if(!r.propostaLink) return;
-    const pr = p.propostas.find(x=>x.id===r.propostaLink);
-    if(pr) r.valor = pr.valor*(pr.entrada/100||0);
-  });
-
   const custoAtualTotal = sumRows(p.custosAtual);
   const custoCompradorTotal = sumRows(p.custosComprador);
-  const investTotal = sumRows(p.investimentos);
   const mrr = p.mrr||0;
   const deducoes = mrr*(p.impostosPct/100||0) + mrr*(p.pddPct/100||0);
   const ebitdaAtual = mrr - deducoes - custoAtualTotal;
@@ -649,15 +640,26 @@ function compute(p){
   const custoClienteAtual = p.clientes? custoAtualTotal/p.clientes : 0;
   const custoClienteComprador = p.clientes? custoCompradorTotal/p.clientes : 0;
 
+  const tetoMRR = mrr*(p.multMRR||0);
+  const tetoEBITDA = ebitdaComprador>0 ? ebitdaComprador*12*(p.multEBITDA||0) : 0;
+  const tetoSustentavel = ebitdaComprador>0 ? ebitdaComprador*(p.metaPayback||0) : 0;
+  const propostaSugerida = { nome:"Proposta Sugerida*", valor: Math.round(tetoSustentavel/1000)*1000,
+    entrada: p.propostaSugEntrada!=null?p.propostaSugEntrada:50, parcelas: p.propostaSugParcelas!=null?p.propostaSugParcelas:12 };
+
+  // Linhas de investimento vinculadas a uma proposta (real ou a Proposta
+  // Sugerida*) puxam o valor de entrada (R$) automaticamente, sempre que mudar.
+  p.investimentos.forEach(r=>{
+    if(!r.propostaLink) return;
+    const pr = r.propostaLink==='sug' ? propostaSugerida : p.propostas.find(x=>x.id===r.propostaLink);
+    if(pr) r.valor = pr.valor*(pr.entrada/100||0);
+  });
+
+  const investTotal = sumRows(p.investimentos);
   const invPorCliente = p.clientes? investTotal/p.clientes : 0;
   const invPctMRRano = mrr? investTotal/(mrr*12) : 0;
   const payback = ebitdaComprador>0 ? investTotal/ebitdaComprador : Infinity;
   const evMRR = mrr? investTotal/mrr : 0;
   const evEBITDAano = ebitdaComprador>0 ? investTotal/(ebitdaComprador*12) : Infinity;
-
-  const tetoMRR = mrr*(p.multMRR||0);
-  const tetoEBITDA = ebitdaComprador>0 ? ebitdaComprador*12*(p.multEBITDA||0) : 0;
-  const tetoSustentavel = ebitdaComprador>0 ? ebitdaComprador*(p.metaPayback||0) : 0;
 
   const ebitdaPositivo = ebitdaComprador>0;
   const margemOk = margemComprador >= (p.metaMargem/100||0);
@@ -669,7 +671,7 @@ function compute(p){
 
   return { custoAtualTotal, custoCompradorTotal, investTotal, mrr, deducoes,
     ebitdaAtual, ebitdaComprador, margemAtual, margemComprador, custoClienteAtual, custoClienteComprador,
-    invPorCliente, invPctMRRano, payback, evMRR, evEBITDAano, tetoMRR, tetoEBITDA, tetoSustentavel,
+    invPorCliente, invPctMRRano, payback, evMRR, evEBITDAano, tetoMRR, tetoEBITDA, tetoSustentavel, propostaSugerida,
     ebitdaPositivo, margemOk, paybackOk, conclusao, emprestimo };
 }
 
@@ -1009,13 +1011,14 @@ function buildCostTable(key, tableId){
 
 function buildInvestTable(){
   const p = current();
-  compute(p); // sincroniza r.valor das linhas vinculadas a uma proposta antes de renderizar
+  const m = compute(p); // sincroniza r.valor das linhas vinculadas a uma proposta antes de renderizar
   const tbody = document.querySelector('#tbl-invest tbody');
   if(!tbody) return;
   tbody.innerHTML = p.investimentos.map((r,i)=>{
-    const linked = r.propostaLink && p.propostas.find(pr=>pr.id===r.propostaLink);
+    const linked = r.propostaLink && (r.propostaLink==='sug' || p.propostas.find(pr=>pr.id===r.propostaLink));
     const propostaOptions = `<option value="">— manual —</option>` +
-      p.propostas.map(pr=>`<option value="${pr.id}" ${r.propostaLink===pr.id?'selected':''}>${esc(pr.nome)} (Entrada)</option>`).join('');
+      p.propostas.map(pr=>`<option value="${pr.id}" ${r.propostaLink===pr.id?'selected':''}>${esc(pr.nome)} (Entrada)</option>`).join('') +
+      `<option value="sug" ${r.propostaLink==='sug'?'selected':''}>${esc(m.propostaSugerida.nome)} (Entrada)</option>`;
     return `
     <tr data-i="${i}">
       <td><input data-role="cat" type="text" value="${esc(r.cat)}"></td>
@@ -1080,7 +1083,7 @@ function buildPropostasTable(){
     </tr>`;
   }).join('');
 
-  const sug = {nome:"Proposta Sugerida*", valor: Math.round(m.tetoSustentavel/1000)*1000, entrada: p.propostaSugEntrada!=null?p.propostaSugEntrada:50, parcelas: p.propostaSugParcelas!=null?p.propostaSugParcelas:12};
+  const sug = m.propostaSugerida;
   const cs = proposalCalc(sug,p,m);
   const clsS = cs.viavel==='SIM'?'sim':(cs.viavel==='NÃO'?'nao':'rev');
   rows += `<tr data-i="sug" style="background:rgba(0,212,200,.06);">
