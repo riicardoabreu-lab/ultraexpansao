@@ -1118,7 +1118,15 @@ async function loadKmzCity(key){
 function buildKmzMap(doc){
   if(!kmzMapInst){
     kmzMapInst = L.map('kmzMap', { preferCanvas:true }).setView([-4.0,-38.4], 10);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap'}).addTo(kmzMapInst);
+    // Satélite como padrão: o mapa de ruas do OpenStreetMap tem cobertura
+    // fraca no litoral (faixa de dunas/lagoas de Beberibe etc.), desenhando
+    // como "água" trechos que na verdade são areia/estradas com povoados —
+    // dá a falsa impressão de que os pontos coletados estão errados.
+    const base = {
+      'Satélite': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:19, attribution:'&copy; Esri'}).addTo(kmzMapInst),
+      'Mapa (ruas)': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap'}),
+    };
+    L.control.layers(base).addTo(kmzMapInst);
   }
 
   const styleColor = {};
