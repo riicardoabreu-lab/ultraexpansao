@@ -24,6 +24,16 @@ def strip_accents(s):
     return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
 
 
+def find_existing_city_key(D, city_norm_target):
+    """Mesma ideia de find_existing_bairro_key, mas pra chave de cidade --
+    evita duplicar 'MARACANAU' (sem acento, vindo do pull novo) ao lado de
+    'MARACANÁ' (com acento, ja existente) como duas cidades diferentes."""
+    for existing in D["cidades"]:
+        if strip_accents(existing).strip().upper() == city_norm_target:
+            return existing
+    return None
+
+
 def find_existing_bairro_key(city, bairro_norm_target):
     """Acha o nome de bairro já salvo que bate ignorando acento/espaço, pra não
     duplicar 'JOAO DE CASTRO' vs 'JOÃO DE CASTRO' como dois bairros diferentes."""
@@ -106,7 +116,7 @@ def main():
     if len(sys.argv) < 4:
         print("Uso: python importar_cidade_mapmarker.py <parsed.json> <CHAVE_CIDADE> <\"Nome de Exibição\">")
         sys.exit(1)
-    parsed_path, city_key, display_name = sys.argv[1], sys.argv[2].upper(), sys.argv[3]
+    parsed_path, city_key_raw, display_name = sys.argv[1], sys.argv[2].upper(), sys.argv[3]
 
     with open(parsed_path, encoding="utf-8") as f:
         counts = json.load(f)  # {bairro: {provedor: {cx, clientes}}}
@@ -118,6 +128,8 @@ def main():
     if "provedores_geral" not in D:
         D["provedores_geral"] = {}
 
+    city_key_norm = strip_accents(city_key_raw).strip().upper()
+    city_key = find_existing_city_key(D, city_key_norm) or city_key_raw
     is_new_city = city_key not in D["cidades"]
     if is_new_city:
         D["cidades"][city_key] = {
