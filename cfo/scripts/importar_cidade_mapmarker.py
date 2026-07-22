@@ -137,9 +137,13 @@ def main():
         # reusa o nome já salvo (com acento certo) se achar por comparação sem acento,
         # em vez de criar uma entrada duplicada tipo "JOAO DE CASTRO" vs "JOÃO DE CASTRO"
         bairro = find_existing_bairro_key(city, bairro_norm) or bairro_raw.strip().upper()
-        if bairro not in city["bairros"]:
-            city["bairros"][bairro] = {"cx": 0.0, "clientes": 0.0, "providers": {}}
-        bairro_entry = city["bairros"][bairro]
+        # substitui o bairro inteiro (nao so os provedores que vieram) --
+        # a pull fresca do Map Marker e a fonte da verdade atual; manter
+        # provedores antigos que sumiram da pasta so inflaria a contagem
+        # (aconteceu em Horizonte: bairro velho tinha provedores com nomes
+        # diferentes do pull novo e nao eram sobrescritos, dobrando o total)
+        bairro_entry = {"cx": 0.0, "clientes": 0.0, "providers": {}}
+        city["bairros"][bairro] = bairro_entry
 
         for prov_raw, vals in providers.items():
             prov = prov_raw.strip()
