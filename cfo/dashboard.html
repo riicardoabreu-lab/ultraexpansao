@@ -1152,10 +1152,19 @@ function buildKmzMap(doc){
   const allBounds = [];
 
   bairroFolders.forEach(bf=>{
-    const bairroName = bf.getElementsByTagName('name')[0]?.textContent || '(sem nome)';
+    const bairroNameRaw = bf.getElementsByTagName('name')[0]?.textContent || '(sem nome)';
+    const bairroName = bairroNameRaw.replace(/\s*\(\d+\)$/, '').trim();
     kmzCheckedBairros.add(bairroName);
     [...bf.getElementsByTagName('Placemark')].forEach(pm=>{
-      const provider = pm.getElementsByTagName('name')[0]?.textContent || '(sem provedor)';
+      // O provedor é o nome da pasta-mãe do Placemark (ex.: "ALARES (348)"), e não o
+      // <name> do próprio Placemark: em alguns KMZ (ex. Fortaleza) o Placemark é
+      // nomeado "PROVEDOR N" (N = índice do ponto), o que faria cada ponto virar um
+      // "provedor" novo se lido direto do Placemark. A pasta-mãe é estável
+      // independente de quantos níveis de pasta existem entre o bairro e o provedor
+      // (Fortaleza não tem pasta intermediária; Beberibe tem uma pasta "CAIXAS").
+      const parentFolder = pm.parentElement;
+      const providerNameRaw = parentFolder?.getElementsByTagName('name')[0]?.textContent || '(sem provedor)';
+      const provider = providerNameRaw.replace(/\s*\(\d+\)$/, '').trim();
       const styleUrl = (pm.getElementsByTagName('styleUrl')[0]?.textContent||'').replace('#','');
       const color = styleColor[styleUrl] || '#00d4c8';
       const coordsText = pm.getElementsByTagName('coordinates')[0]?.textContent;
