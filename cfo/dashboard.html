@@ -1079,9 +1079,10 @@ let kmzBairroCount = {};
 function populateKmzCitySelect(){
   const sel = document.getElementById('kmzCitySelect');
   const keys = Object.keys(KMZ_CATALOG);
-  sel.innerHTML = '<option value="">Selecione uma cidade...</option>' +
-    keys.map(k=>`<option value="${k}">${KMZ_CATALOG[k].display_name} (${KMZ_CATALOG[k].estado})</option>`).join('');
-  sel.onchange = () => loadKmzCity(sel.value);
+  sel.innerHTML = '<option value="">Selecione uma cidade...</option>'
+    + '<option value="__ALL__">🌎 Todas as cidades</option>'
+    + keys.map(k=>`<option value="${k}">${KMZ_CATALOG[k].display_name} (${KMZ_CATALOG[k].estado})</option>`).join('');
+  sel.onchange = () => sel.value === '__ALL__' ? loadAllKmzCities() : loadKmzCity(sel.value);
 }
 
 // O mapa só é criado quando a aba KMZ é aberta pela 1ª vez — inicializar o
@@ -1106,34 +1107,88 @@ function kmlColorToCss(hex){
   return '#'+hex.slice(6,8)+hex.slice(4,6)+hex.slice(2,4);
 }
 
-async function loadKmzCity(key){
-  const status = document.getElementById('kmzStatus');
+function resetKmzState(){
   document.getElementById('kmzBairroList').innerHTML = '';
   document.getElementById('kmzProvList').innerHTML = '';
   kmzAllMarkers.forEach(m=>{ if(kmzMapInst && kmzMapInst.hasLayer(m.marker)) kmzMapInst.removeLayer(m.marker); });
   kmzAllMarkers = []; kmzCheckedBairros = new Set(); kmzCheckedProviders = new Set();
   kmzProviderColor = {}; kmzProviderCount = {}; kmzBairroCount = {};
+}
+
+async function fetchKmzDoc(path){
+  const res = await fetch(path);
+  if(!res.ok) throw new Error('arquivo não encontrado ('+res.status+')');
+  const buf = await res.arrayBuffer();
+  const zip = await JSZip.loadAsync(buf);
+  const kmlEntry = Object.values(zip.files).find(f=>/\.kml$/i.test(f.name));
+  if(!kmlEntry) throw new Error('nenhum .kml dentro do KMZ');
+  const kmlText = await kmlEntry.async('text');
+  return new DOMParser().parseFromString(kmlText, 'text/xml');
+}
+
+function finishKmzLoad(allBounds){
+  // invalidateSize() TEM que rodar antes do fitBounds: a aba KMZ está
+  // escondida (display:none) até o usuário clicar nela, então o Leaflet
+  // mede o contêiner com tamanho errado no momento do L.map(...). Se o
+  // fitBounds calcular o centro/zoom em cima desse tamanho errado, o mapa
+  // fica com o centro deslocado — e como o invalidateSize() só ajusta o
+  // tamanho (não recalcula o centro), o erro persistia mesmo dando zoom.
+  setTimeout(()=>{
+    if(!kmzMapInst) return;
+    kmzMapInst.invalidateSize();
+    if(allBounds.length) kmzMapInst.fitBounds(allBounds, {padding:[20,20]});
+  }, 80);
+  renderKmzBairroList();
+  renderKmzProviderList();
+}
+
+async function loadKmzCity(key){
+  const status = document.getElementById('kmzStatus');
+  resetKmzState();
   const cat = KMZ_CATALOG[key];
   if(!cat) return;
 
   status.textContent = 'Carregando KMZ...';
   try{
-    const res = await fetch(cat.path);
-    if(!res.ok) throw new Error('arquivo não encontrado ('+res.status+')');
-    const buf = await res.arrayBuffer();
-    const zip = await JSZip.loadAsync(buf);
-    const kmlEntry = Object.values(zip.files).find(f=>/\.kml$/i.test(f.name));
-    if(!kmlEntry) throw new Error('nenhum .kml dentro do KMZ');
-    const kmlText = await kmlEntry.async('text');
-    const doc = new DOMParser().parseFromString(kmlText, 'text/xml');
-    buildKmzMap(doc);
+    const doc = await fetchKmzDoc(cat.path);
+    const bounds = buildKmzMap(doc);
+    finishKmzLoad(bounds);
     status.textContent = `${kmzAllMarkers.length.toLocaleString('pt-BR')} pontos carregados`;
   }catch(err){
     status.textContent = 'Erro ao carregar KMZ: ' + err.message;
   }
 }
 
-function buildKmzMap(doc){
+// Carrega o KMZ de todas as cidades cadastradas ao mesmo tempo, prefixando
+// o nome do bairro com a cidade (evita colidir "CENTRO" de cidades
+// diferentes) -- assim dá pra marcar/desmarcar um provedor (ex: Infolink)
+// e ver os pontos dele em todo o Ceará de uma vez, sem trocar de cidade.
+async function loadAllKmzCities(){
+  const status = document.getElementById('kmzStatus');
+  resetKmzState();
+  const keys = Object.keys(KMZ_CATALOG);
+  const allBounds = [];
+  let done = 0, failed = [];
+
+  for(const key of keys){
+    const cat = KMZ_CATALOG[key];
+    status.textContent = `Carregando ${cat.display_name}... (${done}/${keys.length})`;
+    try{
+      const doc = await fetchKmzDoc(cat.path);
+      const bounds = buildKmzMap(doc, cat.display_name);
+      allBounds.push(...bounds);
+    }catch(err){
+      failed.push(cat.display_name);
+    }
+    done++;
+  }
+
+  finishKmzLoad(allBounds);
+  status.textContent = `${kmzAllMarkers.length.toLocaleString('pt-BR')} pontos carregados (${keys.length - failed.length}/${keys.length} cidades)`
+    + (failed.length ? ` — falhou: ${failed.join(', ')}` : '');
+}
+
+function buildKmzMap(doc, cityPrefix){
   if(!kmzMapInst){
     kmzMapInst = L.map('kmzMap').setView([-4.0,-38.4], 10);
     // Satélite como padrão: o mapa de ruas do OpenStreetMap tem cobertura
@@ -1160,7 +1215,8 @@ function buildKmzMap(doc){
 
   bairroFolders.forEach(bf=>{
     const bairroNameRaw = bf.getElementsByTagName('name')[0]?.textContent || '(sem nome)';
-    const bairroName = bairroNameRaw.replace(/\s*\(\d+\)$/, '').trim();
+    let bairroName = bairroNameRaw.replace(/\s*\(\d+\)$/, '').trim();
+    if(cityPrefix) bairroName = `${cityPrefix} · ${bairroName}`;
     kmzCheckedBairros.add(bairroName);
     [...bf.getElementsByTagName('Placemark')].forEach(pm=>{
       // O provedor é o nome da pasta-mãe do Placemark (ex.: "ALARES (348)"), e não o
@@ -1181,7 +1237,8 @@ function buildKmzMap(doc){
 
       const marker = L.circleMarker([lat,lon], {radius:4, color, fillColor:color, fillOpacity:.9, weight:1})
         .bindPopup(`<b>${provider}</b><br>${bairroName}<br>${lat.toFixed(6)}, ${lon.toFixed(6)}<br>`
-          + `<a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" rel="noopener">Abrir no Google Maps ↗</a>`);
+          + `<a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" rel="noopener">Abrir no Google Maps ↗</a>`)
+        .addTo(kmzMapInst);
       kmzAllMarkers.push({ marker, bairro: bairroName, provider });
       kmzCheckedProviders.add(provider);
       kmzProviderColor[provider] = color;
@@ -1191,21 +1248,7 @@ function buildKmzMap(doc){
     });
   });
 
-  kmzAllMarkers.forEach(m=>m.marker.addTo(kmzMapInst));
-  // invalidateSize() TEM que rodar antes do fitBounds: a aba KMZ está
-  // escondida (display:none) até o usuário clicar nela, então o Leaflet
-  // mede o contêiner com tamanho errado no momento do L.map(...). Se o
-  // fitBounds calcular o centro/zoom em cima desse tamanho errado, o mapa
-  // fica com o centro deslocado — e como o invalidateSize() só ajusta o
-  // tamanho (não recalcula o centro), o erro persistia mesmo dando zoom.
-  setTimeout(()=>{
-    if(!kmzMapInst) return;
-    kmzMapInst.invalidateSize();
-    if(allBounds.length) kmzMapInst.fitBounds(allBounds, {padding:[20,20]});
-  }, 80);
-
-  renderKmzBairroList();
-  renderKmzProviderList();
+  return allBounds;
 }
 
 function applyKmzVisibility(){
