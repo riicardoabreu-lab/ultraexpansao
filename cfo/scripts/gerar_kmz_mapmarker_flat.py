@@ -59,7 +59,9 @@ def build_kml(content_json_path, cidade):
         if len(parts) < 3:
             continue
         bairro, categoria = parts[0], parts[1]
-        if categoria.upper() != "CAIXAS":
+        # "CAIXA" (singular) aparece pelo menos em Cascavel/CENTRO -- provável
+        # erro de digitação de campo, mas é a mesma categoria de "CAIXAS"
+        if categoria.upper() not in ("CAIXAS", "CAIXA"):
             continue  # só caixas de atendimento -- sem CEO/emendas, sem residencial
         base_provider = normalize_provider(parts[2])
         if len(parts) > 3:
