@@ -40,12 +40,15 @@ def provider_color_kml(name):
     return f"ff{b:02x}{g:02x}{r:02x}"
 
 
-def build_kml(content_json_path, cidade):
+def build_kml(content_json_path, cidade, only_bairros=None, exclude_bairros=None):
     with open(content_json_path, encoding="utf-8") as f:
         data = json.load(f)
     dc = data["data_content"]
     folders = {f["id"]: f for f in dc["folder"]}
     pois = dc["poi"]
+
+    only_set = {b.upper() for b in only_bairros} if only_bairros else None
+    exclude_set = {b.upper() for b in exclude_bairros} if exclude_bairros else set()
 
     tree = defaultdict(lambda: defaultdict(list))  # bairro -> provedor -> [(lat, lon)]
     for p in pois:
@@ -59,6 +62,10 @@ def build_kml(content_json_path, cidade):
         if len(parts) < 3:
             continue
         bairro, categoria = parts[0], parts[1]
+        if only_set is not None and bairro.upper() not in only_set:
+            continue
+        if bairro.upper() in exclude_set:
+            continue
         # "CAIXA" (singular) aparece pelo menos em Cascavel/CENTRO -- provável
         # erro de digitação de campo, mas é a mesma categoria de "CAIXAS"
         if categoria.upper() not in ("CAIXAS", "CAIXA"):
@@ -124,11 +131,21 @@ def build_kml(content_json_path, cidade):
 
 def main():
     if len(sys.argv) < 4:
-        print("Uso: python gerar_kmz_mapmarker_flat.py <content.json> <cidade> <saida.kmz>")
+        print("Uso: python gerar_kmz_mapmarker_flat.py <content.json> <cidade> <saida.kmz> "
+              "[--only BAIRRO1,BAIRRO2 | --exclude BAIRRO1,BAIRRO2]")
         sys.exit(1)
     content_path, cidade, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
 
-    kml, total_points, num_providers, num_bairros = build_kml(content_path, cidade)
+    only_bairros = exclude_bairros = None
+    rest = sys.argv[4:]
+    if rest and rest[0] == "--only":
+        only_bairros = rest[1].split(",")
+    elif rest and rest[0] == "--exclude":
+        exclude_bairros = rest[1].split(",")
+
+    kml, total_points, num_providers, num_bairros = build_kml(
+        content_path, cidade, only_bairros=only_bairros, exclude_bairros=exclude_bairros
+    )
 
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("doc.kml", kml)
