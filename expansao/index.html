@@ -511,10 +511,16 @@ async function updateConcorrencia(){
     block.innerHTML = `<p class="hint">Nenhum dado de concorrência encontrado no CFO para "${esc(c.nome)}". Preencha "Provedores concorrentes" manualmente, ou ajuste o nome pra bater com o bairro cadastrado lá.</p>`;
     return;
   }
+  // "Caixa sem ID" / "Pacpon sem ID" não são provedores de verdade — são
+  // caixas sem identificação achada em campo. Ficam na lista, mas não
+  // contam na quantidade de provedores concorrentes.
+  const contaComoProvedor = nome => !/SEM\s*ID/i.test(nome);
+  const contarProvedores = providers => Object.keys(providers).filter(contaComoProvedor).length;
+
   // Bairro sem ambiguidade (achou em um único município): preenche
   // "Provedores concorrentes" sozinho, sem precisar clicar em nada.
   if(matches.length === 1){
-    const totalProv = Object.keys(matches[0].providers).length;
+    const totalProv = contarProvedores(matches[0].providers);
     c.provedoresRegiao = totalProv;
     const inProv = document.getElementById('in-provedores');
     if(inProv) inProv.value = totalProv;
@@ -522,9 +528,9 @@ async function updateConcorrencia(){
   }
   block.innerHTML = matches.map((m,i)=>{
     const linhas = Object.entries(m.providers).sort((a,b)=>(b[1].cx||0)-(a[1].cx||0)).map(([nome,d])=>`
-      <tr><td>${esc(nome)}</td><td>${fmtNum(d.cx)}</td><td>${fmtNum(d.clientes)}</td></tr>
+      <tr${contaComoProvedor(nome)?'':' style="color:var(--text-faint);"'}><td>${esc(nome)}</td><td>${fmtNum(d.cx)}</td><td>${fmtNum(d.clientes)}</td></tr>
     `).join('');
-    const totalProv = Object.keys(m.providers).length;
+    const totalProv = contarProvedores(m.providers);
     const acao = matches.length === 1
       ? `<span style="color:var(--good);font-size:11.5px;font-family:var(--mono);">✓ ${totalProv} provedores aplicado acima</span>`
       : `<button class="ghost-btn" data-idx="${i}">Usar ${totalProv} provedores</button>`;
@@ -537,6 +543,7 @@ async function updateConcorrencia(){
         <thead><tr><th>Provedor</th><th>Caixas</th><th>Clientes</th></tr></thead>
         <tbody>${linhas}</tbody>
       </table></div>
+      <p class="hint" style="margin:8px 0 0;">Caixas sem identificação (em cinza) não entram na contagem de provedores.</p>
     </div>`;
   }).join('');
   if(matches.length > 1){
@@ -545,7 +552,7 @@ async function updateConcorrencia(){
   block.querySelectorAll('[data-idx]').forEach(btn=>{
     btn.onclick = ()=>{
       const m = matches[Number(btn.dataset.idx)];
-      c.provedoresRegiao = Object.keys(m.providers).length;
+      c.provedoresRegiao = contarProvedores(m.providers);
       const el = document.getElementById('in-provedores');
       if(el) el.value = c.provedoresRegiao;
       saveApp(); renderSidebar();
