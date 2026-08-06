@@ -427,6 +427,7 @@ onAuthStateChanged(auth,async user=>{
       </div>
       <span id="umail"></span>
       <a href="../home.html" style="color:rgba(255,255,255,.75);text-decoration:none;border:1px solid rgba(255,255,255,.25);padding:5px 12px;border-radius:16px;font-size:.78em;margin-right:6px;">← Início</a>
+      <button onclick="removeDuplicateProviders()" style="margin-right:6px;" title="Junta provedores duplicados (mesmo nome, mesma cidade) numa entrada só">🧹 Duplicados</button>
       <button onclick="exportBackup()" style="margin-right:6px;">⬇️ Backup</button>
       <button id="lout-btn" onclick="doLogout()">Sair</button>
     </div>
@@ -506,6 +507,56 @@ const CIRCUITOS=['Algar Telecom', 'Claro/Embratel', 'Copel Telecom', 'Desktop', 
 function gDB(){try{return JSON.parse(localStorage.getItem('isp_db')||'{}')}catch{return{}}}
 function pDB(d){localStorage.setItem('isp_db',JSON.stringify(d));syncToCloud()}
 let DB=gDB();
+
+// Junta entradas duplicadas (mesmo nome, mesma cidade) que aparecem quando o
+// nome do provedor na planilha da ANATEL muda de grafia entre uma
+// atualização e outra (o merge automático em renderDetail compara nome
+// exato, então uma variação de grafia cria uma 2ª entrada "ativo" ao lado
+// da que já tinha sido visitada). Mantém o status mais avançado
+// (visitado > fechado > prospectado > ativo) e combina os campos
+// preenchidos (fotos/panfletos concatenados sem repetir).
+function removeDuplicateProviders(){
+  const STATUS_RANK={visitado:3,fechado:2,prospectado:1,ativo:0};
+  let totalMerged=0;
+  const citiesAffected=[];
+  Object.keys(DB).forEach(cidade=>{
+    const provs=DB[cidade].provedores||[];
+    const groups={};
+    const order=[];
+    provs.forEach(p=>{
+      const key=(p.nome||'').trim().toLowerCase();
+      if(!groups[key]){groups[key]=[];order.push(key);}
+      groups[key].push(p);
+    });
+    let changed=false;
+    const deduped=order.map(key=>{
+      const list=groups[key];
+      if(list.length===1) return list[0];
+      changed=true;
+      totalMerged+=list.length-1;
+      let base=list[0];
+      list.forEach(p=>{ if((STATUS_RANK[p.status]||0)>(STATUS_RANK[base.status]||0)) base=p; });
+      const merged={...base};
+      list.forEach(p=>{
+        Object.keys(p).forEach(k=>{
+          const v=p[k];
+          if(Array.isArray(v)) merged[k]=[...new Set([...(merged[k]||[]),...v])];
+          else if(!merged[k] && v) merged[k]=v;
+        });
+      });
+      return merged;
+    });
+    if(changed){ DB[cidade].provedores=deduped; citiesAffected.push(cidade); }
+  });
+  if(totalMerged>0){
+    pDB(DB);
+    alert(`🧹 ${totalMerged} provedor(es) duplicado(s) juntado(s) em ${citiesAffected.length} cidade(s):\n\n${citiesAffected.join(', ')}`);
+    if(typeof activeCity!=='undefined' && activeCity) renderDetail(activeCity);
+    if(typeof renderCityList==='function') renderCityList();
+  } else {
+    alert('Nenhum provedor duplicado encontrado.');
+  }
+}
 
 /* Prospects */
 function gPR(){try{return JSON.parse(localStorage.getItem('isp_pr')||'[]')}catch{return[]}}
