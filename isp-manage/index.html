@@ -422,8 +422,8 @@ onAuthStateChanged(auth,async user=>{
         <div class="tbst" onclick="showAllVisited()" title="Ver todos visitados">
           <b id="hv">0</b>Visitadas
         </div>
-        <div class="tbst"><b>13</b>Regiões</div>
-        <div class="tbst"><b>159</b>Cidades</div>
+        <div class="tbst"><b id="hr">13</b>Regiões</div>
+        <div class="tbst"><b id="hc">159</b>Cidades</div>
       </div>
       <span id="umail"></span>
       <a href="../home.html" style="color:rgba(255,255,255,.75);text-decoration:none;border:1px solid rgba(255,255,255,.25);padding:5px 12px;border-radius:16px;font-size:.78em;margin-right:6px;">← Início</a>
@@ -733,6 +733,8 @@ function startApp(){
   buildTabs();
   initMap();
   updateHV();
+  document.getElementById('hc').textContent=Object.keys(CITIES).length;
+  document.getElementById('hr').textContent=new Set(Object.values(CITIES).map(c=>c.regiao)).size;
   // Force correct layout dimensions
   setTimeout(()=>{
     const t=document.querySelector('.rtab[data-r="03"]');
