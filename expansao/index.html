@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+  // Bloqueia acesso direto a esta página sem passar pelo login do portal.
+  if (sessionStorage.getItem('infolink_hub_auth') !== 'ok') {
+    window.location.href = '../index.html';
+  }
+</script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, doc, setDoc, getDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  const fb = initializeApp({
+    apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
+    authDomain: "isp-manager-ce.firebaseapp.com",
+    projectId: "isp-manager-ce",
+    storageBucket: "isp-manager-ce.firebasestorage.app",
+    messagingSenderId: "374725918192",
+    appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
+  });
+  const auth = getAuth(fb);
+  const fsDb = getFirestore(fb);
+  window._doLogout = function(){
+    signOut(auth).finally(()=>{
+      sessionStorage.clear();
+      window.location.href = '../index.html';
+    });
+  };
+
+  // ---- Sincronização em tempo real com a nuvem (Firestore), mesmo padrão
+  // usado em Aquisições: last write wins, KMZ à parte pra não inflar o
+  // documento principal.
+  window._lastKnownUpdated = 0;
+  window._cloudSave = (data) => {
+    if(!window._fbUser) return Promise.resolve();
+    window._lastKnownUpdated = data.updated;
+    return setDoc(doc(fsDb, 'expansao_backups', window._fbUser.uid), data);
+  };
+  window._fbSaveKmz = (cidadeId, kmz) => {
+    if(!window._fbUser) return Promise.resolve();
+    return setDoc(doc(fsDb, 'expansao_kmz', cidadeId), { ...kmz, uid: window._fbUser.uid, atualizado_em: Date.now() });
+  };
+  window._fbGetKmz = async (cidadeId) => {
+    const snap = await getDoc(doc(fsDb, 'expansao_kmz', cidadeId));
+    return snap.exists() ? snap.data() : null;
+  };
+  window._fbDeleteKmz = (cidadeId) => {
+    return deleteDoc(doc(fsDb, 'expansao_kmz', cidadeId)).catch(err => console.error('Falha ao remover KMZ da nuvem:', err));
+  };
+
+  onAuthStateChanged(auth, user => {
+    if(!user) return;
+    window._fbUser = user;
+    onSnapshot(doc(fsDb, 'expansao_backups', user.uid), snap => {
+      if(!snap.exists()) return;
+      const data = snap.data();
+      if(!data.cidades || !data.cidades.length) return;
+      if((data.updated||0) <= (window._lastKnownUpdated||0)) return;
+      window._lastKnownUpdated = data.updated;
+      if(window._applyRemoteState) window._applyRemoteState(data.cidades);
+    }, err => console.error('Falha no listener de sincronização (Expansão):', err));
+  });
+</script>
+<title>Expansão — Infolink-ISP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --bg:#0d0620; --bg-panel:#1a0f2e; --bg-panel-2:#221540; --bg-inset:#170c28;
+    --border:#3a2160; --border-soft:#2c1850;
+    --accent:#00d4c8; --accent-dim:#0d3a36;
+    --good:#34d399; --good-dim:#123a2c;
+    --bad:#fb7185; --bad-dim:#3f1622;
+    --text:#f1eefa; --text-dim:#a99bc4; --text-faint:#6f5f92;
+    --purple:#6a00b8; --magenta:#b91cd0;
+    --radius:10px;
+    --mono:'IBM Plex Mono', ui-monospace, monospace;
+    --disp:'Space Grotesk', sans-serif;
+    --body:'Inter', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0; background:var(--bg); color:var(--text); font-family:var(--body); font-size:14px; line-height:1.5;
+    background-image:
+      radial-gradient(ellipse 900px 500px at 12% -10%, rgba(0,212,200,.09), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 100% 0%, rgba(185,28,208,.08), transparent 60%);
+    background-attachment:fixed;
+  }
+  ::selection{ background:var(--accent); color:#03110f; }
+  button, input, select{ font-family:inherit; }
+
+  .topbar{ position:sticky; top:0; z-index:50; backdrop-filter:blur(10px); background:rgba(13,6,32,.9); border-bottom:1px solid var(--border-soft); }
+  .topbar-inner{ max-width:1560px; margin:0 auto; padding:12px 22px; display:flex; align-items:center; gap:16px; }
+  .brand{ display:flex; align-items:center; gap:9px; font-family:var(--disp); font-weight:600; font-size:14.5px; white-space:nowrap; }
+  .brand-dot{ width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px 2px rgba(0,212,200,.7); }
+  .topbar-actions{ margin-left:auto; display:flex; align-items:center; gap:8px; }
+  .ghost-btn{ background:transparent; border:1px solid var(--border); color:var(--text-dim); padding:7px 13px; border-radius:7px; font-size:12px; cursor:pointer; white-space:nowrap; }
+  .ghost-btn:hover{ border-color:var(--accent); color:var(--accent); }
+  .status-pill{ display:flex; align-items:center; gap:8px; padding:6px 12px; border-radius:20px; border:1px solid var(--border); font-family:var(--mono); font-size:12px; white-space:nowrap; }
+  .status-pill b{ font-family:var(--body); font-weight:600;}
+  .dot{width:7px;height:7px;border-radius:50%; background:var(--good);}
+  @media (max-width:760px){
+    .topbar-inner{ flex-wrap:wrap; row-gap:8px; }
+    .topbar-actions{ order:3; width:100%; justify-content:flex-start; flex-wrap:wrap; margin-left:0; }
+  }
+
+  .shell{ max-width:1560px; margin:0 auto; display:flex; align-items:flex-start; }
+  .sidebar{
+    width:280px; flex-shrink:0; padding:20px 14px 40px; position:sticky; top:53px;
+    height:calc(100vh - 53px); overflow-y:auto; border-right:1px solid var(--border-soft);
+  }
+  .sidebar h4{ font-family:var(--disp); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-faint); margin:4px 6px 12px; }
+  .new-city-btn{
+    width:100%; background:linear-gradient(180deg, rgba(0,212,200,.14), rgba(0,212,200,.05)); border:1px dashed rgba(0,212,200,.45);
+    color:var(--accent); padding:11px; border-radius:9px; font-size:12.5px; font-weight:600; cursor:pointer; margin-bottom:16px;
+  }
+  .new-city-btn:hover{ background:rgba(0,212,200,.18); }
+  .city-list{ display:flex; flex-direction:column; gap:8px; }
+  .city-card{
+    background:var(--bg-panel); border:1px solid var(--border-soft); border-radius:9px; padding:11px 12px; cursor:pointer; position:relative; transition:.15s;
+  }
+  .city-card:hover{ border-color:var(--border); }
+  .city-card.active{ border-color:var(--accent); background:linear-gradient(180deg, rgba(0,212,200,.09), var(--bg-panel) 70%); }
+  .city-card .cname{ font-weight:600; font-size:13px; margin-bottom:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .city-card .cmeta{ color:var(--text-faint); font-size:11px; font-family:var(--mono); }
+  .city-card .cactions{ display:flex; gap:6px; margin-top:8px; }
+  .city-card .cactions button{
+    background:transparent; border:1px solid var(--border-soft); color:var(--text-faint); font-size:10.5px; padding:3px 7px; border-radius:5px; cursor:pointer;
+  }
+  .city-card .cactions button:hover{ color:var(--text); border-color:var(--text-dim); }
+  .empty-side{ color:var(--text-faint); font-size:12px; padding:14px 6px; line-height:1.6; }
+
+  @media (max-width:940px){
+    .shell{ flex-direction:column; align-items:stretch; }
+    .sidebar{ width:100%; height:auto; position:static; border-right:none; border-bottom:1px solid var(--border-soft); }
+    .city-list{ flex-direction:row; overflow-x:auto; padding-bottom:6px; }
+    .city-card{ min-width:190px; flex-shrink:0; }
+  }
+
+  .main{ flex:1; min-width:0; padding:26px 28px 90px; }
+  .empty-main{ color:var(--text-faint); font-size:13.5px; padding:40px 6px; line-height:1.7; }
+
+  .phead-row{ display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap; margin-bottom:22px; }
+  input.cname-input{
+    background:transparent; border:none; border-bottom:2px solid transparent; color:var(--text); font-family:var(--disp);
+    font-weight:700; font-size:clamp(22px,3vw,30px); padding:2px 0; min-width:220px;
+  }
+  input.cname-input:hover, input.cname-input:focus{ border-bottom-color:var(--border); outline:none; }
+
+  .panel{ background:var(--bg-panel); border:1px solid var(--border); border-radius:var(--radius); padding:20px; min-width:0; }
+  .sec-block{ margin-bottom:26px; }
+  .sec-block > h3{ font-family:var(--disp); font-size:14.5px; font-weight:600; margin:0 0 12px; color:var(--text-dim); }
+  .sec-block > p.hint{ color:var(--text-faint); font-size:12px; margin:-6px 0 14px; }
+
+  .field{ display:flex; flex-direction:column; gap:5px; }
+  .field label{ font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.06em; }
+  .field input, .field select{
+    background:var(--bg-inset); border:1px solid var(--border); color:var(--text); font-family:var(--mono);
+    font-size:13.5px; padding:9px 10px; border-radius:7px; width:100%;
+  }
+  .field input:focus, .field select:focus, table input:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(0,212,200,.15); }
+  .field-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; }
+
+  .kpi-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:14px; }
+  .kpi{ background:var(--bg-panel); border:1px solid var(--border); border-radius:var(--radius); padding:15px 17px; }
+  .kpi .label{ color:var(--text-faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; margin-bottom:7px; }
+  .kpi .value{ font-family:var(--mono); font-weight:600; font-size:19px; }
+  .kpi.hi{ border-color:rgba(0,212,200,.4); background:linear-gradient(180deg, rgba(0,212,200,.08), var(--bg-panel) 60%); }
+  .kpi.hi .value{ color:var(--accent); font-size:22px; }
+
+  .table-scroll{ overflow-x:auto; border-radius:8px; border:1px solid var(--border-soft); }
+  table{ width:100%; border-collapse:collapse; min-width:520px; }
+  thead th{ background:var(--bg-panel-2); color:var(--text-faint); text-transform:uppercase; letter-spacing:.05em; font-size:10.5px; font-weight:600; text-align:right; padding:10px; white-space:nowrap; border-bottom:1px solid var(--border); }
+  thead th:first-child{ text-align:left; }
+  tbody td{ padding:6px 8px; border-bottom:1px solid var(--border-soft); text-align:right; white-space:nowrap; }
+  tbody td:first-child{ text-align:left; }
+  tbody tr:hover{ background:rgba(255,255,255,.02); }
+  table input{ background:var(--bg-inset); border:1px solid var(--border); color:var(--text); font-family:var(--mono); font-size:12.5px; padding:7px 8px; border-radius:6px; width:100%; min-width:70px; text-align:right; }
+  table td:first-child input{ text-align:left; font-family:var(--body); }
+  tfoot td{ padding:11px 8px; font-weight:600; border-top:1px solid var(--border); background:var(--bg-panel-2); font-family:var(--mono); }
+  .computed{ color:var(--text-dim); font-family:var(--mono); }
+  .rm-btn{ background:transparent; border:1px solid var(--border); color:var(--text-faint); width:26px; height:26px; border-radius:6px; cursor:pointer; font-size:14px; line-height:1; }
+  .rm-btn:hover{ border-color:var(--bad); color:var(--bad); }
+  .add-row{ margin-top:10px; background:var(--bg-inset); border:1px dashed var(--border); color:var(--text-dim); padding:9px 14px; border-radius:7px; font-size:12.5px; cursor:pointer; }
+  .add-row:hover{ border-color:var(--accent); color:var(--accent); }
+
+  .fiber{ position:relative; height:2px; margin:30px 0 26px; background:linear-gradient(90deg, transparent, var(--border) 8%, var(--border) 92%, transparent); overflow:hidden; }
+  .fiber::before{ content:""; position:absolute; top:0; left:-20%; width:20%; height:100%; background:linear-gradient(90deg, transparent, var(--accent), transparent); filter:blur(1px); animation:pulse 5.5s ease-in-out infinite; }
+  @keyframes pulse{ 0%{left:-20%;} 55%{left:100%;} 100%{left:100%;} }
+  @media (prefers-reduced-motion: reduce){ .fiber::before{ animation:none; left:40%; } }
+
+  .map-toolbar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .upload-btn{ background:var(--accent); color:#03211d; border:none; padding:10px 16px; border-radius:8px; font-size:12.5px; font-weight:700; cursor:pointer; }
+  .upload-btn:hover{ filter:brightness(1.08); }
+  #map{ height:440px; border-radius:10px; border:1px solid var(--border); background:var(--bg-inset); }
+  .map-meta{ display:flex; gap:18px; flex-wrap:wrap; color:var(--text-dim); font-size:12px; font-family:var(--mono); margin-top:12px; }
+  .map-empty{ height:440px; border-radius:10px; border:1px dashed var(--border); display:flex; align-items:center; justify-content:center; flex-direction:column; gap:14px; color:var(--text-faint); text-align:center; padding:30px; }
+  .map-empty svg{ opacity:.5; }
+  #kmzInput{ display:none; }
+
+  footer{ margin-top:50px; padding-top:24px; border-top:1px solid var(--border-soft); color:var(--text-faint); font-size:11.5px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a href="../home.html" class="brand" style="text-decoration:none;color:inherit;"><span class="brand-dot"></span>Expansão</a>
+    <div class="topbar-actions">
+      <a href="../home.html" class="ghost-btn" style="text-decoration:none;">← Voltar</a>
+      <div class="status-pill"><span class="dot"></span>Sincronizado com a equipe</div>
+      <button class="ghost-btn" onclick="window._doLogout()">Sair</button>
+    </div>
+  </div>
+</div>
+
+<div class="shell">
+  <aside class="sidebar">
+    <button class="new-city-btn" id="newCityBtn">+ Nova cidade</button>
+    <h4>Cidades para expansão</h4>
+    <div class="city-list" id="cityList"></div>
+  </aside>
+
+  <main class="main" id="main">
+    <!-- rendered dynamically -->
+  </main>
+</div>
+
+<script>
+/* ======================================================================
+   DATA MODEL
+====================================================================== */
+const STORAGE_KEY = "expansao-v1";
+
+function blankCidade(nome){
+  return {
+    id: novoId('c'),
+    nome: nome || "Nova cidade",
+    provedoresRegiao: 0,
+    clientesAtender: 0,
+    casasRegiao: 0,
+    materiais: [],
+    kmz: null, // {name} — o arquivo em si fica no IndexedDB deste navegador
+  };
+}
+
+function loadApp(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){ const parsed = JSON.parse(raw); if(parsed.cidades && parsed.cidades.length) return parsed; }
+  }catch(e){}
+  return { cidades:[], currentId:null };
+}
+function saveApp(){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }
+  catch(e){ alert('Não foi possível salvar (armazenamento local cheio).'); }
+  syncToCloud();
+}
+function current(){ return app.cidades.find(c=>c.id===app.currentId) || null; }
+
+// Aplica atualização recebida em tempo real de outra pessoa logada com a
+// mesma conta, sem tirar quem está vendo da cidade atual.
+function applyRemoteState(remoteCidades){
+  app.cidades = remoteCidades.map(rc => ({ ...rc, kmz: rc.kmz || null, materiais: rc.materiais || [] }));
+  if(!app.cidades.find(c=>c.id===app.currentId)){
+    app.currentId = app.cidades[0]?.id || null;
+  }
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }catch(e){}
+  renderAll();
+}
+window._applyRemoteState = applyRemoteState;
+
+let _cloudSyncTimer = null;
+function syncToCloud(){
+  if(!window._fbUser || !window._cloudSave) return;
+  clearTimeout(_cloudSyncTimer);
+  _cloudSyncTimer = setTimeout(async ()=>{
+    try{
+      await window._cloudSave({ cidades: app.cidades, currentId: app.currentId, updated: Date.now() });
+    }catch(e){ console.error('Falha ao sincronizar Expansão com a nuvem:', e); }
+  }, 1500);
+}
+
+/* ======================================================================
+   FORMAT HELPERS
+====================================================================== */
+const fmtBRL = n => (isFinite(n)?n:0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:2});
+const fmtNum = n => (isFinite(n)?n:0).toLocaleString('pt-BR',{maximumFractionDigits:0});
+const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;').replace(/</g,'&lt;');
+const novoId = prefix => prefix+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+function setText(id, val){ const el=document.getElementById(id); if(el) el.textContent = val; }
+
+/* ======================================================================
+   SIDEBAR
+====================================================================== */
+function renderSidebar(){
+  const list = document.getElementById('cityList');
+  if(!app.cidades.length){
+    list.innerHTML = `<div class="empty-side">Nenhuma cidade cadastrada ainda. Clique em <b>+ Nova cidade</b> para começar.</div>`;
+    return;
+  }
+  list.innerHTML = app.cidades.map(c=>{
+    const active = c.id===app.currentId;
+    const totalMateriais = (c.materiais||[]).reduce((s,r)=>s+(r.qtd||0)*(r.custo||0),0);
+    return `<div class="city-card ${active?'active':''}" data-id="${c.id}">
+      <div class="cname">${esc(c.nome)||'(sem nome)'}</div>
+      <div class="cmeta">${fmtNum(c.casasRegiao)} casas · ${fmtBRL(totalMateriais)}</div>
+      <div class="cactions">
+        <button data-act="dup" title="Duplicar">Duplicar</button>
+        <button data-act="del" title="Remover">Remover</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('.city-card').forEach(card=>{
+    card.addEventListener('click', e=>{
+      if(e.target.dataset.act) return;
+      app.currentId = card.dataset.id; saveApp(); renderAll();
+    });
+    card.querySelector('[data-act="dup"]').addEventListener('click', e=>{
+      e.stopPropagation();
+      const src = app.cidades.find(x=>x.id===card.dataset.id);
+      const copy = JSON.parse(JSON.stringify(src));
+      copy.id = novoId('c');
+      copy.nome = src.nome + ' (cópia)';
+      copy.kmz = null;
+      app.cidades.push(copy); app.currentId = copy.id; saveApp(); renderAll();
+    });
+    card.querySelector('[data-act="del"]').addEventListener('click', async e=>{
+      e.stopPropagation();
+      const src = app.cidades.find(x=>x.id===card.dataset.id);
+      if(!confirm(`Remover "${src.nome}"? Essa ação não pode ser desfeita.`)) return;
+      try{ await kmzDbDelete(src.id); }catch(err){}
+      if(window._fbDeleteKmz) window._fbDeleteKmz(src.id);
+      app.cidades = app.cidades.filter(x=>x.id!==card.dataset.id);
+      if(app.currentId===card.dataset.id) app.currentId = app.cidades[0]?.id || null;
+      saveApp(); renderAll();
+    });
+  });
+}
+
+/* ======================================================================
+   MAIN — cidade atual
+====================================================================== */
+function mainSkeleton(){
+  const main = document.getElementById('main');
+  const c = current();
+  if(!c){
+    main.innerHTML = `<div class="empty-main">Nenhuma cidade selecionada. Clique em <b>+ Nova cidade</b> na barra lateral para começar a planejar uma expansão.</div>`;
+    return;
+  }
+  main.innerHTML = `
+    <div class="phead-row">
+      <input class="cname-input" id="in-nome" value="${esc(c.nome)}" placeholder="Nome da cidade">
+    </div>
+
+    <div class="sec-block">
+      <h3>Dados da região</h3>
+      <div class="field-grid">
+        <div class="field"><label>Provedores concorrentes na região</label><input id="in-provedores" type="number" min="0" step="1"></div>
+        <div class="field"><label>Clientes a atender</label><input id="in-clientes" type="number" min="0" step="1"></div>
+        <div class="field"><label>Casas na região</label><input id="in-casas" type="number" min="0" step="1"></div>
+      </div>
+    </div>
+
+    <div class="fiber"></div>
+
+    <div class="sec-block">
+      <h3>Rede a ser expandida (KMZ)</h3>
+      <p class="hint">Envie o KMZ/KML com o projeto de rede planejado para esta cidade.</p>
+      <div class="map-toolbar">
+        <button class="upload-btn" id="kmzUploadBtn">Carregar KMZ / KML</button>
+        <input type="file" id="kmzInput" accept=".kmz,.kml">
+        <button class="ghost-btn" id="kmzDownloadBtn" style="display:none;">Baixar arquivo original</button>
+        <button class="ghost-btn" id="kmzRemoveBtn" style="display:none;">Remover rede</button>
+      </div>
+      <div id="mapHolder"></div>
+      <div class="map-meta" id="mapMeta"></div>
+      <div class="kpi-row" id="kmzStatsBlock" style="display:none;">
+        <div class="kpi"><div class="label">Caixas / CTOs</div><div class="value" id="kpi-kmz-caixas">—</div></div>
+        <div class="kpi"><div class="label">CEOs (emenda)</div><div class="value" id="kpi-kmz-ceos">—</div></div>
+        <div class="kpi"><div class="label">Segmentos de cabo</div><div class="value" id="kpi-kmz-cabos">—</div></div>
+        <div class="kpi hi"><div class="label">Metragem total</div><div class="value" id="kpi-kmz-metragem">—</div></div>
+      </div>
+    </div>
+
+    <div class="fiber"></div>
+
+    <div class="sec-block">
+      <h3>Orçamento de materiais</h3>
+      <p class="hint">Lista de materiais estimados para essa expansão.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Material</th><th>Quantidade</th><th>Custo unitário (R$)</th><th>Subtotal</th><th></th></tr></thead>
+          <tbody id="materiaisBody"></tbody>
+          <tfoot><tr><td colspan="3">Total do orçamento</td><td class="computed" id="materiaisTotal">—</td><td></td></tr></tfoot>
+        </table>
+      </div>
+      <button class="add-row" id="addMaterialBtn">+ Adicionar material</button>
+    </div>
+  `;
+}
+
+function buildMateriaisTable(){
+  const c = current(); if(!c) return;
+  const tbody = document.getElementById('materiaisBody');
+  tbody.innerHTML = c.materiais.map(r=>`
+    <tr data-id="${r.id}">
+      <td><input class="mat-nome" value="${esc(r.nome)}" placeholder="Ex: Cabo 12FO"></td>
+      <td><input class="mat-qtd" type="number" min="0" step="1" value="${r.qtd||0}"></td>
+      <td><input class="mat-custo" type="number" min="0" step="0.01" value="${r.custo||0}"></td>
+      <td class="computed">${fmtBRL((r.qtd||0)*(r.custo||0))}</td>
+      <td><button class="rm-btn" data-id="${r.id}" title="Remover">✕</button></td>
+    </tr>
+  `).join('') || `<tr><td colspan="5" style="color:var(--text-dim);">Nenhum material adicionado ainda.</td></tr>`;
+
+  tbody.querySelectorAll('tr[data-id]').forEach(row=>{
+    const id = row.dataset.id;
+    const item = c.materiais.find(r=>r.id===id);
+    row.querySelector('.mat-nome').oninput = e=>{ item.nome = e.target.value; saveApp(); renderSidebar(); };
+    row.querySelector('.mat-qtd').oninput = e=>{ item.qtd = parseFloat(e.target.value)||0; buildMateriaisTable(); saveApp(); renderSidebar(); };
+    row.querySelector('.mat-custo').oninput = e=>{ item.custo = parseFloat(e.target.value)||0; buildMateriaisTable(); saveApp(); renderSidebar(); };
+  });
+  tbody.querySelectorAll('.rm-btn').forEach(btn=>{
+    btn.onclick = ()=>{
+      c.materiais = c.materiais.filter(r=>r.id!==btn.dataset.id);
+      buildMateriaisTable(); saveApp(); renderSidebar();
+    };
+  });
+
+  const total = c.materiais.reduce((s,r)=>s+(r.qtd||0)*(r.custo||0),0);
+  setText('materiaisTotal', fmtBRL(total));
+}
+
+function bindAll(){
+  const c = current(); if(!c) return;
+
+  document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); };
+  [['in-provedores','provedoresRegiao'],['in-clientes','clientesAtender'],['in-casas','casasRegiao']].forEach(([id,field])=>{
+    const el = document.getElementById(id);
+    el.value = c[field] || '';
+    el.oninput = e=>{ c[field] = parseFloat(e.target.value)||0; saveApp(); renderSidebar(); };
+  });
+
+  document.getElementById('addMaterialBtn').onclick = ()=>{
+    c.materiais.push({ id: novoId('m'), nome:'', qtd:0, custo:0 });
+    buildMateriaisTable(); saveApp();
+  };
+  buildMateriaisTable();
+
+  bindKmzControls();
+}
+
+/* ======================================================================
+   KMZ / KML MAP (mesma lógica de leitura usada em Aquisições)
+====================================================================== */
+const KMZ_DB_NAME = 'expansao_kmz_db';
+const KMZ_STORE = 'arquivos';
+function openKmzDb(){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open(KMZ_DB_NAME, 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore(KMZ_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function kmzDbPut(id, value){
+  const db = await openKmzDb();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(KMZ_STORE, 'readwrite');
+    tx.objectStore(KMZ_STORE).put(value, id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function kmzDbGet(id){
+  const db = await openKmzDb();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(KMZ_STORE, 'readonly');
+    const req = tx.objectStore(KMZ_STORE).get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function kmzDbDelete(id){
+  const db = await openKmzDb();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(KMZ_STORE, 'readwrite');
+    tx.objectStore(KMZ_STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+let leafletMap = null, currentKmlLayer = null, currentKmzStats = null;
+const TILE_LAYERS = {
+  osm: { url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', opts:{maxZoom:19, attribution:'&copy; OpenStreetMap'} },
+  esri: { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', opts:{maxZoom:19, attribution:'&copy; Esri'} },
+  topo: { url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', opts:{maxZoom:17, attribution:'&copy; OpenTopoMap'} },
+};
+
+function initMapIfNeeded(){
+  const holder = document.getElementById('mapHolder'); if(!holder) return;
+  const c = current(); if(!c) return;
+  if(!c.kmz){
+    if(leafletMap){ leafletMap.remove(); leafletMap=null; }
+    holder.innerHTML = `<div class="map-empty">
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2V6z"/><path d="M9 4v14M15 6v14"/></svg>
+      <div>Nenhuma rede carregada para esta cidade.<br>Envie um arquivo .kmz ou .kml.</div>
+    </div>`;
+    document.getElementById('kmzDownloadBtn').style.display='none';
+    document.getElementById('kmzRemoveBtn').style.display='none';
+    document.getElementById('mapMeta').innerHTML='';
+    currentKmzStats = null;
+    renderKmzStatsPanel();
+    return;
+  }
+  if(!holder.querySelector('#map')) holder.innerHTML = `<div id="map"></div>`;
+  document.getElementById('kmzDownloadBtn').style.display='inline-block';
+  document.getElementById('kmzRemoveBtn').style.display='inline-block';
+
+  if(!leafletMap){
+    leafletMap = L.map('map', { zoomControl:true }).setView([-3.5,-40], 12);
+    const base = { "Mapa": L.tileLayer(TILE_LAYERS.osm.url, TILE_LAYERS.osm.opts).addTo(leafletMap),
+                   "Satélite": L.tileLayer(TILE_LAYERS.esri.url, TILE_LAYERS.esri.opts),
+                   "Topográfico": L.tileLayer(TILE_LAYERS.topo.url, TILE_LAYERS.topo.opts) };
+    L.control.layers(base).addTo(leafletMap);
+  }
+  setTimeout(()=> leafletMap && leafletMap.invalidateSize(), 60);
+  loadKmlIntoMap(c);
+}
+
+function dataUrlToBlob(dataUrl){
+  const [meta, b64] = dataUrl.split(',');
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+  const mimeMatch = meta.match(/data:(.*);base64/);
+  return new Blob([arr], {type: mimeMatch?mimeMatch[1]:'application/octet-stream'});
+}
+
+async function extractKMLFromBlob(blob, filename){
+  const buf = await blob.arrayBuffer();
+  if(/\.kmz$/i.test(filename)){
+    const zip = await JSZip.loadAsync(buf);
+    const kmlEntry = Object.values(zip.files).find(f=>/\.kml$/i.test(f.name) && !f.dir);
+    if(!kmlEntry) throw new Error('Nenhum arquivo .kml encontrado dentro do KMZ.');
+    return await kmlEntry.async('text');
+  }
+  return new TextDecoder('utf-8').decode(buf);
+}
+
+function classifyPlacemark(name, folderName){
+  const text = ((name||'') + ' ' + (folderName||'')).toUpperCase();
+  if(/\bCEO\b|CAIXA DE EMENDA/.test(text)) return 'ceo';
+  if(/\bCTO\b|CT\d|CAIXA TERMINAL|\bNAP\b|\bCAIXA\b/.test(text)) return 'caixa';
+  return 'outro';
+}
+
+function haversineMeters(lat1, lon1, lat2, lon2){
+  const R = 6371000;
+  const toRad = d => d*Math.PI/180;
+  const dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function polylineLengthMeters(latlngs){
+  let total = 0;
+  for(let i=1;i<latlngs.length;i++) total += haversineMeters(latlngs[i-1][0], latlngs[i-1][1], latlngs[i][0], latlngs[i][1]);
+  return total;
+}
+
+function parseKML(xmlText){
+  const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+  if(doc.querySelector('parsererror')) throw new Error('KML inválido ou corrompido.');
+  const placemarks = [...doc.getElementsByTagName('Placemark')];
+  const layer = L.layerGroup();
+  let count = 0;
+  let caixas = 0, ceos = 0, outros = 0, cabosCount = 0, metragemTotal = 0;
+  const coordsToLatLngs = txt => txt.trim().split(/\s+/).filter(Boolean).map(cstr=>{
+    const parts = cstr.split(',').map(Number); return [parts[1], parts[0]];
+  });
+  placemarks.forEach(pm=>{
+    const name = pm.getElementsByTagName('name')[0]?.textContent?.trim() || '';
+    const desc = pm.getElementsByTagName('description')[0]?.textContent?.trim() || '';
+    const popupHtml = `<b>${name||'Sem nome'}</b>${desc?'<br>'+desc.slice(0,200):''}`;
+    const folderEl = pm.closest ? pm.closest('Folder') : null;
+    const folderName = folderEl ? (folderEl.getElementsByTagName('name')[0]?.textContent?.trim() || '') : '';
+
+    const point = pm.getElementsByTagName('Point')[0];
+    if(point){
+      const c = point.getElementsByTagName('coordinates')[0]?.textContent;
+      if(c){ const [lon,lat] = c.trim().split(',').map(Number);
+        if(isFinite(lat)&&isFinite(lon)){
+          const tipo = classifyPlacemark(name, folderName);
+          const cor = tipo==='ceo' ? '#fb923c' : tipo==='caixa' ? '#00d4c8' : '#8b99b6';
+          L.circleMarker([lat,lon], {radius:5, color:cor, fillColor:cor, fillOpacity:.9, weight:1.5}).bindPopup(popupHtml).addTo(layer);
+          if(tipo==='ceo') ceos++; else if(tipo==='caixa') caixas++; else outros++;
+          count++;
+        }
+      }
+    }
+    const line = pm.getElementsByTagName('LineString')[0];
+    if(line){
+      const c = line.getElementsByTagName('coordinates')[0]?.textContent;
+      if(c){ const ll = coordsToLatLngs(c); if(ll.length>1){
+        L.polyline(ll, {color:'#8b99b6', weight:3}).bindPopup(popupHtml).addTo(layer);
+        cabosCount++;
+        metragemTotal += polylineLengthMeters(ll);
+        count++;
+      } }
+    }
+    const poly = pm.getElementsByTagName('Polygon')[0];
+    if(poly){
+      const c = poly.getElementsByTagName('coordinates')[0]?.textContent;
+      if(c){ const ll = coordsToLatLngs(c); if(ll.length>2){ L.polygon(ll, {color:'#fb7185', fillOpacity:.15, weight:2}).bindPopup(popupHtml).addTo(layer); count++; } }
+    }
+  });
+  return {layer, count, stats:{caixas, ceos, outros, cabosCount, metragemTotal}};
+}
+
+function fmtMetros(m){
+  return m>=1000 ? (m/1000).toLocaleString('pt-BR',{maximumFractionDigits:2})+' km' : fmtNum(Math.round(m))+' m';
+}
+
+function renderKmzStatsPanel(){
+  const block = document.getElementById('kmzStatsBlock');
+  if(!block) return;
+  if(!currentKmzStats){ block.style.display = 'none'; return; }
+  block.style.display = '';
+  const s = currentKmzStats;
+  setText('kpi-kmz-caixas', fmtNum(s.caixas));
+  setText('kpi-kmz-ceos', fmtNum(s.ceos));
+  setText('kpi-kmz-cabos', fmtNum(s.cabosCount));
+  setText('kpi-kmz-metragem', fmtMetros(s.metragemTotal));
+}
+
+const KMZ_LIMITE_NUVEM = 900000;
+
+async function getKmzFile(c){
+  const local = await kmzDbGet(c.id);
+  if(local) return local;
+  if(!window._fbGetKmz) return null;
+  try{
+    const remoto = await window._fbGetKmz(c.id);
+    if(remoto){
+      kmzDbPut(c.id, remoto).catch(()=>{});
+      return remoto;
+    }
+  }catch(e){ console.error('Falha ao buscar KMZ na nuvem:', e); }
+  return null;
+}
+
+async function loadKmlIntoMap(c){
+  try{
+    if(currentKmlLayer){ leafletMap.removeLayer(currentKmlLayer); currentKmlLayer=null; }
+    const stored = await getKmzFile(c);
+    if(!stored){
+      document.getElementById('mapMeta').innerHTML = `<span style="color:var(--bad)">Arquivo não encontrado (nem neste navegador, nem na nuvem). Envie novamente.</span>`;
+      currentKmzStats = null; renderKmzStatsPanel();
+      return;
+    }
+    const blob = dataUrlToBlob(stored.dataUrl);
+    const kmlText = await extractKMLFromBlob(blob, stored.name);
+    const {layer, count, stats} = parseKML(kmlText);
+    layer.addTo(leafletMap);
+    currentKmlLayer = layer;
+    const bounds = layer.getBounds ? layer.getBounds() : null;
+    if(count>0 && bounds && bounds.isValid()) leafletMap.fitBounds(bounds, {padding:[30,30]});
+    document.getElementById('mapMeta').innerHTML = `<span>Arquivo: <b style="color:var(--text)">${esc(stored.name)}</b></span><span>Elementos: <b style="color:var(--text)">${count}</b></span>`;
+    currentKmzStats = stats;
+    renderKmzStatsPanel();
+  }catch(err){
+    document.getElementById('mapMeta').innerHTML = `<span style="color:var(--bad)">Erro ao ler o arquivo: ${esc(err.message)}</span>`;
+    currentKmzStats = null; renderKmzStatsPanel();
+  }
+}
+
+function bindKmzControls(){
+  const input = document.getElementById('kmzInput');
+  document.getElementById('kmzUploadBtn').onclick = () => input.click();
+  input.onchange = async () => {
+    const file = input.files[0]; if(!file) return;
+    if(!/\.(kmz|kml)$/i.test(file.name)){ alert('Envie um arquivo .kmz ou .kml'); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const c = current();
+      const kmzData = { name:file.name, dataUrl:reader.result };
+      try{
+        await kmzDbPut(c.id, kmzData);
+        c.kmz = { name:file.name };
+        saveApp();
+        initMapIfNeeded();
+      }catch(e){
+        console.error('Falha ao salvar KMZ:', e);
+        alert('Não foi possível salvar o arquivo de rede neste navegador (sem espaço ou sem suporte a IndexedDB).');
+        return;
+      }
+      if(kmzData.dataUrl.length <= KMZ_LIMITE_NUVEM && window._fbSaveKmz){
+        window._fbSaveKmz(c.id, kmzData).catch(e=>console.error('Falha ao sincronizar KMZ com a nuvem:', e));
+      }else if(kmzData.dataUrl.length > KMZ_LIMITE_NUVEM){
+        alert('Este arquivo é grande demais pra sincronizar com a equipe — fica salvo só neste navegador. Se precisar que apareça em outro dispositivo, envie um KMZ menor ou peça pra enviar direto lá também.');
+      }
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
+  };
+  document.getElementById('kmzRemoveBtn').onclick = async () => {
+    if(!confirm('Remover o arquivo de rede desta cidade?')) return;
+    const c = current();
+    try{ await kmzDbDelete(c.id); }catch(e){}
+    if(window._fbDeleteKmz) window._fbDeleteKmz(c.id);
+    c.kmz = null; saveApp();
+    currentKmzStats = null;
+    initMapIfNeeded();
+  };
+  document.getElementById('kmzDownloadBtn').onclick = async () => {
+    const c = current(); if(!c.kmz) return;
+    const stored = await getKmzFile(c);
+    if(!stored){ alert('Arquivo não encontrado (nem local, nem na nuvem).'); return; }
+    const blob = dataUrlToBlob(stored.dataUrl);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download=stored.name; a.click();
+    URL.revokeObjectURL(url);
+  };
+}
+
+/* ======================================================================
+   INIT
+====================================================================== */
+function renderAll(){
+  renderSidebar();
+  mainSkeleton();
+  if(current()){ bindAll(); initMapIfNeeded(); }
+}
+
+document.getElementById('newCityBtn').onclick = () => {
+  const nome = prompt('Nome da cidade:');
+  if(!nome) return;
+  const c = blankCidade(nome);
+  app.cidades.push(c);
+  app.currentId = c.id;
+  saveApp();
+  renderAll();
+};
+
+let app = loadApp();
+renderAll();
+</script>
+
+</body>
+</html>
