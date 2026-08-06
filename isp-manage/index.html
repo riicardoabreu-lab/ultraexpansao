@@ -308,7 +308,7 @@ import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-ap
 import{getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged,
   sendPasswordResetEmail,setPersistence,browserSessionPersistence}
   from"https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import{getFirestore,doc,setDoc,getDoc}
+import{getFirestore,doc,setDoc,getDoc,onSnapshot}
   from"https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 const fb=initializeApp({
   apiKey:"AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
@@ -329,6 +329,22 @@ window._cloudSave = (data)=>{
   if(!window._fbUser) return Promise.resolve();
   return setDoc(doc(fsDb,'isp_backups',window._fbUser.uid), data);
 };
+// ---- Sincronização em tempo real: quem mais estiver logado com a mesma
+// conta em outro navegador/dispositivo vê a mudança sem precisar recarregar.
+// window._lastKnownUpdated é atualizado pelo próprio syncToCloud() antes de
+// escrever, pra esse listener ignorar o eco da própria gravação.
+window._lastKnownUpdated = 0;
+let _unsubIspSync = null;
+function startIspLiveSync(uid){
+  if(_unsubIspSync) return;
+  _unsubIspSync = onSnapshot(doc(fsDb,'isp_backups',uid), snap=>{
+    if(!snap.exists()) return;
+    const data = snap.data();
+    if((data.updated||0) <= (window._lastKnownUpdated||0)) return;
+    window._lastKnownUpdated = data.updated;
+    if(window._applyRemoteState) window._applyRemoteState(data);
+  }, err=>console.error('Falha no listener de sincronização (ISP Manage):', err));
+}
 onAuthStateChanged(auth,async user=>{
   if(user){
     window._fbUser = user;
@@ -357,6 +373,7 @@ onAuthStateChanged(auth,async user=>{
       }
     }catch(e){ console.error('Falha ao restaurar da nuvem:', e); }
 
+    startIspLiveSync(user.uid);
     if(!window._APP_READY){window._APP_READY=true;startApp();}
   } else {
     window._fbUser = null;
@@ -601,9 +618,14 @@ function exportBackup(){
 // etc). As FOTOS ficam só no backup manual, porque em base64 elas
 // facilmente estourariam o limite de 1MB por documento do Firestore.
 let _cloudSyncTimer = null;
+// true enquanto uma gravação local está agendada mas ainda não chegou na
+// nuvem — usado pra NÃO deixar uma atualização remota chegando nesse meio-
+// tempo sobrescrever uma edição local que ainda nem foi enviada.
+let _localSyncPending = false;
 function syncToCloud(){
   if(!window._fbUser || !window._cloudSave) return; // ainda não logou / Firestore não carregado
   clearTimeout(_cloudSyncTimer);
+  _localSyncPending = true;
   _cloudSyncTimer = setTimeout(async ()=>{
     try{
       const db = gDB(), pr = gPR(), tr = gTR();
@@ -617,10 +639,65 @@ function syncToCloud(){
           })
         };
       }
-      await window._cloudSave({ isp_db: dbNoPhotos, isp_pr: pr, isp_tr: tr, updated: Date.now() });
+      const updated = Date.now();
+      window._lastKnownUpdated = updated; // ignora o eco dessa mesma gravação no listener em tempo real
+      await window._cloudSave({ isp_db: dbNoPhotos, isp_pr: pr, isp_tr: tr, updated });
     }catch(e){ console.error('Falha ao sincronizar com a nuvem:', e); }
+    finally{ _localSyncPending = false; flushPendingRemoteState(); }
   }, 1500);
 }
+
+// ---- Aplica uma atualização recebida em tempo real de outra pessoa logada
+// com a mesma conta. As fotos (fotos/panfletos) nunca sincronizam pela
+// nuvem (base64 estouraria o limite do Firestore), então preserva as que
+// já estão salvas neste navegador ao aplicar o DB remoto.
+let _pendingRemoteState=null;
+function applyRemoteState(data){
+  // Não interrompe quem está editando agora, nem sobrescreve uma edição
+  // local que ainda está esperando pra ser enviada pra nuvem (senão a
+  // mudança de quem editou por último aqui seria perdida em silêncio).
+  if(document.getElementById('moverlay')?.classList.contains('open') || _localSyncPending){
+    _pendingRemoteState=data;
+    return;
+  }
+  applyRemoteStateNow(data);
+}
+function flushPendingRemoteState(){
+  if(!_pendingRemoteState) return;
+  if(document.getElementById('moverlay')?.classList.contains('open') || _localSyncPending) return;
+  const d=_pendingRemoteState; _pendingRemoteState=null;
+  // Descarta se ficou desatualizada enquanto esperava na fila — por exemplo,
+  // se nossa própria edição local acabou de ser enviada com um timestamp
+  // mais novo que essa atualização remota enfileirada.
+  if((d.updated||0) <= (window._lastKnownUpdated||0)) return;
+  applyRemoteStateNow(d);
+}
+function applyRemoteStateNow(data){
+  if(data.isp_db){
+    const merged={};
+    for(const cidade in data.isp_db){
+      const remoteCidade=data.isp_db[cidade];
+      const localProvs=DB[cidade]?.provedores||[];
+      merged[cidade]={
+        ...remoteCidade,
+        provedores:(remoteCidade.provedores||[]).map(rp=>{
+          const lp=localProvs.find(x=>x.nome===rp.nome);
+          return lp ? {...rp, fotos:lp.fotos||[], panfletos:lp.panfletos||[]} : rp;
+        })
+      };
+    }
+    DB=merged;
+    localStorage.setItem('isp_db',JSON.stringify(DB));
+  }
+  if(data.isp_pr){ PR=data.isp_pr; localStorage.setItem('isp_pr',JSON.stringify(PR)); }
+  if(data.isp_tr){ TR=data.isp_tr; localStorage.setItem('isp_trips',JSON.stringify(TR)); }
+  renderCityList();updateHV();
+  if(activeCity){
+    const freshCity=REGIOES.flatMap(r=>r.cidades).find(c=>c.nome===activeCity.nome);
+    if(freshCity){ activeCity=freshCity; renderDetail(freshCity); focusCity(freshCity); }
+  }
+}
+window._applyRemoteState=applyRemoteState;
 
 /* Seed visited data */
 const SEED={"Jaguaruana":{"provedores":[
@@ -1188,6 +1265,7 @@ function closeModal(){
   pendingPhotos=[];editTgt=null;editTripTgt=null;
   const sb=document.getElementById('m-save-btn');
   sb.style.display='';sb.onclick=saveModal;
+  flushPendingRemoteState();
 }
 
 function markV(cidade,idx){
