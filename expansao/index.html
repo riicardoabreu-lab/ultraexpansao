@@ -511,15 +511,27 @@ async function updateConcorrencia(){
     block.innerHTML = `<p class="hint">Nenhum dado de concorrência encontrado no CFO para "${esc(c.nome)}". Preencha "Provedores concorrentes" manualmente, ou ajuste o nome pra bater com o bairro cadastrado lá.</p>`;
     return;
   }
+  // Bairro sem ambiguidade (achou em um único município): preenche
+  // "Provedores concorrentes" sozinho, sem precisar clicar em nada.
+  if(matches.length === 1){
+    const totalProv = Object.keys(matches[0].providers).length;
+    c.provedoresRegiao = totalProv;
+    const inProv = document.getElementById('in-provedores');
+    if(inProv) inProv.value = totalProv;
+    saveApp(); renderSidebar();
+  }
   block.innerHTML = matches.map((m,i)=>{
     const linhas = Object.entries(m.providers).sort((a,b)=>(b[1].cx||0)-(a[1].cx||0)).map(([nome,d])=>`
       <tr><td>${esc(nome)}</td><td>${fmtNum(d.cx)}</td><td>${fmtNum(d.clientes)}</td></tr>
     `).join('');
     const totalProv = Object.keys(m.providers).length;
+    const acao = matches.length === 1
+      ? `<span style="color:var(--good);font-size:11.5px;font-family:var(--mono);">✓ ${totalProv} provedores aplicado acima</span>`
+      : `<button class="ghost-btn" data-idx="${i}">Usar ${totalProv} provedores</button>`;
     return `<div class="panel" style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
         <div><b>${esc(m.bairro)}</b> — ${esc(m.municipio)} <span style="color:var(--text-faint);font-size:11.5px;">(fonte: CFO / Map Marker)</span></div>
-        <button class="ghost-btn" data-idx="${i}">Usar ${totalProv} provedores</button>
+        ${acao}
       </div>
       <div class="table-scroll"><table>
         <thead><tr><th>Provedor</th><th>Caixas</th><th>Clientes</th></tr></thead>
@@ -527,6 +539,9 @@ async function updateConcorrencia(){
       </table></div>
     </div>`;
   }).join('');
+  if(matches.length > 1){
+    block.insertAdjacentHTML('afterbegin', `<p class="hint">Encontrei "${esc(c.nome)}" em mais de um município — escolha qual usar abaixo.</p>`);
+  }
   block.querySelectorAll('[data-idx]').forEach(btn=>{
     btn.onclick = ()=>{
       const m = matches[Number(btn.dataset.idx)];
