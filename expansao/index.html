@@ -370,6 +370,12 @@ function mainSkeleton(){
       </div>
     </div>
 
+    <div class="sec-block">
+      <h3>Concorrência no bairro (CFO)</h3>
+      <p class="hint">Busca automática pelo nome acima ("${esc(c.nome)}") nos dados já importados do Map Marker no painel CFO — sem precisar digitar manualmente.</p>
+      <div id="concorrenciaBlock"></div>
+    </div>
+
     <div class="fiber"></div>
 
     <div class="sec-block">
@@ -439,10 +445,109 @@ function buildMateriaisTable(){
   setText('materiaisTotal', fmtBRL(total));
 }
 
+/* ======================================================================
+   CONCORRÊNCIA NO BAIRRO — busca nos dados já importados do CFO
+   (mesma coleta do Map Marker, só que já processada em cfo/dashboard.html;
+   não dá pra ler o Google Drive ao vivo direto do navegador).
+====================================================================== */
+let cfoDataPromise = null;
+
+function normBairro(s){
+  return (s||'').normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), '').trim().toUpperCase();
+}
+
+function buildBairroIndex(D){
+  const idx = new Map();
+  const add = (municipio, bairroNome, dados) => {
+    const key = normBairro(bairroNome);
+    if(!key) return;
+    if(!idx.has(key)) idx.set(key, []);
+    idx.get(key).push({ municipio, bairro: bairroNome, providers: dados.providers||{}, cx: dados.cx||0, clientes: dados.clientes||0 });
+  };
+  if(D.fortaleza && D.fortaleza.bairros){
+    Object.entries(D.fortaleza.bairros).forEach(([nome, dados])=> add('Fortaleza', nome, dados));
+  }
+  if(D.cidades){
+    Object.values(D.cidades).forEach(cidade=>{
+      if(!cidade.bairros) return;
+      Object.entries(cidade.bairros).forEach(([nome, dados])=> add(cidade.display_name || '—', nome, dados));
+    });
+  }
+  return idx;
+}
+
+function loadCfoIndex(){
+  if(cfoDataPromise) return cfoDataPromise;
+  cfoDataPromise = fetch('../cfo/dashboard.html')
+    .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+    .then(text=>{
+      const m = text.match(/let D = (\{[\s\S]*?\});\n/);
+      if(!m) throw new Error('Dados não encontrados no CFO.');
+      return buildBairroIndex(JSON.parse(m[1]));
+    })
+    .catch(err=>{ cfoDataPromise = null; throw err; });
+  return cfoDataPromise;
+}
+
+let _concorrenciaSeq = 0;
+async function updateConcorrencia(){
+  const c = current(); if(!c) return;
+  const seq = ++_concorrenciaSeq;
+  const block = document.getElementById('concorrenciaBlock');
+  if(!block) return;
+  const chave = normBairro(c.nome);
+  if(!chave){ block.innerHTML = ''; return; }
+  block.innerHTML = `<p class="hint">Buscando "${esc(c.nome)}" nos dados do CFO...</p>`;
+  let idx;
+  try{ idx = await loadCfoIndex(); }
+  catch(err){
+    if(seq !== _concorrenciaSeq) return;
+    block.innerHTML = `<p class="hint" style="color:var(--bad);">Não foi possível carregar os dados do CFO (${esc(err.message)}).</p>`;
+    return;
+  }
+  if(seq !== _concorrenciaSeq) return;
+  const matches = idx.get(chave) || [];
+  if(!matches.length){
+    block.innerHTML = `<p class="hint">Nenhum dado de concorrência encontrado no CFO para "${esc(c.nome)}". Preencha "Provedores concorrentes" manualmente, ou ajuste o nome pra bater com o bairro cadastrado lá.</p>`;
+    return;
+  }
+  block.innerHTML = matches.map((m,i)=>{
+    const linhas = Object.entries(m.providers).sort((a,b)=>(b[1].cx||0)-(a[1].cx||0)).map(([nome,d])=>`
+      <tr><td>${esc(nome)}</td><td>${fmtNum(d.cx)}</td><td>${fmtNum(d.clientes)}</td></tr>
+    `).join('');
+    const totalProv = Object.keys(m.providers).length;
+    return `<div class="panel" style="margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+        <div><b>${esc(m.bairro)}</b> — ${esc(m.municipio)} <span style="color:var(--text-faint);font-size:11.5px;">(fonte: CFO / Map Marker)</span></div>
+        <button class="ghost-btn" data-idx="${i}">Usar ${totalProv} provedores</button>
+      </div>
+      <div class="table-scroll"><table>
+        <thead><tr><th>Provedor</th><th>Caixas</th><th>Clientes</th></tr></thead>
+        <tbody>${linhas}</tbody>
+      </table></div>
+    </div>`;
+  }).join('');
+  block.querySelectorAll('[data-idx]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const m = matches[Number(btn.dataset.idx)];
+      c.provedoresRegiao = Object.keys(m.providers).length;
+      const el = document.getElementById('in-provedores');
+      if(el) el.value = c.provedoresRegiao;
+      saveApp(); renderSidebar();
+    };
+  });
+}
+
+let _concorrenciaTimer = null;
+function scheduleConcorrencia(){
+  clearTimeout(_concorrenciaTimer);
+  _concorrenciaTimer = setTimeout(updateConcorrencia, 300);
+}
+
 function bindAll(){
   const c = current(); if(!c) return;
 
-  document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); };
+  document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); scheduleConcorrencia(); };
   [['in-provedores','provedoresRegiao'],['in-clientes','clientesAtender'],['in-casas','casasRegiao']].forEach(([id,field])=>{
     const el = document.getElementById(id);
     el.value = c[field] || '';
@@ -454,6 +559,7 @@ function bindAll(){
     buildMateriaisTable(); saveApp();
   };
   buildMateriaisTable();
+  updateConcorrencia();
 
   bindKmzControls();
 }
