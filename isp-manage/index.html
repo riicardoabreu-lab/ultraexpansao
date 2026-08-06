@@ -1734,7 +1734,10 @@ function focusCity(city){
   allProvs.forEach((p,idx)=>{
     const st=STYLE[p.status]||STYLE.ativo;
     const angle=(2*Math.PI*idx)/Math.max(allProvs.length,1);
-    const rad=allProvs.length>1?0.0022:0;
+    // Raio cresce com a quantidade de provedores sem posição real, senão
+    // os pinos ficam colados uns nos outros (e mais fácil um cobrir o
+    // outro) quando a cidade tem muitos provedores no mesmo círculo.
+    const rad=allProvs.length>1?0.0022*Math.sqrt(Math.max(allProvs.length,1)/6):0;
     const approxLat=city.lat+rad*Math.sin(angle);
     const approxLng=city.lng+rad*Math.cos(angle)*1.4;
     const hasReal = typeof p.lat==='number' && typeof p.lng==='number';
@@ -1758,6 +1761,10 @@ function focusCity(city){
         ${thumb}
         <button onclick="editProv('${esc(city.nome)}',${idx})" style="margin-top:7px;background:#6a00b8;color:#fff;border:none;border-radius:5px;padding:4px 9px;font-size:.74em;cursor:pointer">✏️ Editar</button>
       </div>`,{maxWidth:200}).addTo(_markers);
+    // Visitados são o que mais importa pra equipe de campo ver — nunca
+    // deixa outro pino (ativo/prospectado) desenhado por cima escondendo-o,
+    // mesmo que tenha sido adicionado ao mapa antes.
+    if(p.status==='visitado') marker.setZIndexOffset(1000);
 
     // Se ainda não tem posição real e o endereço existe, geocodifica em
     // segundo plano e move o pino quando a resposta chegar.
