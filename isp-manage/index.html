@@ -1785,6 +1785,25 @@ function focusCity(city){
             ${thumb}
             <button onclick="editProv('${esc(city.nome)}',${idx})" style="margin-top:7px;background:#6a00b8;color:#fff;border:none;border-radius:5px;padding:4px 9px;font-size:.74em;cursor:pointer">✏️ Editar</button>
           </div>`);
+        } else {
+          // Endereço existe mas o serviço gratuito (OSM/Nominatim) não achou
+          // essa rua — comum em cidade pequena do interior, mapeamento
+          // incompleto. Marca visualmente em vez de ficar em silêncio.
+          marker.setIcon(L.divIcon({className:'',
+            html:`<div style="background:${st.color};color:#fff;border:2px dashed #fbbf24;border-radius:50%;
+              width:24px;height:24px;display:flex;align-items:center;justify-content:center;
+              font-size:11px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.3);cursor:pointer;">${st.icon}</div>`,
+            iconSize:[24,24],iconAnchor:[12,12]}));
+          marker.setPopupContent(`<div style="min-width:160px;font-family:inherit">
+            <div style="font-weight:700;color:${st.color};font-size:.9em">${st.icon} ${p.nome}</div>
+            <div style="font-size:.7em;color:#888;margin-top:2px">${st.label} · posição aproximada</div>
+            <div style="font-size:.68em;color:#b45309;margin-top:2px">⚠ Endereço não encontrado no mapa (OpenStreetMap) — comum em ruas de cidade pequena não mapeadas nesse serviço gratuito.</div>
+            ${p.tel?`<div style="font-size:.78em;margin-top:3px">📞 ${p.tel}</div>`:''}
+            ${p.endereco?`<div style="font-size:.72em;color:#666;margin-top:2px">📍 ${p.endereco}</div>`:''}
+            ${p.circuito?`<div style="font-size:.75em;color:#555">🔌 ${p.circuito}</div>`:''}
+            ${thumb}
+            <button onclick="editProv('${esc(city.nome)}',${idx})" style="margin-top:7px;background:#6a00b8;color:#fff;border:none;border-radius:5px;padding:4px 9px;font-size:.74em;cursor:pointer">✏️ Editar</button>
+          </div>`);
         }
       });
     }
