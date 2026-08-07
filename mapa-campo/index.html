@@ -117,6 +117,11 @@
   .popup-item .sigla{font-size:15px; font-weight:700; margin:2px 0 6px;}
   .popup-item .loc{font-size:12px; color:var(--muted);}
   .popup-item a{display:inline-block; margin-top:8px; font-size:12px; color:var(--cyan);}
+  .popup-item .btn-navegar{
+    display:block; text-align:center; margin-top:10px; padding:9px 10px; border-radius:8px;
+    background:linear-gradient(135deg,var(--green),var(--darkgreen)); color:#fff;
+    font-weight:600; font-size:13px; text-decoration:none;
+  }
 
   .leaflet-control-layers{background:var(--panel) !important; color:var(--text) !important; border:1px solid var(--border) !important;}
   .leaflet-control-layers-toggle{filter:invert(1);}
@@ -244,11 +249,14 @@ function iconePara(tipo){
 function popupHtml(data){
   const tipo = TIPOS[data.item] ? TIPOS[data.item].label : (data.item || '—');
   const loc = [data.localidade, data.municipio].filter(Boolean).join(' · ') || '—';
+  const destino = `${data.latitude},${data.longitude}`;
+  const urlNavegar = `https://www.google.com/maps/dir/?api=1&destination=${destino}&travelmode=driving`;
   return `<div class="popup-item">
     <div class="tipo">${tipo}</div>
     <div class="sigla">${data.sigla || '(sem sigla)'}</div>
     <div class="loc">${loc}</div>
     <div class="loc">status: ${data.status || '—'}</div>
+    <a class="btn-navegar" href="${urlNavegar}" target="_blank" rel="noopener">🧭 Navegar até aqui</a>
   </div>`;
 }
 
