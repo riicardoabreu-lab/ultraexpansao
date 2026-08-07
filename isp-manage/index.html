@@ -894,14 +894,23 @@ function selectReg(r,btn){
 /* ══════════════════════════════════════════
    CITY LIST
 ══════════════════════════════════════════ */
+// Ignora acento (e diferenças de normalização Unicode entre teclados —
+// ex: "é" digitado como tecla morta pode virar "e" + acento combinante,
+// que não bate num .includes() simples contra "é" de um caractere só,
+// mesmo os dois parecendo idênticos na tela) pra busca de cidade/provedor
+// não falhar silenciosamente.
+function normSearch(s){
+  return (s||'').normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), '').toLowerCase().trim();
+}
+
 function renderCityList(){
   if(!activeReg)return;
-  const q=document.getElementById('csearch').value.toLowerCase();
+  const q=normSearch(document.getElementById('csearch').value);
   const el=document.getElementById('clist');
   el.innerHTML='';
   el.scrollTop=0;
   activeReg.cidades.forEach(c=>{
-    if(q&&!c.nome.toLowerCase().includes(q))return;
+    if(q&&!normSearch(c.nome).includes(q))return;
     const db=DB[c.nome];
     const vn=db?db.provedores.filter(p=>p.status==='visitado').length:0;
     const pn=PR.filter(p=>p.cidade===c.nome).length;
@@ -1351,15 +1360,15 @@ let _SR=[];
 function doSearch(q){
   const dd=document.getElementById('sdrop');
   if(!q||q.length<2){dd.classList.remove('open');return;}
-  q=q.toLowerCase();
+  q=normSearch(q);
   _SR=[];
   REGIOES.forEach(r=>r.cidades.forEach(c=>{
-    if(c.nome.toLowerCase().includes(q))
+    if(normSearch(c.nome).includes(q))
       _SR.push({type:'c',nome:c.nome,sub:r.regiao.replace(/^\d+ /,''),count:c.count,city:c,reg:r});
     const db=DB[c.nome];
     const pp=db?db.provedores:(CITIES[c.nome]?.provedores||[]);
     pp.forEach(p=>{
-      if(p.nome.toLowerCase().includes(q))
+      if(normSearch(p.nome).includes(q))
         _SR.push({type:'p',nome:p.nome,sub:c.nome+' — '+r.regiao.replace(/^\d+ /,''),status:p.status,city:c,reg:r});
     });
   }));
