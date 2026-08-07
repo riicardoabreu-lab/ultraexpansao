@@ -4,8 +4,9 @@ const admin = require('firebase-admin');
 const GEOGRID_BASE = 'https://eros.geogridmaps.com.br/alencar/api/v3';
 
 // Tipos de item de rede que viram ponto no mapa. Fora: "reserva" (reserva de porta,
-// não é um ponto físico) e "grupoAcesso" (conta 0 registros nesta conta).
-const TIPOS_SINCRONIZADOS = ['terminal', 'caixa', 'rack', 'poste', 'estacao', 'pontoAcesso', 'interesse'];
+// não é um ponto físico), "grupoAcesso" (conta 0 registros nesta conta) e "poste"
+// (muito numeroso - 4300+ - e não é o que os técnicos precisam localizar em campo).
+const TIPOS_SINCRONIZADOS = ['terminal', 'caixa', 'rack', 'estacao', 'pontoAcesso', 'interesse'];
 
 let dbSingleton = null;
 function getDb() {
