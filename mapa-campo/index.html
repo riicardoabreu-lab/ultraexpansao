@@ -48,8 +48,6 @@
 </script>
 <title>Mapa de Campo · Jebnet</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
 <style>
   :root{
     /* Paleta oficial Jebnet (extraída de jebnet.com.br) */
@@ -249,7 +247,6 @@
 <button class="locate-btn" id="locateBtn" title="Minha localização">📍</button>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
 // Cor/rótulo/visibilidade padrão por tipo de item do GeoGrid.
 const TIPOS = {
@@ -275,18 +272,13 @@ const ruas = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 });
 satelite.addTo(map);
 
-// Um cluster group por tipo, permite ligar/desligar camada por camada.
+// Um grupo por tipo, permite ligar/desligar camada por camada. Sem agrupamento -
+// todas as caixas ficam visíveis o tempo todo, em qualquer nível de zoom.
 const clusters = {};
 const overlays = {};
 for (const tipo in TIPOS) {
   const cfg = TIPOS[tipo];
-  clusters[tipo] = L.markerClusterGroup({
-    maxClusterRadius: 60,
-    iconCreateFunction: cluster => L.divIcon({
-      html: `<div style="background:${cfg.color};width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#111;font-weight:700;font-size:12px;border:2px solid rgba(255,255,255,.5);">${cluster.getChildCount()}</div>`,
-      className: '', iconSize: [34, 34]
-    })
-  });
+  clusters[tipo] = L.layerGroup();
   overlays[`${cfg.label} <span class="contagem" data-tipo="${tipo}"></span>`] = clusters[tipo];
   if (cfg.default) clusters[tipo].addTo(map);
 }
@@ -469,7 +461,7 @@ document.getElementById('searchInput').addEventListener('keydown', e => {
     if (d && d.item === 'terminal' && d.numero === num) {
       Object.values(clusters).forEach(c => { if (!map.hasLayer(c)) map.addLayer(c); });
       map.setView(entry.marker.getLatLng(), 18);
-      clusters.terminal.zoomToShowLayer(entry.marker, () => entry.marker.openPopup());
+      entry.marker.openPopup();
       return;
     }
   }
