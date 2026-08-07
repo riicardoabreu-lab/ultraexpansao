@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<script>
+  // Login próprio deste app (senha única, sem conta) - independente do portal
+  // principal, pra não dar acesso a mais nada além deste mapa. Mesma lógica
+  // documentada em cfo/README.md: protege só contra acesso casual (roda no
+  // navegador do usuário) - não é proteção real. TROQUE antes de divulgar o link.
+  const SENHA_CAMPO = 'tenbej';
+  window._SENHA_CAMPO = SENHA_CAMPO;
+</script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  const fb = initializeApp({
+    apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
+    authDomain: "isp-manager-ce.firebaseapp.com",
+    projectId: "isp-manager-ce",
+    storageBucket: "isp-manager-ce.firebasestorage.app",
+    messagingSenderId: "374725918192",
+    appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
+  });
+  const fsDb = getFirestore(fb);
+
+  // Só liga o listener depois que a senha for confirmada (window._iniciarSync,
+  // chamado pelo script de login mais abaixo).
+  window._iniciarSync = function(){
+    // Coleção populada pelas Cloud Functions (geogridFullSync / geogridWebhook) - um
+    // documento por item de rede do GeoGrid (postes, CTOs, caixas, racks, estações...).
+    onSnapshot(collection(fsDb, 'mapa_rede'), snap => {
+      window._applyMapaChanges && window._applyMapaChanges(snap.docChanges());
+    }, err => {
+      console.error('Falha ao sincronizar mapa_rede:', err);
+      window._applyMapaError && window._applyMapaError(err);
+    });
+  };
+
+  // Scripts type="module" sempre rodam DEPOIS dos scripts normais (mesmo estando
+  // antes no HTML) - por isso a checagem de sessão já autenticada fica aqui, e não
+  // no script de login lá embaixo: window.liberarAcesso já existe a essa altura
+  // (definido por aquele script, que já rodou), mas window._iniciarSync só passa
+  // a existir agora mesmo.
+  if (sessionStorage.getItem('mapa_campo_auth') === 'ok' && window.liberarAcesso) {
+    window.liberarAcesso();
+  }
+</script>
+<title>Mapa de Campo · Jebnet</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<style>
+  :root{
+    /* Paleta oficial Jebnet (extraída de jebnet.com.br) */
+    --green:#f07e37; --darkgreen:#d9631f; --cyan:#00a99d;
+    --bg:#120c08; --panel:#1e140c; --panel2:#28190f;
+    --text:#faf3ec; --muted:#c9ab8f; --border:#3d2a18; --error:#ff6b6b; --ok:#2ecc71;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);overflow:hidden;}
+
+  #map{position:absolute;inset:0;background:#111;}
+  .leaflet-container{background:#111;}
+
+  header{
+    position:absolute; top:0; left:0; right:0; z-index:1000;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:10px 14px; background:linear-gradient(180deg,rgba(13,6,32,.92),rgba(13,6,32,.55) 80%,transparent);
+    pointer-events:none;
+  }
+  header > *{pointer-events:auto;}
+  .brand{display:flex; align-items:center; gap:10px;}
+  .brand .mark{height:26px;width:auto;}
+  .brand h1{margin:0;font-size:15px;}
+  .brand .sub{font-size:11px;color:var(--muted);}
+  .header-actions{display:flex;gap:8px;}
+  .btn-ghost-sm{
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    padding:7px 12px; border-radius:8px; font-size:12px; text-decoration:none; cursor:pointer;
+  }
+  .btn-ghost-sm:hover{border-color:var(--cyan);}
+
+  .search-bar{
+    position:absolute; top:60px; left:14px; right:14px; z-index:1000;
+    display:flex; gap:8px; pointer-events:none;
+  }
+  .search-bar input{
+    pointer-events:auto; flex:1; max-width:320px;
+    background:var(--panel); border:1px solid var(--border); color:var(--text);
+    padding:10px 12px; border-radius:10px; font-size:14px;
+  }
+  .search-bar input:focus{outline:2px solid var(--cyan);}
+
+  .status-pill{
+    position:absolute; bottom:14px; left:14px; z-index:1000;
+    background:var(--panel); border:1px solid var(--border); border-radius:20px;
+    padding:8px 14px; font-size:12px; color:var(--muted); display:flex; align-items:center; gap:8px;
+  }
+  .status-pill .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);}
+  .status-pill .dot.ok{background:var(--ok);}
+  .status-pill .dot.warn{background:#e0a800;}
+  .status-pill .dot.err{background:var(--error);}
+
+  .locate-btn{
+    position:absolute; bottom:14px; right:14px; z-index:1000;
+    width:46px; height:46px; border-radius:50%;
+    background:var(--panel); border:1px solid var(--border); color:var(--text);
+    font-size:20px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  .locate-btn.active{background:linear-gradient(135deg,var(--green),var(--darkgreen)); border-color:var(--cyan);}
+
+  .leaflet-popup-content-wrapper{background:var(--panel); color:var(--text); border:1px solid var(--border);}
+  .leaflet-popup-tip{background:var(--panel);}
+  .popup-item .tipo{font-size:11px; color:var(--cyan); text-transform:uppercase; letter-spacing:.4px;}
+  .popup-item .sigla{font-size:15px; font-weight:700; margin:2px 0 6px;}
+  .popup-item .loc{font-size:12px; color:var(--muted);}
+  .popup-item a{display:inline-block; margin-top:8px; font-size:12px; color:var(--cyan);}
+  .popup-item .btn-navegar{
+    display:block; text-align:center; margin-top:10px; padding:9px 10px; border-radius:8px;
+    background:linear-gradient(135deg,var(--green),var(--darkgreen)); color:#fff;
+    font-weight:600; font-size:13px; text-decoration:none;
+  }
+
+  .leaflet-control-layers{background:var(--panel) !important; color:var(--text) !important; border:1px solid var(--border) !important;}
+  .leaflet-control-layers-toggle{filter:invert(1);}
+
+  #pastasSidebar{
+    position:absolute; top:0; left:0; bottom:0; z-index:1600;
+    width:270px; max-width:82vw;
+    background:var(--panel); border-right:1px solid var(--border);
+    transform:translateX(-100%); transition:transform .2s ease;
+    overflow-y:auto; padding-bottom:14px;
+  }
+  #pastasSidebar.aberta{transform:translateX(0);}
+  .pastas-header{
+    position:sticky; top:0; background:var(--panel);
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 14px 10px; border-bottom:1px solid var(--border); z-index:1;
+  }
+  .pastas-header h2{margin:0; font-size:14px;}
+  .pastas-header button{background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; line-height:1;}
+  .pasta-municipio-header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 14px; cursor:pointer; font-size:13px; font-weight:600; gap:8px;
+  }
+  .pasta-municipio-header:hover{background:var(--panel2);}
+  .pasta-count{color:var(--muted); font-size:11px; flex-shrink:0;}
+  .pasta-localidades{display:none; padding-left:10px;}
+  .pasta-municipio.aberto .pasta-localidades{display:block;}
+  .pasta-municipio.aberto .pasta-seta{transform:rotate(90deg);}
+  .pasta-seta{display:inline-block; transition:transform .15s; margin-right:6px; color:var(--muted);}
+  .pasta-localidade{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:7px 14px 7px 24px; font-size:12.5px; color:var(--muted); cursor:pointer; gap:8px;
+  }
+  .pasta-localidade:hover{color:var(--text); background:var(--panel2);}
+
+  .pastas-toggle{
+    pointer-events:auto; flex-shrink:0;
+    width:38px; height:38px; border-radius:10px;
+    background:var(--panel); border:1px solid var(--border); color:var(--text);
+    font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  .pastas-backdrop{
+    position:absolute; inset:0; z-index:1500; background:rgba(0,0,0,.4);
+    display:none;
+  }
+  .pastas-backdrop.aberta{display:block;}
+
+  @media (max-width: 480px){
+    .brand h1{font-size:13px;}
+    .brand .sub{display:none;}
+    .search-bar input{max-width:none;}
+  }
+
+  #loginOverlay{
+    position:fixed; inset:0; z-index:2000;
+    background:radial-gradient(circle at top left,#4a2408,var(--bg) 60%);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .login-box{
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    padding:32px 28px; width:100%; max-width:320px; box-shadow:0 10px 40px rgba(0,0,0,.35);
+  }
+  .login-logo{display:block; height:34px; width:auto; margin:0 auto 16px;}
+  .login-box h1{margin:0 0 4px; font-size:18px; text-align:center;}
+  .login-box h1 span{color:var(--cyan);}
+  .login-box p{margin:0 0 20px; color:var(--muted); font-size:12.5px; text-align:center;}
+  .login-box input{
+    width:100%; padding:10px 12px; margin-bottom:14px; border-radius:8px;
+    border:1px solid var(--border); background:var(--panel2); color:var(--text); font-size:14px;
+  }
+  .login-box input:focus{outline:2px solid var(--cyan);}
+  .login-box button{
+    width:100%; padding:11px; border:none; border-radius:8px;
+    background:linear-gradient(135deg,var(--green),var(--darkgreen));
+    color:#fff; font-weight:600; font-size:14px; cursor:pointer;
+  }
+  .login-box .erro{color:var(--error); font-size:12.5px; margin-top:10px; display:none; text-align:center;}
+</style>
+</head>
+<body>
+
+<div id="loginOverlay">
+  <div class="login-box">
+    <img src="../assets/logo-jebnet.png" alt="Jebnet" class="login-logo">
+    <h1>Mapa de <span>Campo</span></h1>
+    <p>Jebnet · acesso restrito à equipe de campo</p>
+    <form id="loginForm" autocomplete="off">
+      <input type="password" id="senhaInput" placeholder="Senha de acesso" autocomplete="off" required>
+      <button type="submit">Entrar</button>
+      <div class="erro" id="loginErro">Senha incorreta.</div>
+    </form>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<div class="pastas-backdrop" id="pastasBackdrop"></div>
+<div id="pastasSidebar">
+  <div class="pastas-header">
+    <h2>Municípios</h2>
+    <button id="btnFecharPastas" title="Fechar">✕</button>
+  </div>
+  <div id="pastasList"></div>
+</div>
+
+<header>
+  <div class="brand">
+    <img src="../assets/logo-jebnet.png" alt="Jebnet" class="mark">
+    <div>
+      <h1>Mapa de Campo</h1>
+      <div class="sub">Itens do GeoGrid, ao vivo</div>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="btn-ghost-sm" id="btnSair">Sair</button>
+  </div>
+</header>
+
+<div class="search-bar">
+  <button class="pastas-toggle" id="btnAbrirPastas" title="Municípios">📁</button>
+  <input type="text" id="searchInput" placeholder="Buscar CTO por número (ex.: 20031)" inputmode="numeric">
+</div>
+
+<div class="status-pill"><span class="dot" id="syncDot"></span><span id="syncText">carregando…</span></div>
+<button class="locate-btn" id="locateBtn" title="Minha localização">📍</button>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+// Cor/rótulo/visibilidade padrão por tipo de item do GeoGrid.
+const TIPOS = {
+  terminal:    {label: 'CTOs (terminais)',   color: '#00a99d', default: true},
+  caixa:       {label: 'Caixas',             color: '#f5a623', default: true},
+  rack:        {label: 'Racks / POPs',       color: '#b91cd0', default: true},
+  estacao:     {label: 'Estações',           color: '#4a90d9', default: true},
+  pontoAcesso: {label: 'Pontos de acesso',   color: '#e94e77', default: true},
+  interesse:   {label: 'Interesse',          color: '#f1c40f', default: true},
+};
+
+const map = L.map('map', {preferCanvas: true, zoomControl: false}).setView([-3.49, -39.66], 12);
+L.control.zoom({position: 'bottomleft'}).addTo(map);
+
+const satelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  // A cobertura de satélite grátis do Esri não tem imagem nativa além do zoom 17
+  // nessa região (devolve tile em branco) - maxNativeZoom faz o Leaflet ampliar o
+  // último tile real em vez de pedir um zoom que não existe (senão o mapa "some").
+  attribution: 'Esri World Imagery', maxZoom: 20, maxNativeZoom: 17
+});
+const ruas = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap', maxZoom: 19
+});
+satelite.addTo(map);
+
+// Um cluster group por tipo, permite ligar/desligar camada por camada.
+const clusters = {};
+const overlays = {};
+for (const tipo in TIPOS) {
+  const cfg = TIPOS[tipo];
+  clusters[tipo] = L.markerClusterGroup({
+    maxClusterRadius: 60,
+    iconCreateFunction: cluster => L.divIcon({
+      html: `<div style="background:${cfg.color};width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#111;font-weight:700;font-size:12px;border:2px solid rgba(255,255,255,.5);">${cluster.getChildCount()}</div>`,
+      className: '', iconSize: [34, 34]
+    })
+  });
+  overlays[`${cfg.label} <span class="contagem" data-tipo="${tipo}"></span>`] = clusters[tipo];
+  if (cfg.default) clusters[tipo].addTo(map);
+}
+
+L.control.layers({'Satélite': satelite, 'Ruas': ruas}, overlays, {collapsed: true, position: 'topright'}).addTo(map);
+
+const markersById = new Map(); // id -> {marker, tipo}
+const contagens = {};
+
+function iconePara(tipo){
+  const cor = (TIPOS[tipo] || {color:'#999'}).color;
+  return L.circleMarker([0,0], {radius: 7, color: '#fff', weight: 1.5, fillColor: cor, fillOpacity: .9});
+}
+
+function popupHtml(data){
+  const tipo = TIPOS[data.item] ? TIPOS[data.item].label : (data.item || '—');
+  const loc = [data.localidade, data.municipio].filter(Boolean).join(' · ') || '—';
+  const destino = `${data.latitude},${data.longitude}`;
+  const urlNavegar = `https://www.google.com/maps/dir/?api=1&destination=${destino}&travelmode=driving`;
+  return `<div class="popup-item">
+    <div class="tipo">${tipo}</div>
+    <div class="sigla">${data.sigla || '(sem sigla)'}</div>
+    <div class="loc">${loc}</div>
+    <div class="loc">status: ${data.status || '—'}</div>
+    <a class="btn-navegar" href="${urlNavegar}" target="_blank" rel="noopener">🧭 Navegar até aqui</a>
+  </div>`;
+}
+
+function upsertMarker(id, data){
+  if (data.latitude == null || data.longitude == null || !TIPOS[data.item]) return;
+  const existente = markersById.get(id);
+
+  if (existente && existente.tipo !== data.item) {
+    clusters[existente.tipo].removeLayer(existente.marker);
+    contagens[existente.tipo] = (contagens[existente.tipo] || 1) - 1;
+    markersById.delete(id);
+  }
+
+  let entry = markersById.get(id);
+  if (!entry) {
+    const marker = iconePara(data.item);
+    marker.bindPopup('');
+    clusters[data.item].addLayer(marker);
+    entry = {marker, tipo: data.item};
+    markersById.set(id, entry);
+    contagens[data.item] = (contagens[data.item] || 0) + 1;
+  }
+
+  entry.marker.setLatLng([Number(data.latitude), Number(data.longitude)]);
+  entry.marker.setPopupContent(popupHtml(data));
+  entry.marker._dados = data;
+}
+
+function removeMarker(id){
+  const entry = markersById.get(id);
+  if (!entry) return;
+  clusters[entry.tipo].removeLayer(entry.marker);
+  contagens[entry.tipo] = (contagens[entry.tipo] || 1) - 1;
+  markersById.delete(id);
+}
+
+function atualizarContagens(){
+  document.querySelectorAll('.contagem').forEach(el => {
+    const tipo = el.dataset.tipo;
+    el.textContent = `(${(contagens[tipo] || 0).toLocaleString('pt-BR')})`;
+  });
+}
+
+// ---- Pasta lateral de municípios/localidades (igual o GeoGrid) ----
+const pastasAbertas = new Set(); // municípios expandidos - preserva estado entre atualizações
+function construirIndicePastas(){
+  const municipios = new Map();
+  for (const [, entry] of markersById) {
+    const d = entry.marker._dados;
+    if (!d) continue;
+    const mun = d.municipio || '(sem município)';
+    const loc = d.localidade || '(sem localidade)';
+    const ll = entry.marker.getLatLng();
+    if (!municipios.has(mun)) municipios.set(mun, {count: 0, bounds: L.latLngBounds([ll]), localidades: new Map()});
+    const mObj = municipios.get(mun);
+    mObj.count++;
+    mObj.bounds.extend(ll);
+    if (!mObj.localidades.has(loc)) mObj.localidades.set(loc, {count: 0, bounds: L.latLngBounds([ll])});
+    const lObj = mObj.localidades.get(loc);
+    lObj.count++;
+    lObj.bounds.extend(ll);
+  }
+  return municipios;
+}
+
+function renderPastas(){
+  const municipios = construirIndicePastas();
+  const nomes = [...municipios.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const cont = document.getElementById('pastasList');
+
+  cont.innerHTML = nomes.map(mun => {
+    const mObj = municipios.get(mun);
+    const aberto = pastasAbertas.has(mun);
+    const locs = [...mObj.localidades.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const locsHtml = locs.map(loc => {
+      const lObj = mObj.localidades.get(loc);
+      return `<div class="pasta-localidade" data-mun="${mun}" data-loc="${loc}">
+        <span>${loc}</span><span class="pasta-count">${lObj.count}</span>
+      </div>`;
+    }).join('');
+    return `<div class="pasta-municipio${aberto ? ' aberto' : ''}">
+      <div class="pasta-municipio-header" data-mun="${mun}">
+        <span><span class="pasta-seta">▶</span>${mun}</span><span class="pasta-count">${mObj.count}</span>
+      </div>
+      <div class="pasta-localidades">${locsHtml}</div>
+    </div>`;
+  }).join('');
+
+  cont.querySelectorAll('.pasta-municipio-header').forEach(el => {
+    el.addEventListener('click', () => {
+      const mun = el.dataset.mun;
+      if (pastasAbertas.has(mun)) pastasAbertas.delete(mun); else pastasAbertas.add(mun);
+      el.parentElement.classList.toggle('aberto');
+      map.fitBounds(municipios.get(mun).bounds.pad(.2));
+    });
+  });
+  cont.querySelectorAll('.pasta-localidade').forEach(el => {
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      const {mun, loc} = el.dataset;
+      map.fitBounds(municipios.get(mun).localidades.get(loc).bounds.pad(.3));
+      if (window.innerWidth < 700) fecharPastas();
+    });
+  });
+}
+
+function abrirPastas(){
+  document.getElementById('pastasSidebar').classList.add('aberta');
+  document.getElementById('pastasBackdrop').classList.add('aberta');
+}
+function fecharPastas(){
+  document.getElementById('pastasSidebar').classList.remove('aberta');
+  document.getElementById('pastasBackdrop').classList.remove('aberta');
+}
+document.getElementById('btnAbrirPastas').addEventListener('click', abrirPastas);
+document.getElementById('btnFecharPastas').addEventListener('click', fecharPastas);
+document.getElementById('pastasBackdrop').addEventListener('click', fecharPastas);
+
+function setSync(mode, texto){
+  document.getElementById('syncDot').className = 'dot' + (mode === 'ok' ? ' ok' : mode === 'err' ? ' err' : ' warn');
+  document.getElementById('syncText').textContent = texto;
+}
+
+let primeiroSnapshot = false;
+window._applyMapaChanges = function(changes){
+  changes.forEach(change => {
+    const id = change.doc.id;
+    if (change.type === 'removed') removeMarker(id);
+    else upsertMarker(id, change.doc.data());
+  });
+  atualizarContagens();
+  renderPastas();
+  const total = markersById.size;
+  setSync('ok', `${total.toLocaleString('pt-BR')} itens carregados`);
+  if (!primeiroSnapshot && total > 0) {
+    primeiroSnapshot = true;
+    const grupo = L.featureGroup(Object.values(clusters).filter(c => map.hasLayer(c)));
+    if (grupo.getLayers().length) map.fitBounds(grupo.getBounds().pad(.15));
+  }
+};
+window._applyMapaError = function(){
+  setSync('err', 'não foi possível sincronizar com o servidor');
+};
+
+// ---- Busca por número de CTO ----
+document.getElementById('searchInput').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const num = parseInt(e.target.value.trim(), 10);
+  if (!num) return;
+  for (const [, entry] of markersById) {
+    const d = entry.marker._dados;
+    if (d && d.item === 'terminal' && d.numero === num) {
+      Object.values(clusters).forEach(c => { if (!map.hasLayer(c)) map.addLayer(c); });
+      map.setView(entry.marker.getLatLng(), 18);
+      clusters.terminal.zoomToShowLayer(entry.marker, () => entry.marker.openPopup());
+      return;
+    }
+  }
+  alert(`CTO-${num} não encontrada.`);
+});
+
+// Abre CTO direto se veio de um link tipo ?busca=20031 (ex.: vindo do painel de numeração)
+const buscaInicial = new URLSearchParams(location.search).get('busca');
+if (buscaInicial) {
+  document.getElementById('searchInput').value = buscaInicial;
+}
+
+// ---- Minha localização (GPS ao vivo) ----
+let meuMarcador = null, meuCirculo = null, watchId = null;
+document.getElementById('locateBtn').addEventListener('click', function(){
+  if (watchId != null) {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    this.classList.remove('active');
+    if (meuMarcador) { map.removeLayer(meuMarcador); meuMarcador = null; }
+    if (meuCirculo) { map.removeLayer(meuCirculo); meuCirculo = null; }
+    return;
+  }
+  if (!navigator.geolocation) { alert('Geolocalização não é suportada neste navegador.'); return; }
+  this.classList.add('active');
+  let primeiraVez = true;
+  watchId = navigator.geolocation.watchPosition(pos => {
+    const ll = [pos.coords.latitude, pos.coords.longitude];
+    if (!meuMarcador) {
+      meuMarcador = L.circleMarker(ll, {radius: 9, color: '#fff', weight: 2, fillColor: '#3fa7ff', fillOpacity: 1}).addTo(map);
+      meuCirculo = L.circle(ll, {radius: pos.coords.accuracy, color: '#3fa7ff', weight: 1, fillOpacity: .08}).addTo(map);
+    } else {
+      meuMarcador.setLatLng(ll);
+      meuCirculo.setLatLng(ll).setRadius(pos.coords.accuracy);
+    }
+    if (primeiraVez) { map.setView(ll, 17); primeiraVez = false; }
+  }, err => {
+    alert('Não foi possível obter sua localização: ' + err.message);
+    this.classList.remove('active');
+    watchId = null;
+  }, {enableHighAccuracy: true, maximumAge: 5000});
+});
+
+// ---- Login (senha própria deste app, ver <head>) ----
+function liberarAcesso(){
+  document.getElementById('loginOverlay').style.display = 'none';
+  window._iniciarSync();
+}
+window.liberarAcesso = liberarAcesso;
+// Não chama aqui direto se já autenticado: window._iniciarSync ainda não existe
+// nesse ponto (scripts type="module" rodam depois dos scripts normais, mesmo
+// declarados antes) - quem faz essa checagem é o próprio script de módulo, no <head>.
+document.getElementById('loginForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const senha = document.getElementById('senhaInput').value;
+  document.getElementById('loginErro').style.display = 'none';
+  if (senha === window._SENHA_CAMPO) {
+    sessionStorage.setItem('mapa_campo_auth', 'ok');
+    liberarAcesso();
+  } else {
+    document.getElementById('loginErro').style.display = 'block';
+  }
+});
+document.getElementById('btnSair').addEventListener('click', () => {
+  sessionStorage.removeItem('mapa_campo_auth');
+  location.reload();
+});
+</script>
+</body>
+</html>

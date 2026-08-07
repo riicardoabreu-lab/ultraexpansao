@@ -1,0 +1,37 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /numeracao_ctos/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /isp_backups/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /aquisicoes_backups/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /auditoria_lb/{protocolo} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /aquisicoes_kmz/{empresaId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Populada só pelas Cloud Functions (geogridFullSync/geogridWebhook, Admin SDK,
+    // que ignora estas regras). Leitura pública porque o mapa-campo (técnicos de
+    // campo) usa senha própria fixa, sem conta Firebase - não tem como exigir
+    // request.auth aqui. Mesmo trade-off já aceito no módulo CFO (ver cfo/README.md):
+    // afasta acesso casual, não é proteção real para quem souber o caminho.
+    match /mapa_rede/{document=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+  }
+}
