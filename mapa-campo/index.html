@@ -362,6 +362,9 @@ function construirIndicePastas(){
   for (const [, entry] of markersById) {
     const d = entry.marker._dados;
     if (!d) continue;
+    // "Raiz" é uma pasta estrutural do GeoGrid (fora da hierarquia de município) -
+    // não interessa pra navegação, então some da lista lateral.
+    if (d.municipio === 'Raiz') continue;
     const mun = d.municipio || '(sem município)';
     const loc = d.localidade || '(sem localidade)';
     const ll = entry.marker.getLatLng();
