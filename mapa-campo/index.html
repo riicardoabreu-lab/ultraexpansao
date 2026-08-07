@@ -126,6 +126,49 @@
   .leaflet-control-layers{background:var(--panel) !important; color:var(--text) !important; border:1px solid var(--border) !important;}
   .leaflet-control-layers-toggle{filter:invert(1);}
 
+  #pastasSidebar{
+    position:absolute; top:0; left:0; bottom:0; z-index:1600;
+    width:270px; max-width:82vw;
+    background:var(--panel); border-right:1px solid var(--border);
+    transform:translateX(-100%); transition:transform .2s ease;
+    overflow-y:auto; padding-bottom:14px;
+  }
+  #pastasSidebar.aberta{transform:translateX(0);}
+  .pastas-header{
+    position:sticky; top:0; background:var(--panel);
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 14px 10px; border-bottom:1px solid var(--border); z-index:1;
+  }
+  .pastas-header h2{margin:0; font-size:14px;}
+  .pastas-header button{background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; line-height:1;}
+  .pasta-municipio-header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 14px; cursor:pointer; font-size:13px; font-weight:600; gap:8px;
+  }
+  .pasta-municipio-header:hover{background:var(--panel2);}
+  .pasta-count{color:var(--muted); font-size:11px; flex-shrink:0;}
+  .pasta-localidades{display:none; padding-left:10px;}
+  .pasta-municipio.aberto .pasta-localidades{display:block;}
+  .pasta-municipio.aberto .pasta-seta{transform:rotate(90deg);}
+  .pasta-seta{display:inline-block; transition:transform .15s; margin-right:6px; color:var(--muted);}
+  .pasta-localidade{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:7px 14px 7px 24px; font-size:12.5px; color:var(--muted); cursor:pointer; gap:8px;
+  }
+  .pasta-localidade:hover{color:var(--text); background:var(--panel2);}
+
+  .pastas-toggle{
+    position:absolute; top:60px; left:14px; z-index:1000;
+    width:38px; height:38px; border-radius:10px;
+    background:var(--panel); border:1px solid var(--border); color:var(--text);
+    font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  }
+  .pastas-backdrop{
+    position:absolute; inset:0; z-index:1500; background:rgba(0,0,0,.4);
+    display:none;
+  }
+  .pastas-backdrop.aberta{display:block;}
+
   @media (max-width: 480px){
     .brand h1{font-size:13px;}
     .brand .sub{display:none;}
@@ -175,6 +218,15 @@
 
 <div id="map"></div>
 
+<div class="pastas-backdrop" id="pastasBackdrop"></div>
+<div id="pastasSidebar">
+  <div class="pastas-header">
+    <h2>Municípios</h2>
+    <button id="btnFecharPastas" title="Fechar">✕</button>
+  </div>
+  <div id="pastasList"></div>
+</div>
+
 <header>
   <div class="brand">
     <img src="../assets/logo-jebnet.png" alt="Jebnet" class="mark">
@@ -187,6 +239,8 @@
     <button class="btn-ghost-sm" id="btnSair">Sair</button>
   </div>
 </header>
+
+<button class="pastas-toggle" id="btnAbrirPastas" title="Municípios">📁</button>
 
 <div class="search-bar">
   <input type="text" id="searchInput" placeholder="Buscar CTO por número (ex.: 20031)" inputmode="numeric">
@@ -213,7 +267,10 @@ const map = L.map('map', {preferCanvas: true, zoomControl: false}).setView([-3.4
 L.control.zoom({position: 'bottomleft'}).addTo(map);
 
 const satelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-  attribution: 'Esri World Imagery', maxZoom: 20
+  // A cobertura de satélite grátis do Esri não tem imagem nativa além do zoom 17
+  // nessa região (devolve tile em branco) - maxNativeZoom faz o Leaflet ampliar o
+  // último tile real em vez de pedir um zoom que não existe (senão o mapa "some").
+  attribution: 'Esri World Imagery', maxZoom: 20, maxNativeZoom: 17
 });
 const ruas = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap', maxZoom: 19
@@ -300,6 +357,81 @@ function atualizarContagens(){
   });
 }
 
+// ---- Pasta lateral de municípios/localidades (igual o GeoGrid) ----
+const pastasAbertas = new Set(); // municípios expandidos - preserva estado entre atualizações
+function construirIndicePastas(){
+  const municipios = new Map();
+  for (const [, entry] of markersById) {
+    const d = entry.marker._dados;
+    if (!d) continue;
+    const mun = d.municipio || '(sem município)';
+    const loc = d.localidade || '(sem localidade)';
+    const ll = entry.marker.getLatLng();
+    if (!municipios.has(mun)) municipios.set(mun, {count: 0, bounds: L.latLngBounds([ll]), localidades: new Map()});
+    const mObj = municipios.get(mun);
+    mObj.count++;
+    mObj.bounds.extend(ll);
+    if (!mObj.localidades.has(loc)) mObj.localidades.set(loc, {count: 0, bounds: L.latLngBounds([ll])});
+    const lObj = mObj.localidades.get(loc);
+    lObj.count++;
+    lObj.bounds.extend(ll);
+  }
+  return municipios;
+}
+
+function renderPastas(){
+  const municipios = construirIndicePastas();
+  const nomes = [...municipios.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const cont = document.getElementById('pastasList');
+
+  cont.innerHTML = nomes.map(mun => {
+    const mObj = municipios.get(mun);
+    const aberto = pastasAbertas.has(mun);
+    const locs = [...mObj.localidades.keys()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const locsHtml = locs.map(loc => {
+      const lObj = mObj.localidades.get(loc);
+      return `<div class="pasta-localidade" data-mun="${mun}" data-loc="${loc}">
+        <span>${loc}</span><span class="pasta-count">${lObj.count}</span>
+      </div>`;
+    }).join('');
+    return `<div class="pasta-municipio${aberto ? ' aberto' : ''}">
+      <div class="pasta-municipio-header" data-mun="${mun}">
+        <span><span class="pasta-seta">▶</span>${mun}</span><span class="pasta-count">${mObj.count}</span>
+      </div>
+      <div class="pasta-localidades">${locsHtml}</div>
+    </div>`;
+  }).join('');
+
+  cont.querySelectorAll('.pasta-municipio-header').forEach(el => {
+    el.addEventListener('click', () => {
+      const mun = el.dataset.mun;
+      if (pastasAbertas.has(mun)) pastasAbertas.delete(mun); else pastasAbertas.add(mun);
+      el.parentElement.classList.toggle('aberto');
+      map.fitBounds(municipios.get(mun).bounds.pad(.2));
+    });
+  });
+  cont.querySelectorAll('.pasta-localidade').forEach(el => {
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      const {mun, loc} = el.dataset;
+      map.fitBounds(municipios.get(mun).localidades.get(loc).bounds.pad(.3));
+      if (window.innerWidth < 700) fecharPastas();
+    });
+  });
+}
+
+function abrirPastas(){
+  document.getElementById('pastasSidebar').classList.add('aberta');
+  document.getElementById('pastasBackdrop').classList.add('aberta');
+}
+function fecharPastas(){
+  document.getElementById('pastasSidebar').classList.remove('aberta');
+  document.getElementById('pastasBackdrop').classList.remove('aberta');
+}
+document.getElementById('btnAbrirPastas').addEventListener('click', abrirPastas);
+document.getElementById('btnFecharPastas').addEventListener('click', fecharPastas);
+document.getElementById('pastasBackdrop').addEventListener('click', fecharPastas);
+
 function setSync(mode, texto){
   document.getElementById('syncDot').className = 'dot' + (mode === 'ok' ? ' ok' : mode === 'err' ? ' err' : ' warn');
   document.getElementById('syncText').textContent = texto;
@@ -313,6 +445,7 @@ window._applyMapaChanges = function(changes){
     else upsertMarker(id, change.doc.data());
   });
   atualizarContagens();
+  renderPastas();
   const total = markersById.size;
   setSync('ok', `${total.toLocaleString('pt-BR')} itens carregados`);
   if (!primeiroSnapshot && total > 0) {
