@@ -8,17 +8,32 @@ const GEOGRID_BASE = 'https://eros.geogridmaps.com.br/alencar/api/v3';
 // (muito numeroso - 4300+ - e não é o que os técnicos precisam localizar em campo).
 const TIPOS_SINCRONIZADOS = ['terminal', 'caixa', 'rack', 'estacao', 'pontoAcesso', 'interesse'];
 
+// Credencial via FIREBASE_SERVICE_ACCOUNT_B64 (o .json inteiro da service
+// account, em base64, numa variável só) - muito mais à prova de erro de
+// copiar/colar do que separar em 3 variáveis com quebra de linha dentro.
+function carregarCredencial() {
+  const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_B64;
+  if (b64) {
+    const json = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+    return {
+      projectId: json.project_id,
+      clientEmail: json.client_email,
+      privateKey: json.private_key,
+    };
+  }
+  // Fallback pro formato antigo (3 variáveis separadas), caso ainda em uso.
+  return {
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+  };
+}
+
 let dbSingleton = null;
 function getDb() {
   if (!dbSingleton) {
     if (!admin.apps.length) {
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
-        }),
-      });
+      admin.initializeApp({credential: admin.credential.cert(carregarCredencial())});
     }
     dbSingleton = admin.firestore();
   }
