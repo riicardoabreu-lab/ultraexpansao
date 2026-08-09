@@ -537,11 +537,25 @@ const ESTILO_CABO = {color: '#f1c40f', weight: 3, opacity: .85};
 const ESTILO_CABO_DESTACADO = {color: '#ffffff', weight: 6, opacity: 1};
 let caboDestacado = null;
 
-function popupHtmlCabo(nome, descricao){
+// Soma a distância entre os pontos consecutivos da linha (não confia no "Xm" que
+// às vezes vem no nome do cabo - nem todo cabo tem isso, e pode estar desatualizado).
+function metragemCabo(latlngs){
+  let metros = 0;
+  for (let i = 1; i < latlngs.length; i++) {
+    metros += L.latLng(latlngs[i - 1]).distanceTo(L.latLng(latlngs[i]));
+  }
+  return metros;
+}
+
+function popupHtmlCabo(nome, descricao, metros){
+  const metragemTexto = metros >= 1000
+    ? `${(metros / 1000).toLocaleString('pt-BR', {maximumFractionDigits: 2})} km`
+    : `${Math.round(metros).toLocaleString('pt-BR')} m`;
   return `<div class="popup-item">
     <div class="tipo">CABO</div>
     <div class="sigla">${nome}</div>
     ${descricao ? `<div class="loc">${descricao}</div>` : ''}
+    <div class="loc">metragem: ${metragemTexto}</div>
   </div>`;
 }
 
@@ -565,7 +579,7 @@ function desenharCabosDoKml(kmlTexto){
     const descricao = descEl ? descEl.textContent.replace(/<[^>]+>/g, ' ').trim() : '';
 
     const polilinha = L.polyline(latlngs, ESTILO_CABO).addTo(cabosLayer);
-    polilinha.bindPopup(popupHtmlCabo(nome, descricao));
+    polilinha.bindPopup(popupHtmlCabo(nome, descricao, metragemCabo(latlngs)));
     polilinha.on('click', () => {
       if (caboDestacado && caboDestacado !== polilinha) caboDestacado.setStyle(ESTILO_CABO);
       polilinha.setStyle(ESTILO_CABO_DESTACADO);
