@@ -78,4 +78,44 @@ function montarDoc(item, pastaInfo) {
   return doc;
 }
 
-module.exports = {admin, getDb, geogridFetch, carregarPastas, montarDoc, TIPOS_SINCRONIZADOS};
+// Varre os tipos informados na API do GeoGrid e grava cada item em mapa_rede/{id}.
+// Usada tanto pelo endpoint manual (geogrid-full-sync) quanto pelo cron diário.
+async function sincronizarTipos(tipos) {
+  const db = getDb();
+  const pastaInfo = await carregarPastas();
+
+  const resumo = {};
+  let totalGravados = 0;
+
+  for (const tipo of tipos) {
+    let pagina = 1;
+    let totalTipo = 0;
+
+    for (;;) {
+      const dados = await geogridFetch(`/itensRede?item[]=${tipo}&pagina=${pagina}&registrosPorPagina=500`);
+      const registros = dados.registros || [];
+      totalTipo = parseInt(dados.totalRegistros, 10) || 0;
+
+      for (let i = 0; i < registros.length; i += 500) {
+        const lote = registros.slice(i, i + 500);
+        const batch = db.batch();
+        for (const item of lote) {
+          const id = item.dados && item.dados.id;
+          if (!id) continue;
+          batch.set(db.collection('mapa_rede').doc(String(id)), montarDoc(item, pastaInfo), {merge: true});
+          totalGravados++;
+        }
+        await batch.commit();
+      }
+
+      if (registros.length === 0 || pagina * 500 >= totalTipo) break;
+      pagina++;
+    }
+
+    resumo[tipo] = totalTipo;
+  }
+
+  return {resumo, totalGravados};
+}
+
+module.exports = {admin, getDb, geogridFetch, carregarPastas, montarDoc, sincronizarTipos, TIPOS_SINCRONIZADOS};
