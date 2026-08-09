@@ -114,6 +114,7 @@
   .popup-item .tipo{font-size:11px; color:var(--cyan); text-transform:uppercase; letter-spacing:.4px;}
   .popup-item .sigla{font-size:15px; font-weight:700; margin:2px 0 6px;}
   .popup-item .loc{font-size:12px; color:var(--muted);}
+  .cor-porta{display:inline-block; width:10px; height:10px; border-radius:50%; border:1px solid rgba(255,255,255,.5); margin:0 3px 0 8px; vertical-align:middle;}
   .popup-item a{display:inline-block; margin-top:8px; font-size:12px; color:var(--cyan);}
   .popup-item .btn-navegar{
     display:block; text-align:center; margin-top:10px; padding:9px 10px; border-radius:8px;
@@ -353,9 +354,10 @@ function upsertMarker(id, data){
   entry.marker._dados = data;
 }
 
-// Splitter (ex.: "1x8") e cor de cada porta - vem de um endpoint separado
-// (/api/geogrid-equipamento) porque é uma chamada por item na API do GeoGrid;
-// só busca quando o técnico realmente abre o popup daquela CTO, não pra todas.
+// Splitter (ex.: "1x8") e a fibra que alimenta a entrada (número + cor, no padrão
+// de 12 cores do provedor) - vem de um endpoint separado (/api/geogrid-equipamento)
+// porque é uma chamada por item na API do GeoGrid; só busca quando o técnico
+// realmente abre o popup daquela CTO, não pra todas de uma vez.
 async function carregarEquipamento(id, tipoItem){
   if (tipoItem !== 'terminal') return;
   const el = document.getElementById(`equip-${id}`);
@@ -366,6 +368,9 @@ async function carregarEquipamento(id, tipoItem){
     if (!dados.ok) { el.textContent = 'não foi possível carregar detalhes técnicos'; return; }
     const partes = [];
     if (dados.splitter) partes.push(`splitter: ${dados.splitter}`);
+    if (dados.fibra) {
+      partes.push(`<div>fibra de alimentação: <span class="cor-porta" style="background:${dados.fibra.hex}"></span>${dados.fibra.numero} (${dados.fibra.nome})</div>`);
+    }
     el.innerHTML = partes.join('') || 'sem dados de equipamento cadastrados';
   } catch (e) {
     el.textContent = 'não foi possível carregar detalhes técnicos';
