@@ -114,6 +114,7 @@
   .popup-item .tipo{font-size:11px; color:var(--cyan); text-transform:uppercase; letter-spacing:.4px;}
   .popup-item .sigla{font-size:15px; font-weight:700; margin:2px 0 6px;}
   .popup-item .loc{font-size:12px; color:var(--muted);}
+  .cor-porta{display:inline-block; width:10px; height:10px; border-radius:50%; border:1px solid rgba(255,255,255,.5); margin:0 3px 0 8px; vertical-align:middle;}
   .popup-item a{display:inline-block; margin-top:8px; font-size:12px; color:var(--cyan);}
   .popup-item .btn-navegar{
     display:block; text-align:center; margin-top:10px; padding:9px 10px; border-radius:8px;
@@ -300,25 +301,29 @@ function iconePara(tipo){
   return L.circleMarker([0,0], {radius: 7, color: '#fff', weight: 1.5, fillColor: cor, fillOpacity: .9});
 }
 
-function popupHtml(data){
+function popupHtml(data, id){
   const tipo = TIPOS[data.item] ? TIPOS[data.item].label : (data.item || '—');
   const loc = [data.localidade, data.municipio].filter(Boolean).join(' · ') || '—';
   const destino = `${data.latitude},${data.longitude}`;
   const urlNavegar = `https://www.google.com/maps/dir/?api=1&destination=${destino}&travelmode=driving`;
-  // Splitter/cabo/fibra/potência vêm do campo "observacao" do GeoGrid (texto livre
-  // digitado pela equipe) - só existem pra terminal/caixa, e só quando preenchido.
+  // Cabo/fibra/potência vêm do campo "observacao" do GeoGrid (texto livre digitado
+  // pela equipe) - só existem pra terminal/caixa, e só quando preenchido.
   const infoTecnica = [
-    data.splitter ? `splitter: ${data.splitter}` : null,
     data.cabo ? `cabo: ${data.cabo}` : null,
     data.fibra ? `fibra: ${data.fibra}` : null,
     data.potencia ? `potência: ${data.potencia}` : null,
   ].filter(Boolean).map(linha => `<div class="loc">${linha}</div>`).join('');
+  // Splitter + cor das portas vêm de um endpoint separado, carregado sob demanda
+  // quando o popup abre (ver carregarEquipamento) - mais confiável que o texto livre.
+  const equipamento = data.item === 'terminal'
+    ? `<div class="loc" id="equip-${id}">carregando detalhes técnicos…</div>` : '';
   return `<div class="popup-item">
     <div class="tipo">${tipo}</div>
     <div class="sigla">${data.sigla || '(sem sigla)'}</div>
     <div class="loc">${loc}</div>
     <div class="loc">status: ${data.status || '—'}</div>
     ${infoTecnica}
+    ${equipamento}
     <a class="btn-navegar" href="${urlNavegar}" target="_blank" rel="noopener">🧭 Navegar até aqui</a>
   </div>`;
 }
@@ -337,6 +342,7 @@ function upsertMarker(id, data){
   if (!entry) {
     const marker = iconePara(data.item);
     marker.bindPopup('');
+    marker.on('popupopen', () => carregarEquipamento(id, data.item));
     clusters[data.item].addLayer(marker);
     entry = {marker, tipo: data.item};
     markersById.set(id, entry);
@@ -344,8 +350,31 @@ function upsertMarker(id, data){
   }
 
   entry.marker.setLatLng([Number(data.latitude), Number(data.longitude)]);
-  entry.marker.setPopupContent(popupHtml(data));
+  entry.marker.setPopupContent(popupHtml(data, id));
   entry.marker._dados = data;
+}
+
+// Splitter (ex.: "1x8") e cor de cada porta - vem de um endpoint separado
+// (/api/geogrid-equipamento) porque é uma chamada por item na API do GeoGrid;
+// só busca quando o técnico realmente abre o popup daquela CTO, não pra todas.
+async function carregarEquipamento(id, tipoItem){
+  if (tipoItem !== 'terminal') return;
+  const el = document.getElementById(`equip-${id}`);
+  if (!el) return;
+  try {
+    const res = await fetch(`/api/geogrid-equipamento?id=${id}`);
+    const dados = await res.json();
+    if (!dados.ok) { el.textContent = 'não foi possível carregar detalhes técnicos'; return; }
+    const partes = [];
+    if (dados.splitter) partes.push(`splitter: ${dados.splitter}`);
+    if (dados.saidas && dados.saidas.length) {
+      const cores = dados.saidas.map(s => `<span class="cor-porta" style="background:${s.cor}"></span>${s.porta}`).join(' ');
+      partes.push(`<div>cores das saídas: ${cores}</div>`);
+    }
+    el.innerHTML = partes.join('') || 'sem dados de equipamento cadastrados';
+  } catch (e) {
+    el.textContent = 'não foi possível carregar detalhes técnicos';
+  }
 }
 
 function removeMarker(id){
