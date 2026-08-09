@@ -25,7 +25,9 @@ module.exports = async function handler(req, res) {
     const m = descricao && descricao.match(/(\d+\s*x\s*\d+)/i);
     const splitter = m ? m[1].replace(/\s+/g, '') : descricao;
 
-    const cores = registro.cores || {};
+    // As cores ficam em registro.tipo.cores (padrão do tipo de splitter), não em
+    // registro.cores direto.
+    const cores = (registro.tipo && registro.tipo.cores) || {};
     const paraLista = (obj) => Object.entries(obj || {}).map(([porta, cor]) => ({porta, cor}));
 
     res.status(200).json({
