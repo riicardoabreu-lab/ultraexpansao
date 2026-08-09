@@ -38,21 +38,32 @@ module.exports = async function handler(req, res) {
 
   try {
     const dados = await geogridFetch(`/diagrama/equipamentos/${id}`);
-    const registro = dados.registros && dados.registros[0];
-    if (!registro) {
+    const registros = dados.registros || [];
+    if (!registros.length) {
       res.status(200).json({ok: true, splitter: null, fibra: null});
       return;
     }
 
-    const tipoDados = registro.tipo && registro.tipo.dados;
+    // Quando tem splitter em cascata (ex.: um 1x2 alimentando um 1x8), cada
+    // "registro" é um equipamento diferente vinculado à mesma CTO. O que interessa
+    // pra "qual fibra alimenta essa caixa" é o que está fundido direto num CABO
+    // (fusaoEm.dados.idCabo) - os outros têm a entrada fundida na SAÍDA de outro
+    // equipamento (fusaoEm.dados.idEquipamento), ou seja, são estágios internos.
+    const fusaoDoRegistro = (r) => {
+      const entradaPorta = r.portas && r.portas[0];
+      return entradaPorta && entradaPorta.fusaoEm && entradaPorta.fusaoEm.dados;
+    };
+    const registroDeEntrada = registros.find(r => {
+      const fusao = fusaoDoRegistro(r);
+      return fusao && fusao.idCabo;
+    }) || registros[0];
+
+    const tipoDados = registroDeEntrada.tipo && registroDeEntrada.tipo.dados;
     const descricao = (tipoDados && tipoDados.descricao) || null;
     const m = descricao && descricao.match(/(\d+\s*x\s*\d+)/i);
     const splitter = m ? m[1].replace(/\s+/g, '') : descricao;
 
-    // A entrada do splitter é fundida (fusão) numa fibra específica de um cabo -
-    // é o número dessa fibra que define a cor (não a cor "de conector" da porta).
-    const entradaPorta = registro.portas && registro.portas[0];
-    const fusao = entradaPorta && entradaPorta.fusaoEm && entradaPorta.fusaoEm.dados;
+    const fusao = fusaoDoRegistro(registroDeEntrada);
     const fibra = fusao ? corDaFibra(fusao.fibra) : null;
 
     res.status(200).json({ok: true, splitter, fibra});
