@@ -67,6 +67,25 @@ async function carregarPastas() {
   return mapa;
 }
 
+// O campo "observacao" do GeoGrid é HTML livre digitado pela equipe, tipo:
+// "<pre>SPLITTER: 1x8 / 1x16\nCABO: 4 12fo\nFIBRA: \nPOTÊNCIA: 25,69 dbm</pre>..."
+// Extrai os campos estruturados de dentro desse texto, quando presentes.
+function extrairInfoObservacao(observacao) {
+  if (!observacao) return {};
+  const texto = String(observacao).replace(/<[^>]+>/g, ' ');
+  const pegar = (rotulo) => {
+    const m = texto.match(new RegExp(rotulo + '\\s*:\\s*([^\\n]+)', 'i'));
+    const valor = m ? m[1].trim() : null;
+    return valor || null;
+  };
+  return {
+    splitter: pegar('SPLITTER'),
+    cabo: pegar('CABO'),
+    fibra: pegar('FIBRA'),
+    potencia: pegar('POT[ÊE]NCIA'),
+  };
+}
+
 // Normaliza um item (seja do retorno de /itensRede - tem "pasta": {id,...} -
 // ou de /itensRede/{id}/mapa - tem só "idPasta") pro doc que vai pro Firestore.
 function montarDoc(item, pastaInfo) {
@@ -88,6 +107,10 @@ function montarDoc(item, pastaInfo) {
   if (dados.item === 'terminal') {
     const m = (dados.sigla || '').match(/\d+/);
     doc.numero = m ? parseInt(m[0], 10) : null;
+  }
+
+  if (dados.item === 'terminal' || dados.item === 'caixa') {
+    Object.assign(doc, extrairInfoObservacao(dados.observacao));
   }
 
   return doc;

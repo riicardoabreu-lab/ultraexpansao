@@ -305,11 +305,20 @@ function popupHtml(data){
   const loc = [data.localidade, data.municipio].filter(Boolean).join(' · ') || '—';
   const destino = `${data.latitude},${data.longitude}`;
   const urlNavegar = `https://www.google.com/maps/dir/?api=1&destination=${destino}&travelmode=driving`;
+  // Splitter/cabo/fibra/potência vêm do campo "observacao" do GeoGrid (texto livre
+  // digitado pela equipe) - só existem pra terminal/caixa, e só quando preenchido.
+  const infoTecnica = [
+    data.splitter ? `splitter: ${data.splitter}` : null,
+    data.cabo ? `cabo: ${data.cabo}` : null,
+    data.fibra ? `fibra: ${data.fibra}` : null,
+    data.potencia ? `potência: ${data.potencia}` : null,
+  ].filter(Boolean).map(linha => `<div class="loc">${linha}</div>`).join('');
   return `<div class="popup-item">
     <div class="tipo">${tipo}</div>
     <div class="sigla">${data.sigla || '(sem sigla)'}</div>
     <div class="loc">${loc}</div>
     <div class="loc">status: ${data.status || '—'}</div>
+    ${infoTecnica}
     <a class="btn-navegar" href="${urlNavegar}" target="_blank" rel="noopener">🧭 Navegar até aqui</a>
   </div>`;
 }
@@ -524,16 +533,45 @@ function coordenadasKmlParaLatLngs(texto){
   });
 }
 
+const ESTILO_CABO = {color: '#f1c40f', weight: 3, opacity: .85};
+const ESTILO_CABO_DESTACADO = {color: '#ffffff', weight: 6, opacity: 1};
+let caboDestacado = null;
+
+function popupHtmlCabo(nome, descricao){
+  return `<div class="popup-item">
+    <div class="tipo">CABO</div>
+    <div class="sigla">${nome}</div>
+    ${descricao ? `<div class="loc">${descricao}</div>` : ''}
+  </div>`;
+}
+
 function desenharCabosDoKml(kmlTexto){
   const xml = new DOMParser().parseFromString(kmlTexto, 'text/xml');
-  const linhas = xml.getElementsByTagName('LineString');
+  const placemarks = xml.getElementsByTagName('Placemark');
   let total = 0;
-  for (const linha of linhas) {
+  for (const pm of placemarks) {
+    const linha = pm.getElementsByTagName('LineString')[0];
+    if (!linha) continue;
     const coordsEl = linha.getElementsByTagName('coordinates')[0];
     if (!coordsEl || !coordsEl.textContent.trim()) continue;
     const latlngs = coordenadasKmlParaLatLngs(coordsEl.textContent);
     if (latlngs.length < 2) continue;
-    L.polyline(latlngs, {color: '#f1c40f', weight: 3, opacity: .85}).addTo(cabosLayer);
+
+    const nomeEl = pm.getElementsByTagName('name')[0];
+    const nome = (nomeEl && nomeEl.textContent.trim()) || 'Cabo sem nome';
+    const descEl = pm.getElementsByTagName('description')[0];
+    // A descrição vem como HTML/entidades escapadas (ex.: "SAÍDA DA CTO 11 ATÉ CTO
+    // 12 PON 13") - é onde a equipe costuma anotar a interligação do cabo.
+    const descricao = descEl ? descEl.textContent.replace(/<[^>]+>/g, ' ').trim() : '';
+
+    const polilinha = L.polyline(latlngs, ESTILO_CABO).addTo(cabosLayer);
+    polilinha.bindPopup(popupHtmlCabo(nome, descricao));
+    polilinha.on('click', () => {
+      if (caboDestacado && caboDestacado !== polilinha) caboDestacado.setStyle(ESTILO_CABO);
+      polilinha.setStyle(ESTILO_CABO_DESTACADO);
+      polilinha.bringToFront();
+      caboDestacado = polilinha;
+    });
     total++;
   }
   const el = document.getElementById('contagemCabos');
