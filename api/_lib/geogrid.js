@@ -74,7 +74,9 @@ function extrairInfoObservacao(observacao) {
   if (!observacao) return {};
   const texto = String(observacao).replace(/<[^>]+>/g, ' ');
   const pegar = (rotulo) => {
-    const m = texto.match(new RegExp(rotulo + '\\s*:\\s*([^\\n]+)', 'i'));
+    // [ \t]* (não \s*) depois dos dois-pontos - \s* cruzaria a quebra de linha e
+    // pegaria o valor do PRÓXIMO campo quando este estiver vazio (ex.: "FIBRA:\n").
+    const m = texto.match(new RegExp(rotulo + '[ \\t]*:[ \\t]*([^\\n]+)', 'i'));
     const valor = m ? m[1].trim() : null;
     return valor || null;
   };
