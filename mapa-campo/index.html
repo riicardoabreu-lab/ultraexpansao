@@ -114,7 +114,6 @@
   .popup-item .tipo{font-size:11px; color:var(--cyan); text-transform:uppercase; letter-spacing:.4px;}
   .popup-item .sigla{font-size:15px; font-weight:700; margin:2px 0 6px;}
   .popup-item .loc{font-size:12px; color:var(--muted);}
-  .cor-porta{display:inline-block; width:10px; height:10px; border-radius:50%; border:1px solid rgba(255,255,255,.5); margin:0 3px 0 8px; vertical-align:middle;}
   .popup-item a{display:inline-block; margin-top:8px; font-size:12px; color:var(--cyan);}
   .popup-item .btn-navegar{
     display:block; text-align:center; margin-top:10px; padding:9px 10px; border-radius:8px;
@@ -367,10 +366,6 @@ async function carregarEquipamento(id, tipoItem){
     if (!dados.ok) { el.textContent = 'não foi possível carregar detalhes técnicos'; return; }
     const partes = [];
     if (dados.splitter) partes.push(`splitter: ${dados.splitter}`);
-    if (dados.saidas && dados.saidas.length) {
-      const cores = dados.saidas.map(s => `<span class="cor-porta" style="background:${s.cor}"></span>${s.porta}`).join(' ');
-      partes.push(`<div>cores das saídas: ${cores}</div>`);
-    }
     el.innerHTML = partes.join('') || 'sem dados de equipamento cadastrados';
   } catch (e) {
     el.textContent = 'não foi possível carregar detalhes técnicos';
