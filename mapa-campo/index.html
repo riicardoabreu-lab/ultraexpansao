@@ -305,7 +305,10 @@ function iconePara(tipo){
   // Reserva é branca (posição planejada, ainda sem caixa instalada) - contorno
   // escuro pra não sumir contra fundo claro (a borda padrão também é branca).
   const borda = tipo === 'reserva' ? '#333' : '#fff';
-  return L.circleMarker([0,0], {radius: 7, color: borda, weight: 1.5, fillColor: cor, fillOpacity: .9});
+  // pane 'markerPane' (nativo do Leaflet, zIndex mais alto que a camada dos cabos)
+  // garante que os itens sempre desenham por cima dos cabos, não importa a ordem
+  // que os dados chegam.
+  return L.circleMarker([0,0], {radius: 7, color: borda, weight: 1.5, fillColor: cor, fillOpacity: .9, pane: 'markerPane'});
 }
 
 function popupHtml(data, id){
@@ -605,6 +608,14 @@ const ESTILO_CABO = {color: '#f1c40f', weight: 3, opacity: .85};
 const ESTILO_CABO_DESTACADO = {color: '#ffffff', weight: 6, opacity: 1};
 let caboDestacado = null;
 
+// Clicar em qualquer outro lugar do mapa (fora de um cabo) desfaz o destaque.
+map.on('click', () => {
+  if (caboDestacado) {
+    caboDestacado.setStyle(ESTILO_CABO);
+    caboDestacado = null;
+  }
+});
+
 // Soma a distância entre os pontos consecutivos da linha (não confia no "Xm" que
 // às vezes vem no nome do cabo - nem todo cabo tem isso, e pode estar desatualizado).
 function metragemCabo(latlngs){
@@ -648,7 +659,8 @@ function desenharCabosDoKml(kmlTexto){
 
     const polilinha = L.polyline(latlngs, ESTILO_CABO).addTo(cabosLayer);
     polilinha.bindPopup(popupHtmlCabo(nome, descricao, metragemCabo(latlngs)));
-    polilinha.on('click', () => {
+    polilinha.on('click', (e) => {
+      L.DomEvent.stopPropagation(e); // não deixa o clique "vazar" pro mapa e desfazer o destaque na hora
       if (caboDestacado && caboDestacado !== polilinha) caboDestacado.setStyle(ESTILO_CABO);
       polilinha.setStyle(ESTILO_CABO_DESTACADO);
       polilinha.bringToFront();
