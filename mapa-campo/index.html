@@ -261,6 +261,7 @@ const TIPOS = {
   estacao:     {label: 'Estações',           color: '#4a90d9', default: true},
   pontoAcesso: {label: 'Pontos de acesso',   color: '#e94e77', default: true},
   interesse:   {label: 'Interesse',          color: '#f1c40f', default: true},
+  reserva:     {label: 'Reservas (futuras caixas)', color: '#ffffff', default: true},
 };
 
 const map = L.map('map', {preferCanvas: true, zoomControl: false}).setView([-3.49, -39.66], 12);
@@ -301,7 +302,10 @@ const contagens = {};
 
 function iconePara(tipo){
   const cor = (TIPOS[tipo] || {color:'#999'}).color;
-  return L.circleMarker([0,0], {radius: 7, color: '#fff', weight: 1.5, fillColor: cor, fillOpacity: .9});
+  // Reserva é branca (posição planejada, ainda sem caixa instalada) - contorno
+  // escuro pra não sumir contra fundo claro (a borda padrão também é branca).
+  const borda = tipo === 'reserva' ? '#333' : '#fff';
+  return L.circleMarker([0,0], {radius: 7, color: borda, weight: 1.5, fillColor: cor, fillOpacity: .9});
 }
 
 function popupHtml(data, id){
@@ -331,6 +335,30 @@ function popupHtml(data, id){
   </div>`;
 }
 
+// Uma "reserva" só interessa mostrar se ainda não virou uma caixa/CTO de verdade -
+// senão a equipe vê marcador duplicado no mesmo lugar. Considera "já resolvida" se
+// tiver um terminal/caixa a menos de 20m.
+const RESERVA_RAIO_METROS = 20;
+function temCaixaPerto(latlng){
+  for (const [, entry] of markersById) {
+    if (entry.tipo !== 'terminal' && entry.tipo !== 'caixa') continue;
+    if (entry.marker.getLatLng().distanceTo(latlng) <= RESERVA_RAIO_METROS) return true;
+  }
+  return false;
+}
+
+// Chamado depois de posicionar um terminal/caixa - esconde reservas que ficaram
+// "resolvidas" por essa caixa ter aparecido perto dela.
+function reavaliarReservasPerto(latlng){
+  for (const [, entry] of markersById) {
+    if (entry.tipo !== 'reserva' || entry.oculta) continue;
+    if (entry.marker.getLatLng().distanceTo(latlng) <= RESERVA_RAIO_METROS) {
+      clusters.reserva.removeLayer(entry.marker);
+      entry.oculta = true;
+    }
+  }
+}
+
 function upsertMarker(id, data){
   if (data.latitude == null || data.longitude == null || !TIPOS[data.item]) return;
   const existente = markersById.get(id);
@@ -346,15 +374,23 @@ function upsertMarker(id, data){
     const marker = iconePara(data.item);
     marker.bindPopup('');
     marker.on('popupopen', () => carregarEquipamento(id, data.item));
-    clusters[data.item].addLayer(marker);
-    entry = {marker, tipo: data.item};
+    entry = {marker, tipo: data.item, oculta: false};
     markersById.set(id, entry);
     contagens[data.item] = (contagens[data.item] || 0) + 1;
   }
 
-  entry.marker.setLatLng([Number(data.latitude), Number(data.longitude)]);
+  const latlng = [Number(data.latitude), Number(data.longitude)];
+  entry.marker.setLatLng(latlng);
   entry.marker.setPopupContent(popupHtml(data, id));
   entry.marker._dados = data;
+
+  if (data.item === 'reserva') {
+    entry.oculta = temCaixaPerto(latlng);
+    if (!entry.oculta && !clusters.reserva.hasLayer(entry.marker)) clusters.reserva.addLayer(entry.marker);
+  } else {
+    if (!clusters[data.item].hasLayer(entry.marker)) clusters[data.item].addLayer(entry.marker);
+    if (data.item === 'terminal' || data.item === 'caixa') reavaliarReservasPerto(latlng);
+  }
 }
 
 // Splitter (ex.: "1x8") e a fibra que alimenta a entrada (número + cor, no padrão

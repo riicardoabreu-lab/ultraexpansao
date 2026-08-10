@@ -3,10 +3,11 @@ const admin = require('firebase-admin');
 // Conta "alencar" no GeoGrid (Jebnet). Não é segredo por si só - só funciona com o api-key.
 const GEOGRID_BASE = 'https://eros.geogridmaps.com.br/alencar/api/v3';
 
-// Tipos de item de rede que viram ponto no mapa. Fora: "reserva" (reserva de porta,
-// não é um ponto físico), "grupoAcesso" (conta 0 registros nesta conta) e "poste"
-// (muito numeroso - 4300+ - e não é o que os técnicos precisam localizar em campo).
-const TIPOS_SINCRONIZADOS = ['terminal', 'caixa', 'rack', 'estacao', 'pontoAcesso', 'interesse'];
+// Tipos de item de rede que viram ponto no mapa. "reserva" é local reservado pra
+// uma futura caixa/CTO - útil pro técnico ver onde já tem posição planejada. Fora:
+// "grupoAcesso" (conta 0 registros nesta conta) e "poste" (muito numeroso - 4300+ -
+// e não é o que os técnicos precisam localizar em campo).
+const TIPOS_SINCRONIZADOS = ['terminal', 'caixa', 'rack', 'estacao', 'pontoAcesso', 'interesse', 'reserva'];
 
 // Credencial via FIREBASE_SERVICE_ACCOUNT_B64 (o .json inteiro da service
 // account, em base64, numa variável só) - muito mais à prova de erro de
