@@ -1210,11 +1210,13 @@ let app = loadApp();
   saveApp();
 })();
 
-// Agrupa os 4 municípios de orçamento consolidado como bairros dentro de
-// "Beberibe" (município real ao qual pertencem, confirmado pelos dados do
-// CFO) — antes apareciam soltos, um por um, na barra lateral.
+// Agrupa os 4 municípios de orçamento consolidado (+ o CPD que atende eles)
+// como bairros dentro de "Beberibe" (município real ao qual pertencem,
+// confirmado pelos dados do CFO) — antes apareciam soltos, um por um, na
+// barra lateral. V2 acrescenta o CPD ao grupo, sem reprocessar quem já
+// tinha só os 4 municípios agrupados na V1.
 (function organizarHierarquiaBeberibe(){
-  const V = 1;
+  const V = 2;
   if((app._hierarquiaV||0) >= V) return;
   const nomesBairros = ['Campestre','Palmeira','Parajuru','Paripueira'];
   let beberibe = app.cidades.find(c=>(c.nome||'').trim().toLowerCase()==='beberibe');
@@ -1223,6 +1225,8 @@ let app = loadApp();
     const c = app.cidades.find(x=>(x.nome||'').toLowerCase()===nome.toLowerCase() && x.id!==beberibe.id);
     if(c && !c.municipioId) c.municipioId = beberibe.id;
   });
+  const cpd = app.cidades.find(c=>(c.nome||'').toLowerCase().includes('cpd') && c.id!==beberibe.id);
+  if(cpd && !cpd.municipioId) cpd.municipioId = beberibe.id;
   app._hierarquiaV = V;
   saveApp();
 })();
