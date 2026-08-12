@@ -12,6 +12,20 @@ module.exports = async function handler(req, res) {
 
   const tipoParam = req.query.tipo;
 
+  // ?removerId=X: apaga um único doc órfão (item que sumiu do GeoGrid mas ficou
+  // pra trás no Firestore, porque a sincronização normal só adiciona/atualiza).
+  if (req.query.removerId) {
+    try {
+      const db = getDb();
+      await db.collection('mapa_rede').doc(String(req.query.removerId)).delete();
+      res.status(200).json({ok: true, removido: req.query.removerId});
+    } catch (e) {
+      console.error('remoção por id falhou:', e);
+      res.status(500).json({erro: String(e.message || e)});
+    }
+    return;
+  }
+
   // ?tipo=X&remover=1: apaga do Firestore os itens desse tipo em vez de sincronizar
   // (usado uma vez pra limpar um tipo que saiu de TIPOS_SINCRONIZADOS, ex.: postes).
   if (req.query.remover === '1') {
