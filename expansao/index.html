@@ -880,6 +880,45 @@ document.getElementById('newCityBtn').onclick = () => {
 };
 
 let app = loadApp();
+
+// Orçamento consolidado de expansão (Jebnet) — 4 municípios com KMZ/campo já
+// levantado. Infra externa (cabo, CTO, CEO, splitters, poste, BAP, SUPA,
+// alça, acoplador, arame, tubete) veio só como total do projeto, não item a
+// item por município, então cada cidade abaixo recebe uma única linha de
+// orçamento com o investimento consolidado daquele município (sem inventar
+// rateio item a item que não veio da planilha original).
+(function seedJebnetExpansao(){
+  const municipios = [
+    {nome:'Campestre', casas:888, investimento:76429.99},
+    {nome:'Palmeira', casas:160, investimento:22633.03},
+    {nome:'Parajuru', casas:520, investimento:57356.89},
+    {nome:'Paripueira', casas:360, investimento:39440.32},
+  ];
+  municipios.forEach(m=>{
+    if(app.cidades.some(c=>(c.nome||'').toLowerCase()===m.nome.toLowerCase())) return;
+    const c = blankCidade(m.nome);
+    c.casasRegiao = m.casas;
+    c.materiais = [{
+      id: novoId('m'),
+      nome: 'Infraestrutura externa (cabo 12FO, CTO, CEO, splitters, poste, BAP, SUPA, alça, acoplador, arame, tubete) — investimento consolidado do município',
+      qtd: 1,
+      custo: m.investimento,
+    }];
+    app.cidades.push(c);
+  });
+  if(!app.cidades.some(c=>(c.nome||'').toLowerCase().includes('cpd'))){
+    const cpd = blankCidade('CPD / POP Central — Jebnet (compartilhado entre os 4 municípios)');
+    cpd.materiais = [{
+      id: novoId('m'),
+      nome: 'CPD (rack, nobreak/baterias, OLT Fiberhome, transceivers e acessórios) — investimento consolidado',
+      qtd: 1,
+      custo: 49953.90,
+    }];
+    app.cidades.push(cpd);
+  }
+  saveApp();
+})();
+
 renderAll();
 </script>
 
