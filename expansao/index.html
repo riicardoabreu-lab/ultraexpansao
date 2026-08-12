@@ -177,6 +177,10 @@
 
   .table-scroll{ overflow-x:auto; border-radius:8px; border:1px solid var(--border-soft); }
   table{ width:100%; border-collapse:collapse; min-width:520px; }
+  table.mat-table{ min-width:980px; }
+  table.mat-table td:nth-child(1) input{ min-width:200px; }
+  table.mat-table td:nth-child(6){ min-width:190px; }
+  table.mat-table td:last-child{ white-space:nowrap; }
   thead th{ background:var(--bg-panel-2); color:var(--text-faint); text-transform:uppercase; letter-spacing:.05em; font-size:10.5px; font-weight:600; text-align:right; padding:10px; white-space:nowrap; border-bottom:1px solid var(--border); }
   thead th:first-child{ text-align:left; }
   tbody td{ padding:6px 8px; border-bottom:1px solid var(--border-soft); text-align:right; white-space:nowrap; }
@@ -195,6 +199,36 @@
   .fiber::before{ content:""; position:absolute; top:0; left:-20%; width:20%; height:100%; background:linear-gradient(90deg, transparent, var(--accent), transparent); filter:blur(1px); animation:pulse 5.5s ease-in-out infinite; }
   @keyframes pulse{ 0%{left:-20%;} 55%{left:100%;} 100%{left:100%;} }
   @media (prefers-reduced-motion: reduce){ .fiber::before{ animation:none; left:40%; } }
+
+  /* ---------- tabs (Mapa da Rede / Orçamento) ---------- */
+  .ctabs{ display:flex; gap:6px; margin-bottom:22px; background:var(--bg-panel); padding:6px; border-radius:10px; border:1px solid var(--border-soft); }
+  .ctab-btn{ flex:1; border:none; background:transparent; padding:10px 14px; font-family:var(--disp); font-size:13px; font-weight:700; color:var(--text-dim); border-radius:7px; cursor:pointer; transition:.15s; }
+  .ctab-btn.active{ background:linear-gradient(135deg,var(--purple),var(--magenta)); color:#fff; }
+  .ctab-panel{ display:none; }
+  .ctab-panel.active{ display:block; }
+
+  /* ---------- resumo cards ---------- */
+  .resumo-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin-bottom:20px; }
+  .card-resumo{ background:var(--bg-panel); border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:var(--radius); padding:16px 18px; }
+  .card-resumo.total{ border-left-color:#fbbf24; background:linear-gradient(180deg, rgba(251,191,36,.08), var(--bg-panel) 60%); }
+  .card-resumo .label{ font-size:10.5px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.06em; margin-bottom:7px; }
+  .card-resumo .valor{ font-family:var(--mono); font-weight:600; font-size:19px; color:var(--accent); }
+  .card-resumo.total .valor{ color:#fbbf24; }
+
+  /* ---------- legenda origem do dado ---------- */
+  .legenda{ display:flex; gap:16px; align-items:center; flex-wrap:wrap; font-size:11.5px; color:var(--text-dim); margin-bottom:16px; }
+  .legenda .sw{ display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:6px; vertical-align:middle; }
+
+  /* ---------- linhas da tabela de materiais coloridas por origem ---------- */
+  tr.origem-kmz td{ background:rgba(0,212,200,.07); }
+  tr.origem-kmz td.qtd-cell{ color:var(--accent); font-weight:600; }
+  tr.origem-user td.qtd-cell{ color:var(--good); font-weight:600; }
+  tr.origem-pendente td{ background:rgba(251,191,36,.09); }
+  select.origem-sel{ background:var(--bg-inset); border:1px solid var(--border); color:var(--text); font-family:var(--mono); font-size:11.5px; padding:6px 7px; border-radius:6px; width:100%; }
+
+  /* ---------- comparativo entre cidades ---------- */
+  .comp-table td, .comp-table th{ text-align:right; }
+  .comp-table td:first-child, .comp-table th:first-child{ text-align:left; }
 
   .map-toolbar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
   .upload-btn{ background:var(--accent); color:#03211d; border:none; padding:10px 16px; border-radius:8px; font-size:12.5px; font-weight:700; cursor:pointer; }
@@ -361,88 +395,168 @@ function mainSkeleton(){
       <input class="cname-input" id="in-nome" value="${esc(c.nome)}" placeholder="Nome da cidade">
     </div>
 
-    <div class="sec-block">
-      <h3>Dados da região</h3>
-      <div class="field-grid">
-        <div class="field"><label>Provedores concorrentes na região</label><input id="in-provedores" type="number" min="0" step="1"></div>
-        <div class="field"><label>Clientes a atender</label><input id="in-clientes" type="number" min="0" step="1"></div>
-        <div class="field"><label>Casas na região</label><input id="in-casas" type="number" min="0" step="1"></div>
+    <div class="ctabs">
+      <button class="ctab-btn active" data-tab="mapa">🗺️ Mapa da Rede</button>
+      <button class="ctab-btn" data-tab="orcamento">💰 Orçamento</button>
+    </div>
+
+    <div class="ctab-panel active" id="ctab-mapa">
+      <div class="sec-block">
+        <h3>Dados da região</h3>
+        <div class="field-grid">
+          <div class="field"><label>Provedores concorrentes na região</label><input id="in-provedores" type="number" min="0" step="1"></div>
+          <div class="field"><label>Clientes a atender</label><input id="in-clientes" type="number" min="0" step="1"></div>
+          <div class="field"><label>Casas na região</label><input id="in-casas" type="number" min="0" step="1"></div>
+        </div>
+      </div>
+
+      <div class="sec-block">
+        <h3>Concorrência no bairro (CFO)</h3>
+        <p class="hint">Busca automática pelo nome acima ("${esc(c.nome)}") nos dados já importados do Map Marker no painel CFO — sem precisar digitar manualmente.</p>
+        <div id="concorrenciaBlock"></div>
+      </div>
+
+      <div class="fiber"></div>
+
+      <div class="sec-block">
+        <h3>Rede a ser expandida (KMZ)</h3>
+        <p class="hint">Envie o KMZ/KML com o projeto de rede planejado para esta cidade.</p>
+        <div class="map-toolbar">
+          <button class="upload-btn" id="kmzUploadBtn">Carregar KMZ / KML</button>
+          <input type="file" id="kmzInput" accept=".kmz,.kml">
+          <button class="ghost-btn" id="kmzDownloadBtn" style="display:none;">Baixar arquivo original</button>
+          <button class="ghost-btn" id="kmzRemoveBtn" style="display:none;">Remover rede</button>
+        </div>
+        <div id="mapHolder"></div>
+        <div class="map-meta" id="mapMeta"></div>
+        <div class="kpi-row" id="kmzStatsBlock" style="display:none;">
+          <div class="kpi"><div class="label">Caixas / CTOs</div><div class="value" id="kpi-kmz-caixas">—</div></div>
+          <div class="kpi"><div class="label">CEOs (emenda)</div><div class="value" id="kpi-kmz-ceos">—</div></div>
+          <div class="kpi"><div class="label">Segmentos de cabo</div><div class="value" id="kpi-kmz-cabos">—</div></div>
+          <div class="kpi hi"><div class="label">Metragem total</div><div class="value" id="kpi-kmz-metragem">—</div></div>
+        </div>
+      </div>
+
+      <div class="fiber"></div>
+
+      <div class="sec-block">
+        <h3>Comparativo entre cidades</h3>
+        <p class="hint">Visão geral de todas as cidades cadastradas neste painel.</p>
+        <div id="comparativoBlock"></div>
       </div>
     </div>
 
-    <div class="sec-block">
-      <h3>Concorrência no bairro (CFO)</h3>
-      <p class="hint">Busca automática pelo nome acima ("${esc(c.nome)}") nos dados já importados do Map Marker no painel CFO — sem precisar digitar manualmente.</p>
-      <div id="concorrenciaBlock"></div>
-    </div>
+    <div class="ctab-panel" id="ctab-orcamento">
+      <div class="resumo-row" id="resumoCards"></div>
 
-    <div class="fiber"></div>
-
-    <div class="sec-block">
-      <h3>Rede a ser expandida (KMZ)</h3>
-      <p class="hint">Envie o KMZ/KML com o projeto de rede planejado para esta cidade.</p>
-      <div class="map-toolbar">
-        <button class="upload-btn" id="kmzUploadBtn">Carregar KMZ / KML</button>
-        <input type="file" id="kmzInput" accept=".kmz,.kml">
-        <button class="ghost-btn" id="kmzDownloadBtn" style="display:none;">Baixar arquivo original</button>
-        <button class="ghost-btn" id="kmzRemoveBtn" style="display:none;">Remover rede</button>
+      <div class="legenda">
+        <span><span class="sw" style="background:rgba(0,212,200,.35);border:1px solid var(--accent);"></span>Contagem do KMZ</span>
+        <span><span class="sw" style="background:rgba(52,211,153,.3);border:1px solid var(--good);"></span>Dado real de campo</span>
+        <span><span class="sw" style="background:rgba(251,191,36,.35);border:1px solid #fbbf24;"></span>Aguardando cotação</span>
       </div>
-      <div id="mapHolder"></div>
-      <div class="map-meta" id="mapMeta"></div>
-      <div class="kpi-row" id="kmzStatsBlock" style="display:none;">
-        <div class="kpi"><div class="label">Caixas / CTOs</div><div class="value" id="kpi-kmz-caixas">—</div></div>
-        <div class="kpi"><div class="label">CEOs (emenda)</div><div class="value" id="kpi-kmz-ceos">—</div></div>
-        <div class="kpi"><div class="label">Segmentos de cabo</div><div class="value" id="kpi-kmz-cabos">—</div></div>
-        <div class="kpi hi"><div class="label">Metragem total</div><div class="value" id="kpi-kmz-metragem">—</div></div>
-      </div>
-    </div>
 
-    <div class="fiber"></div>
-
-    <div class="sec-block">
-      <h3>Orçamento de materiais</h3>
-      <p class="hint">Lista de materiais estimados para essa expansão.</p>
-      <div class="table-scroll">
-        <table>
-          <thead><tr><th>Material</th><th>Quantidade</th><th>Custo unitário (R$)</th><th>Subtotal</th><th></th></tr></thead>
-          <tbody id="materiaisBody"></tbody>
-          <tfoot><tr><td colspan="3">Total do orçamento</td><td class="computed" id="materiaisTotal">—</td><td></td></tr></tfoot>
-        </table>
+      <div class="sec-block">
+        <h3>Orçamento de materiais</h3>
+        <p class="hint">Item, unidade, quantidade, valor unitário e de onde veio cada número — tudo editável.</p>
+        <div class="table-scroll">
+          <table class="mat-table">
+            <thead><tr><th>Item</th><th>Unid.</th><th>Quantidade</th><th>Vlr. Unit.</th><th>Vlr. Total</th><th>Origem</th><th></th></tr></thead>
+            <tbody id="materiaisBody"></tbody>
+            <tfoot><tr><td colspan="4">Total do orçamento</td><td class="computed" id="materiaisTotal">—</td><td colspan="2"></td></tr></tfoot>
+          </table>
+        </div>
+        <button class="add-row" id="addMaterialBtn">+ Adicionar item</button>
       </div>
-      <button class="add-row" id="addMaterialBtn">+ Adicionar material</button>
     </div>
   `;
 }
 
+const ORIGEM_LABEL = { kmz:'Contagem do KMZ', user:'Dado real de campo', pendente:'Aguardando cotação' };
+
 function buildMateriaisTable(){
   const c = current(); if(!c) return;
   const tbody = document.getElementById('materiaisBody');
-  tbody.innerHTML = c.materiais.map(r=>`
-    <tr data-id="${r.id}">
+  if(!tbody) return;
+  tbody.innerHTML = c.materiais.map(r=>{
+    const origemTipo = r.origemTipo || 'user';
+    return `
+    <tr data-id="${r.id}" class="origem-${origemTipo}">
       <td><input class="mat-nome" value="${esc(r.nome)}" placeholder="Ex: Cabo 12FO"></td>
-      <td><input class="mat-qtd" type="number" min="0" step="1" value="${r.qtd||0}"></td>
+      <td><input class="mat-unidade" value="${esc(r.unidade||'')}" placeholder="Unid." style="width:64px;"></td>
+      <td class="qtd-cell"><input class="mat-qtd" type="number" min="0" step="1" value="${r.qtd||0}"></td>
       <td><input class="mat-custo" type="number" min="0" step="0.01" value="${r.custo||0}"></td>
       <td class="computed">${fmtBRL((r.qtd||0)*(r.custo||0))}</td>
+      <td>
+        <select class="origem-sel mat-origem-tipo">
+          <option value="kmz"${origemTipo==='kmz'?' selected':''}>Contagem do KMZ</option>
+          <option value="user"${origemTipo==='user'?' selected':''}>Dado real de campo</option>
+          <option value="pendente"${origemTipo==='pendente'?' selected':''}>Aguardando cotação</option>
+        </select>
+        <input class="mat-origem-texto" value="${esc(r.origemTexto||'')}" placeholder="Detalhe (opcional)" style="margin-top:5px;font-size:11px;">
+      </td>
       <td><button class="rm-btn" data-id="${r.id}" title="Remover">✕</button></td>
-    </tr>
-  `).join('') || `<tr><td colspan="5" style="color:var(--text-dim);">Nenhum material adicionado ainda.</td></tr>`;
+    </tr>`;
+  }).join('') || `<tr><td colspan="7" style="color:var(--text-dim);">Nenhum item adicionado ainda.</td></tr>`;
 
   tbody.querySelectorAll('tr[data-id]').forEach(row=>{
     const id = row.dataset.id;
     const item = c.materiais.find(r=>r.id===id);
     row.querySelector('.mat-nome').oninput = e=>{ item.nome = e.target.value; saveApp(); renderSidebar(); };
-    row.querySelector('.mat-qtd').oninput = e=>{ item.qtd = parseFloat(e.target.value)||0; buildMateriaisTable(); saveApp(); renderSidebar(); };
-    row.querySelector('.mat-custo').oninput = e=>{ item.custo = parseFloat(e.target.value)||0; buildMateriaisTable(); saveApp(); renderSidebar(); };
+    row.querySelector('.mat-unidade').oninput = e=>{ item.unidade = e.target.value; saveApp(); };
+    row.querySelector('.mat-qtd').oninput = e=>{ item.qtd = parseFloat(e.target.value)||0; buildMateriaisTable(); renderResumoCards(); saveApp(); renderSidebar(); };
+    row.querySelector('.mat-custo').oninput = e=>{ item.custo = parseFloat(e.target.value)||0; buildMateriaisTable(); renderResumoCards(); saveApp(); renderSidebar(); };
+    row.querySelector('.mat-origem-tipo').onchange = e=>{ item.origemTipo = e.target.value; buildMateriaisTable(); saveApp(); };
+    row.querySelector('.mat-origem-texto').oninput = e=>{ item.origemTexto = e.target.value; saveApp(); };
   });
   tbody.querySelectorAll('.rm-btn').forEach(btn=>{
     btn.onclick = ()=>{
       c.materiais = c.materiais.filter(r=>r.id!==btn.dataset.id);
-      buildMateriaisTable(); saveApp(); renderSidebar();
+      buildMateriaisTable(); renderResumoCards(); saveApp(); renderSidebar();
     };
   });
 
   const total = c.materiais.reduce((s,r)=>s+(r.qtd||0)*(r.custo||0),0);
   setText('materiaisTotal', fmtBRL(total));
+}
+
+function renderResumoCards(){
+  const c = current(); if(!c) return;
+  const el = document.getElementById('resumoCards');
+  if(!el) return;
+  const porTipo = { kmz:0, user:0, pendente:0 };
+  c.materiais.forEach(r=>{ porTipo[r.origemTipo||'user'] += (r.qtd||0)*(r.custo||0); });
+  const total = porTipo.kmz + porTipo.user + porTipo.pendente;
+  el.innerHTML = `
+    <div class="card-resumo"><div class="label">Contagem do KMZ</div><div class="valor">${fmtBRL(porTipo.kmz)}</div></div>
+    <div class="card-resumo"><div class="label">Dado real de campo</div><div class="valor">${fmtBRL(porTipo.user)}</div></div>
+    <div class="card-resumo total"><div class="label">Total do orçamento</div><div class="valor">${fmtBRL(total)}</div></div>
+  `;
+}
+
+/* ======================================================================
+   COMPARATIVO ENTRE CIDADES
+====================================================================== */
+function renderComparativo(){
+  const el = document.getElementById('comparativoBlock');
+  if(!el) return;
+  if(!app.cidades.length){ el.innerHTML = ''; return; }
+  const rows = app.cidades.map(c=>{
+    const total = (c.materiais||[]).reduce((s,r)=>s+(r.qtd||0)*(r.custo||0),0);
+    const isCurrent = c.id === app.currentId;
+    return `<tr${isCurrent?' style="color:var(--accent);"':''}>
+      <td>${esc(c.nome)}</td>
+      <td>${fmtNum(c.casasRegiao)}</td>
+      <td>${fmtNum(c.clientesAtender)}</td>
+      <td>${fmtNum(c.provedoresRegiao)}</td>
+      <td>${fmtBRL(total)}</td>
+    </tr>`;
+  }).join('');
+  const totalGeral = app.cidades.reduce((s,c)=>s+(c.materiais||[]).reduce((s2,r)=>s2+(r.qtd||0)*(r.custo||0),0), 0);
+  el.innerHTML = `<div class="table-scroll"><table class="comp-table">
+    <thead><tr><th>Cidade</th><th>Casas</th><th>Clientes a atender</th><th>Provedores</th><th>Orçamento</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr><td colspan="4">Total geral</td><td class="computed">${fmtBRL(totalGeral)}</td></tr></tfoot>
+  </table></div>`;
 }
 
 /* ======================================================================
@@ -569,18 +683,30 @@ function scheduleConcorrencia(){
 function bindAll(){
   const c = current(); if(!c) return;
 
-  document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); scheduleConcorrencia(); };
+  document.querySelectorAll('.ctab-btn').forEach(btn=>{
+    btn.onclick = ()=>{
+      document.querySelectorAll('.ctab-btn').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('.ctab-panel').forEach(p=>p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('ctab-'+btn.dataset.tab).classList.add('active');
+      if(btn.dataset.tab==='mapa'){ initMapIfNeeded(); renderComparativo(); }
+    };
+  });
+
+  document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); renderComparativo(); scheduleConcorrencia(); };
   [['in-provedores','provedoresRegiao'],['in-clientes','clientesAtender'],['in-casas','casasRegiao']].forEach(([id,field])=>{
     const el = document.getElementById(id);
     el.value = c[field] || '';
-    el.oninput = e=>{ c[field] = parseFloat(e.target.value)||0; saveApp(); renderSidebar(); };
+    el.oninput = e=>{ c[field] = parseFloat(e.target.value)||0; saveApp(); renderSidebar(); renderComparativo(); };
   });
 
   document.getElementById('addMaterialBtn').onclick = ()=>{
-    c.materiais.push({ id: novoId('m'), nome:'', qtd:0, custo:0 });
-    buildMateriaisTable(); saveApp();
+    c.materiais.push({ id: novoId('m'), nome:'', unidade:'', qtd:0, custo:0, origemTipo:'user', origemTexto:'' });
+    buildMateriaisTable(); renderResumoCards(); saveApp();
   };
   buildMateriaisTable();
+  renderResumoCards();
+  renderComparativo();
   updateConcorrencia();
 
   bindKmzControls();
@@ -881,13 +1007,13 @@ document.getElementById('newCityBtn').onclick = () => {
 
 let app = loadApp();
 
-// Orçamento consolidado de expansão (Jebnet) — 4 municípios com KMZ/campo já
-// levantado. Infra externa (cabo, CTO, CEO, splitters, poste, BAP, SUPA,
-// alça, acoplador, arame, tubete) veio só como total do projeto, não item a
-// item por município, então cada cidade abaixo recebe uma única linha de
-// orçamento com o investimento consolidado daquele município (sem inventar
-// rateio item a item que não veio da planilha original).
-(function seedJebnetExpansao(){
+// Orçamento consolidado de expansão (Infolink) — 4 municípios com KMZ/campo
+// já levantado, mais o CPD/POP compartilhado entre eles. SEED_V de cada
+// cidade marca até onde a migração automática já foi aplicada, pra
+// atualizar quem recebeu a versão 1 (linha única) pra versão 2 (itens
+// detalhados) sem duplicar nem apagar edição manual feita depois disso.
+(function seedInfolinkExpansao(){
+  const SEED_V = 2;
   const municipios = [
     {nome:'Campestre', casas:888, investimento:76429.99},
     {nome:'Palmeira', casas:160, investimento:22633.03},
@@ -895,26 +1021,61 @@ let app = loadApp();
     {nome:'Paripueira', casas:360, investimento:39440.32},
   ];
   municipios.forEach(m=>{
-    if(app.cidades.some(c=>(c.nome||'').toLowerCase()===m.nome.toLowerCase())) return;
-    const c = blankCidade(m.nome);
+    let c = app.cidades.find(x=>(x.nome||'').toLowerCase()===m.nome.toLowerCase());
+    if(c && (c._seedV||0) >= SEED_V) return;
+    if(!c){ c = blankCidade(m.nome); app.cidades.push(c); }
     c.casasRegiao = m.casas;
     c.materiais = [{
       id: novoId('m'),
-      nome: 'Infraestrutura externa (cabo 12FO, CTO, CEO, splitters, poste, BAP, SUPA, alça, acoplador, arame, tubete) — investimento consolidado do município',
+      nome: 'Infraestrutura externa (cabo 12FO, CTO, CEO, splitters, poste, BAP, SUPA, alça, acoplador, arame, tubete)',
+      unidade: 'Verba',
       qtd: 1,
       custo: m.investimento,
+      origemTipo: 'user',
+      origemTexto: 'Investimento consolidado do município (contagem do KMZ + dado real de campo, planilha mestra)',
     }];
-    app.cidades.push(c);
+    c._seedV = SEED_V;
   });
-  if(!app.cidades.some(c=>(c.nome||'').toLowerCase().includes('cpd'))){
-    const cpd = blankCidade('CPD / POP Central — Jebnet (compartilhado entre os 4 municípios)');
-    cpd.materiais = [{
-      id: novoId('m'),
-      nome: 'CPD (rack, nobreak/baterias, OLT Fiberhome, transceivers e acessórios) — investimento consolidado',
-      qtd: 1,
-      custo: 49953.90,
-    }];
-    app.cidades.push(cpd);
+
+  let cpd = app.cidades.find(c=>(c.nome||'').toLowerCase().includes('cpd'));
+  if(!cpd || (cpd._seedV||0) < SEED_V){
+    if(!cpd){ cpd = blankCidade('CPD / POP Central (compartilhado entre os 4 municípios)'); app.cidades.push(cpd); }
+    // "Jebnet" foi um erro de marca da primeira versão deste seed (o
+    // projeto é da Infolink) — corrige o nome se ainda estiver assim.
+    if(/jebnet/i.test(cpd.nome)) cpd.nome = 'CPD / POP Central (compartilhado entre os 4 municípios)';
+    const custeados = [
+      ['Frente Falsa Fechada 2U para Rack 19" — Preto (Fibracem)', 2, 23.88, 'Supri Nordeste — Orç. 362355 (04/08/26)'],
+      ['Bateria Estacionária Nobreak 12V 150AH 12MN2500 (Moura)', 4, 1426.00, 'Supri Nordeste — Orç. 362355 (04/08/26)'],
+      ['Bateria Estacionária 12V 115AH 12EV105 (Everon)', 4, 894.00, 'Supri Nordeste — Orç. 362355 (04/08/26)'],
+      ['Fonte Retificadora Nobreak 48V 30A c/ 2 módulos R4815N 15A c/ monitor SMU01B ETP4830-A1 (Huawei)', 1, 3790.00, 'Supri Nordeste — Orç. 362355 (04/08/26)'],
+      ['Injetor POE 200 AT 802.3af/at Gigabit ET (Intelbras)', 1, 156.16, 'Comercial Brasil — Orç. 17861020184417'],
+      ['Cabo Engate Rápido Mod. Bateria CB 600 (Intelbras)', 2, 47.87, 'Comercial Brasil — Orç. 17861020184417'],
+      ['Cabo Flexível 750V 10,00mm — Preto', 6, 12.02, 'Cotação cabo flexível'],
+      ['Cabo Flexível 750V 10,00mm — Vermelho', 6, 12.02, 'Cotação cabo flexível'],
+      ['SFP+ WDM BiDi 1270TX/1330RX, ER SMF 40km, 10G DDM', 2, 220.00, 'Cotação SFP/XFP'],
+      ['SFP+ WDM BiDi 1330TX/1270RX, ER SMF 40km, 10G DDM', 2, 220.00, 'Cotação SFP/XFP'],
+      ['XFP SR, 850nm, MMF 300m, 10G/OC-192 DDM', 1, 260.00, 'Cotação SFP/XFP'],
+      ['OLT Fiberhome AN5500-16, c/ cabos de força DC -48V', 1, 15000.00, 'Preço informado pelo usuário'],
+      ['Placa GC8 (GPON 8 portas, para OLT AN5500-16)', 1, 4900.00, 'Preço informado pelo usuário'],
+      ['Placa GFOA (GPON 16 portas, para OLT AN5500-16)', 1, 7900.00, 'Preço informado pelo usuário'],
+      ['Rack Preto 36U', 1, 2500.00, 'Preço informado pelo usuário'],
+      ['Switch Datacom (modelo a confirmar)', 1, 5000.00, 'Preço informado pelo usuário'],
+    ];
+    const pendentes = [
+      ['No-Break SMS Vision 2200VA', 2],
+      ['Placa HSWA', 2],
+      ['Placa HU2A', 2],
+      ['Ar Condicionado 12.000 BTU', 1],
+    ];
+    cpd.materiais = [
+      ...custeados.map(([nome,qtd,custo,fonte])=>({
+        id: novoId('m'), nome, unidade:'Unid.', qtd, custo, origemTipo:'user', origemTexto: fonte,
+      })),
+      ...pendentes.map(([nome,qtd])=>({
+        id: novoId('m'), nome, unidade:'Unid.', qtd, custo:0, origemTipo:'pendente', origemTexto:'Ainda sem cotação',
+      })),
+    ];
+    cpd._seedV = SEED_V;
   }
   saveApp();
 })();
