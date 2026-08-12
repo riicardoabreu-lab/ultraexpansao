@@ -154,6 +154,22 @@
   }
   input.cname-input:hover, input.cname-input:focus{ border-bottom-color:var(--border); outline:none; }
 
+  /* ---------- banner de topo da cidade (estilo header.page-title do orçamento consolidado) ---------- */
+  .page-banner{
+    background:linear-gradient(135deg,var(--purple),var(--magenta)); border-radius:12px; padding:24px 28px;
+    margin-bottom:24px; box-shadow:0 4px 18px rgba(106,0,184,.35);
+  }
+  .page-banner .cname-input{ color:#fff; width:100%; }
+  .page-banner .cname-input:hover, .page-banner .cname-input:focus{ border-bottom-color:rgba(255,255,255,.5); }
+  .page-banner-sub{ margin:6px 0 0; font-size:12.5px; color:rgba(255,255,255,.85); }
+
+  /* ---------- bloco: card com barra de título colorida (mesmo padrão do orçamento consolidado) ---------- */
+  .bloco{ background:var(--bg-panel); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; margin-bottom:26px; }
+  .bloco-header{ background:linear-gradient(135deg,var(--purple),var(--magenta)); color:#fff; padding:14px 20px; font-family:var(--disp); font-size:15px; font-weight:700; }
+  .bloco-sub{ padding:10px 20px 0; font-size:12px; color:var(--text-faint); font-style:italic; line-height:1.55; }
+  .bloco-body{ padding:18px 20px 20px; }
+  .bloco-body .table-scroll{ margin-top:0; }
+
   .panel{ background:var(--bg-panel); border:1px solid var(--border); border-radius:var(--radius); padding:20px; min-width:0; }
   .sec-block{ margin-bottom:26px; }
   .sec-block > h3{ font-family:var(--disp); font-size:14.5px; font-weight:600; margin:0 0 12px; color:var(--text-dim); }
@@ -188,8 +204,9 @@
   tbody tr:hover{ background:rgba(255,255,255,.02); }
   table input{ background:var(--bg-inset); border:1px solid var(--border); color:var(--text); font-family:var(--mono); font-size:12.5px; padding:7px 8px; border-radius:6px; width:100%; min-width:70px; text-align:right; }
   table td:first-child input{ text-align:left; font-family:var(--body); }
-  tfoot td{ padding:11px 8px; font-weight:600; border-top:1px solid var(--border); background:var(--bg-panel-2); font-family:var(--mono); }
+  tfoot td{ padding:12px 8px; font-weight:700; border-top:2px solid var(--magenta); background:linear-gradient(135deg,var(--purple),var(--magenta)); color:#fff; font-family:var(--mono); }
   .computed{ color:var(--text-dim); font-family:var(--mono); }
+  tfoot .computed{ color:#fff; }
   .rm-btn{ background:transparent; border:1px solid var(--border); color:var(--text-faint); width:26px; height:26px; border-radius:6px; cursor:pointer; font-size:14px; line-height:1; }
   .rm-btn:hover{ border-color:var(--bad); color:var(--bad); }
   .add-row{ margin-top:10px; background:var(--bg-inset); border:1px dashed var(--border); color:var(--text-dim); padding:9px 14px; border-radius:7px; font-size:12.5px; cursor:pointer; }
@@ -224,7 +241,12 @@
   tr.origem-kmz td.qtd-cell{ color:var(--accent); font-weight:600; }
   tr.origem-user td.qtd-cell{ color:var(--good); font-weight:600; }
   tr.origem-pendente td{ background:rgba(251,191,36,.09); }
+  tr.origem-pendente td:first-child::after{ content:"⚠ aguardando cotação"; display:block; margin-top:3px; color:#fbbf24; font-size:10.5px; font-style:italic; font-weight:600; }
   select.origem-sel{ background:var(--bg-inset); border:1px solid var(--border); color:var(--text); font-family:var(--mono); font-size:11.5px; padding:6px 7px; border-radius:6px; width:100%; }
+
+  /* ---------- alerta: itens ainda sem cotação ---------- */
+  .alerta-box{ margin-top:16px; padding:14px 16px; background:rgba(251,191,36,.08); border-left:4px solid #fbbf24; border-radius:6px; font-size:12.5px; color:#e8c874; line-height:1.6; }
+  .alerta-box strong{ display:block; margin-bottom:4px; color:#fbbf24; }
 
   /* ---------- comparativo entre cidades ---------- */
   .comp-table td, .comp-table th{ text-align:right; }
@@ -239,7 +261,7 @@
   .map-empty svg{ opacity:.5; }
   #kmzInput{ display:none; }
 
-  footer{ margin-top:50px; padding-top:24px; border-top:1px solid var(--border-soft); color:var(--text-faint); font-size:11.5px; }
+  footer{ margin-top:50px; padding-top:24px; border-top:1px solid var(--border-soft); color:var(--text-faint); font-size:11.5px; text-align:center; }
 </style>
 </head>
 <body>
@@ -391,8 +413,9 @@ function mainSkeleton(){
     return;
   }
   main.innerHTML = `
-    <div class="phead-row">
+    <div class="page-banner">
       <input class="cname-input" id="in-nome" value="${esc(c.nome)}" placeholder="Nome da cidade">
+      <p class="page-banner-sub">Mapa da rede real (KMZ) + orçamento cruzando contagem geoespacial, dados de campo e cotações reais</p>
     </div>
 
     <div class="ctabs">
@@ -401,48 +424,48 @@ function mainSkeleton(){
     </div>
 
     <div class="ctab-panel active" id="ctab-mapa">
-      <div class="sec-block">
-        <h3>Dados da região</h3>
-        <div class="field-grid">
-          <div class="field"><label>Provedores concorrentes na região</label><input id="in-provedores" type="number" min="0" step="1"></div>
-          <div class="field"><label>Clientes a atender</label><input id="in-clientes" type="number" min="0" step="1"></div>
-          <div class="field"><label>Casas na região</label><input id="in-casas" type="number" min="0" step="1"></div>
+      <div class="bloco">
+        <div class="bloco-header">Dados da região</div>
+        <div class="bloco-body">
+          <div class="field-grid">
+            <div class="field"><label>Provedores concorrentes na região</label><input id="in-provedores" type="number" min="0" step="1"></div>
+            <div class="field"><label>Clientes a atender</label><input id="in-clientes" type="number" min="0" step="1"></div>
+            <div class="field"><label>Casas na região</label><input id="in-casas" type="number" min="0" step="1"></div>
+          </div>
         </div>
       </div>
 
-      <div class="sec-block">
-        <h3>Concorrência no bairro (CFO)</h3>
-        <p class="hint">Busca automática pelo nome acima ("${esc(c.nome)}") nos dados já importados do Map Marker no painel CFO — sem precisar digitar manualmente.</p>
-        <div id="concorrenciaBlock"></div>
+      <div class="bloco">
+        <div class="bloco-header">Concorrência no bairro (CFO)</div>
+        <div class="bloco-sub">Busca automática pelo nome acima ("${esc(c.nome)}") nos dados já importados do Map Marker no painel CFO — sem precisar digitar manualmente.</div>
+        <div class="bloco-body" id="concorrenciaBlock"></div>
       </div>
 
-      <div class="fiber"></div>
-
-      <div class="sec-block">
-        <h3>Rede a ser expandida (KMZ)</h3>
-        <p class="hint">Envie o KMZ/KML com o projeto de rede planejado para esta cidade.</p>
-        <div class="map-toolbar">
-          <button class="upload-btn" id="kmzUploadBtn">Carregar KMZ / KML</button>
-          <input type="file" id="kmzInput" accept=".kmz,.kml">
-          <button class="ghost-btn" id="kmzDownloadBtn" style="display:none;">Baixar arquivo original</button>
-          <button class="ghost-btn" id="kmzRemoveBtn" style="display:none;">Remover rede</button>
-        </div>
-        <div id="mapHolder"></div>
-        <div class="map-meta" id="mapMeta"></div>
-        <div class="kpi-row" id="kmzStatsBlock" style="display:none;">
-          <div class="kpi"><div class="label">Caixas / CTOs</div><div class="value" id="kpi-kmz-caixas">—</div></div>
-          <div class="kpi"><div class="label">CEOs (emenda)</div><div class="value" id="kpi-kmz-ceos">—</div></div>
-          <div class="kpi"><div class="label">Segmentos de cabo</div><div class="value" id="kpi-kmz-cabos">—</div></div>
-          <div class="kpi hi"><div class="label">Metragem total</div><div class="value" id="kpi-kmz-metragem">—</div></div>
+      <div class="bloco">
+        <div class="bloco-header">Rede a ser expandida (KMZ)</div>
+        <div class="bloco-sub">Envie o KMZ/KML com o projeto de rede planejado para esta cidade.</div>
+        <div class="bloco-body">
+          <div class="map-toolbar">
+            <button class="upload-btn" id="kmzUploadBtn">Carregar KMZ / KML</button>
+            <input type="file" id="kmzInput" accept=".kmz,.kml">
+            <button class="ghost-btn" id="kmzDownloadBtn" style="display:none;">Baixar arquivo original</button>
+            <button class="ghost-btn" id="kmzRemoveBtn" style="display:none;">Remover rede</button>
+          </div>
+          <div id="mapHolder"></div>
+          <div class="map-meta" id="mapMeta"></div>
+          <div class="kpi-row" id="kmzStatsBlock" style="display:none;">
+            <div class="kpi"><div class="label">Caixas / CTOs</div><div class="value" id="kpi-kmz-caixas">—</div></div>
+            <div class="kpi"><div class="label">CEOs (emenda)</div><div class="value" id="kpi-kmz-ceos">—</div></div>
+            <div class="kpi"><div class="label">Segmentos de cabo</div><div class="value" id="kpi-kmz-cabos">—</div></div>
+            <div class="kpi hi"><div class="label">Metragem total</div><div class="value" id="kpi-kmz-metragem">—</div></div>
+          </div>
         </div>
       </div>
 
-      <div class="fiber"></div>
-
-      <div class="sec-block">
-        <h3>Comparativo entre cidades</h3>
-        <p class="hint">Visão geral de todas as cidades cadastradas neste painel.</p>
-        <div id="comparativoBlock"></div>
+      <div class="bloco">
+        <div class="bloco-header">Comparativo entre cidades</div>
+        <div class="bloco-sub">Visão geral de todas as cidades cadastradas neste painel.</div>
+        <div class="bloco-body" id="comparativoBlock"></div>
       </div>
     </div>
 
@@ -455,19 +478,24 @@ function mainSkeleton(){
         <span><span class="sw" style="background:rgba(251,191,36,.35);border:1px solid #fbbf24;"></span>Aguardando cotação</span>
       </div>
 
-      <div class="sec-block">
-        <h3>Orçamento de materiais</h3>
-        <p class="hint">Item, unidade, quantidade, valor unitário e de onde veio cada número — tudo editável.</p>
-        <div class="table-scroll">
-          <table class="mat-table">
-            <thead><tr><th>Item</th><th>Unid.</th><th>Quantidade</th><th>Vlr. Unit.</th><th>Vlr. Total</th><th>Origem</th><th></th></tr></thead>
-            <tbody id="materiaisBody"></tbody>
-            <tfoot><tr><td colspan="4">Total do orçamento</td><td class="computed" id="materiaisTotal">—</td><td colspan="2"></td></tr></tfoot>
-          </table>
+      <div class="bloco">
+        <div class="bloco-header">Orçamento de materiais</div>
+        <div class="bloco-sub">Item, unidade, quantidade, valor unitário e de onde veio cada número — tudo editável.</div>
+        <div class="bloco-body">
+          <div class="table-scroll">
+            <table class="mat-table">
+              <thead><tr><th>Item</th><th>Unid.</th><th>Quantidade</th><th>Vlr. Unit.</th><th>Vlr. Total</th><th>Origem da Quantidade</th><th></th></tr></thead>
+              <tbody id="materiaisBody"></tbody>
+              <tfoot><tr><td colspan="4">TOTAL GERAL</td><td class="computed" id="materiaisTotal">—</td><td colspan="2"></td></tr></tfoot>
+            </table>
+          </div>
+          <button class="add-row" id="addMaterialBtn">+ Adicionar item</button>
+          <div id="alertaPendentes"></div>
         </div>
-        <button class="add-row" id="addMaterialBtn">+ Adicionar item</button>
       </div>
     </div>
+
+    <footer>Orçamento e mapa consolidados a partir de KMZ, cotações de fornecedores e dados reais de campo · Expansão Infolink</footer>
   `;
 }
 
@@ -517,6 +545,19 @@ function buildMateriaisTable(){
 
   const total = c.materiais.reduce((s,r)=>s+(r.qtd||0)*(r.custo||0),0);
   setText('materiaisTotal', fmtBRL(total));
+  renderAlertaPendentes();
+}
+
+function renderAlertaPendentes(){
+  const c = current(); if(!c) return;
+  const el = document.getElementById('alertaPendentes');
+  if(!el) return;
+  const pendentes = c.materiais.filter(r=>(r.origemTipo||'user')==='pendente' && r.nome);
+  if(!pendentes.length){ el.innerHTML=''; return; }
+  el.innerHTML = `<div class="alerta-box">
+    <strong>Itens ainda sem cotação / quantidade</strong>
+    ${pendentes.map(r=>`${r.qtd?r.qtd+'x ':''}${esc(r.nome)}`).join(' · ')}
+  </div>`;
 }
 
 function renderResumoCards(){
@@ -529,7 +570,7 @@ function renderResumoCards(){
   el.innerHTML = `
     <div class="card-resumo"><div class="label">Contagem do KMZ</div><div class="valor">${fmtBRL(porTipo.kmz)}</div></div>
     <div class="card-resumo"><div class="label">Dado real de campo</div><div class="valor">${fmtBRL(porTipo.user)}</div></div>
-    <div class="card-resumo total"><div class="label">Total do orçamento</div><div class="valor">${fmtBRL(total)}</div></div>
+    <div class="card-resumo total"><div class="label">Total Geral (itens já cotados/levantados)</div><div class="valor">${fmtBRL(total)}</div></div>
   `;
 }
 
@@ -706,6 +747,7 @@ function bindAll(){
   };
   buildMateriaisTable();
   renderResumoCards();
+  renderAlertaPendentes();
   renderComparativo();
   updateConcorrencia();
 
