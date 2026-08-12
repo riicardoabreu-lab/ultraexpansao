@@ -29,7 +29,18 @@ function corDaFibra(numero) {
 // de uma CTO - não vale a pena pré-sincronizar isso pras ~1600 CTOs de uma vez
 // (é uma chamada por item na API do GeoGrid). Devolve o splitter (ex.: "1x8") e
 // qual fibra (número + cor) alimenta a entrada do splitter dessa CTO.
+// Antes só a página do mapa-campo tinha senha (protege a tela, não a API) - quem
+// descobrisse essa URL conseguia consultar splitter/fibra de qualquer CTO sem
+// nunca passar pela senha. Agora exige um token fixo (MAPA_CAMPO_TOKEN) que o
+// front só manda depois de validar a senha - mesmo nível de proteção (afasta
+// acesso casual/roteiro automático, não é criptografia de verdade), mas fecha
+// o acesso direto via URL.
 module.exports = async function handler(req, res) {
+  if (req.headers['x-mapa-campo-token'] !== process.env.MAPA_CAMPO_TOKEN) {
+    res.status(403).json({erro: 'não autorizado'});
+    return;
+  }
+
   const id = req.query.id;
   if (!id) {
     res.status(400).json({erro: 'informe ?id='});

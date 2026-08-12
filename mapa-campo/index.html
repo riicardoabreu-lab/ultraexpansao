@@ -10,6 +10,12 @@
   // navegador do usuário) - não é proteção real. TROQUE antes de divulgar o link.
   const SENHA_CAMPO = 'tenbej';
   window._SENHA_CAMPO = SENHA_CAMPO;
+  // Enviado como header nas chamadas à API (ver carregarEquipamento) pra fechar
+  // o acesso direto via URL a /api/geogrid-equipamento - sem isso, bastava
+  // descobrir a URL (visível no código-fonte) pra consultar dados de qualquer
+  // CTO sem nunca passar pela senha acima.
+  const MAPA_CAMPO_TOKEN = '719583128f1055f7b2b457b8360d9365eb4192cbc17d9168';
+  window._MAPA_CAMPO_TOKEN = MAPA_CAMPO_TOKEN;
 </script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -405,7 +411,9 @@ async function carregarEquipamento(id, tipoItem){
   const el = document.getElementById(`equip-${id}`);
   if (!el) return;
   try {
-    const res = await fetch(`/api/geogrid-equipamento?id=${id}`);
+    const res = await fetch(`/api/geogrid-equipamento?id=${id}`, {
+      headers: {'x-mapa-campo-token': window._MAPA_CAMPO_TOKEN},
+    });
     const dados = await res.json();
     if (!dados.ok) { el.textContent = 'não foi possível carregar detalhes técnicos'; return; }
     const partes = [];
