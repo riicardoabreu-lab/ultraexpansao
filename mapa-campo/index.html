@@ -48,8 +48,6 @@
 </script>
 <title>Mapa de Campo · Jebnet</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
 <style>
   :root{
     /* Paleta oficial Jebnet (extraída de jebnet.com.br) */
@@ -116,6 +114,7 @@
   .popup-item .tipo{font-size:11px; color:var(--cyan); text-transform:uppercase; letter-spacing:.4px;}
   .popup-item .sigla{font-size:15px; font-weight:700; margin:2px 0 6px;}
   .popup-item .loc{font-size:12px; color:var(--muted);}
+  .cor-porta{display:inline-block; width:10px; height:10px; border-radius:50%; border:1px solid rgba(255,255,255,.5); margin:0 3px 0 8px; vertical-align:middle;}
   .popup-item a{display:inline-block; margin-top:8px; font-size:12px; color:var(--cyan);}
   .popup-item .btn-navegar{
     display:block; text-align:center; margin-top:10px; padding:9px 10px; border-radius:8px;
@@ -125,6 +124,9 @@
 
   .leaflet-control-layers{background:var(--panel) !important; color:var(--text) !important; border:1px solid var(--border) !important;}
   .leaflet-control-layers-toggle{filter:invert(1);}
+  /* O controle de camadas (canto superior direito, nativo do Leaflet) ficava embaixo
+     do botão "Sair" do cabeçalho - empurra pra baixo da faixa do cabeçalho. */
+  .leaflet-top.leaflet-right{top:64px;}
 
   #pastasSidebar{
     position:absolute; top:0; left:0; bottom:0; z-index:1600;
@@ -249,7 +251,7 @@
 <button class="locate-btn" id="locateBtn" title="Minha localização">📍</button>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
 // Cor/rótulo/visibilidade padrão por tipo de item do GeoGrid.
 const TIPOS = {
@@ -259,6 +261,7 @@ const TIPOS = {
   estacao:     {label: 'Estações',           color: '#4a90d9', default: true},
   pontoAcesso: {label: 'Pontos de acesso',   color: '#e94e77', default: true},
   interesse:   {label: 'Interesse',          color: '#f1c40f', default: true},
+  reserva:     {label: 'Reservas (futuras caixas)', color: '#ffffff', default: true},
 };
 
 const map = L.map('map', {preferCanvas: true, zoomControl: false}).setView([-3.49, -39.66], 12);
@@ -275,21 +278,22 @@ const ruas = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 });
 satelite.addTo(map);
 
-// Um cluster group por tipo, permite ligar/desligar camada por camada.
+// Um grupo por tipo, permite ligar/desligar camada por camada. Sem agrupamento -
+// todas as caixas ficam visíveis o tempo todo, em qualquer nível de zoom.
 const clusters = {};
 const overlays = {};
 for (const tipo in TIPOS) {
   const cfg = TIPOS[tipo];
-  clusters[tipo] = L.markerClusterGroup({
-    maxClusterRadius: 60,
-    iconCreateFunction: cluster => L.divIcon({
-      html: `<div style="background:${cfg.color};width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#111;font-weight:700;font-size:12px;border:2px solid rgba(255,255,255,.5);">${cluster.getChildCount()}</div>`,
-      className: '', iconSize: [34, 34]
-    })
-  });
+  clusters[tipo] = L.layerGroup();
   overlays[`${cfg.label} <span class="contagem" data-tipo="${tipo}"></span>`] = clusters[tipo];
   if (cfg.default) clusters[tipo].addTo(map);
 }
+
+// Camada de cabos: lida de um arquivo estático (cabos.kmz, exportado manualmente
+// do GeoGrid pela equipe) - não vem da API, que não expõe traçado de cabo nenhum.
+// Ver carregarCabos() logo abaixo.
+const cabosLayer = L.layerGroup().addTo(map);
+overlays['Cabos <span class="contagem-cabos" id="contagemCabos"></span>'] = cabosLayer;
 
 L.control.layers({'Satélite': satelite, 'Ruas': ruas}, overlays, {collapsed: true, position: 'topright'}).addTo(map);
 
@@ -298,21 +302,64 @@ const contagens = {};
 
 function iconePara(tipo){
   const cor = (TIPOS[tipo] || {color:'#999'}).color;
-  return L.circleMarker([0,0], {radius: 7, color: '#fff', weight: 1.5, fillColor: cor, fillOpacity: .9});
+  // Reserva é branca (posição planejada, ainda sem caixa instalada) - contorno
+  // escuro pra não sumir contra fundo claro (a borda padrão também é branca).
+  const borda = tipo === 'reserva' ? '#333' : '#fff';
+  // pane 'markerPane' (nativo do Leaflet, zIndex mais alto que a camada dos cabos)
+  // garante que os itens sempre desenham por cima dos cabos, não importa a ordem
+  // que os dados chegam.
+  return L.circleMarker([0,0], {radius: 7, color: borda, weight: 1.5, fillColor: cor, fillOpacity: .9, pane: 'markerPane'});
 }
 
-function popupHtml(data){
+function popupHtml(data, id){
   const tipo = TIPOS[data.item] ? TIPOS[data.item].label : (data.item || '—');
   const loc = [data.localidade, data.municipio].filter(Boolean).join(' · ') || '—';
   const destino = `${data.latitude},${data.longitude}`;
   const urlNavegar = `https://www.google.com/maps/dir/?api=1&destination=${destino}&travelmode=driving`;
+  // Cabo/fibra/potência vêm do campo "observacao" do GeoGrid (texto livre digitado
+  // pela equipe) - só existem pra terminal/caixa, e só quando preenchido.
+  const infoTecnica = [
+    data.cabo ? `cabo: ${data.cabo}` : null,
+    data.fibra ? `fibra: ${data.fibra}` : null,
+    data.potencia ? `potência: ${data.potencia}` : null,
+  ].filter(Boolean).map(linha => `<div class="loc">${linha}</div>`).join('');
+  // Splitter + cor das portas vêm de um endpoint separado, carregado sob demanda
+  // quando o popup abre (ver carregarEquipamento) - mais confiável que o texto livre.
+  const equipamento = data.item === 'terminal'
+    ? `<div class="loc" id="equip-${id}">carregando detalhes técnicos…</div>` : '';
   return `<div class="popup-item">
     <div class="tipo">${tipo}</div>
     <div class="sigla">${data.sigla || '(sem sigla)'}</div>
     <div class="loc">${loc}</div>
     <div class="loc">status: ${data.status || '—'}</div>
+    ${infoTecnica}
+    ${equipamento}
     <a class="btn-navegar" href="${urlNavegar}" target="_blank" rel="noopener">🧭 Navegar até aqui</a>
   </div>`;
+}
+
+// Uma "reserva" só interessa mostrar se ainda não virou uma caixa/CTO de verdade -
+// senão a equipe vê marcador duplicado no mesmo lugar. Considera "já resolvida" se
+// tiver um terminal/caixa a menos de 20m.
+const RESERVA_RAIO_METROS = 20;
+function temCaixaPerto(latlng){
+  for (const [, entry] of markersById) {
+    if (entry.tipo !== 'terminal' && entry.tipo !== 'caixa') continue;
+    if (entry.marker.getLatLng().distanceTo(latlng) <= RESERVA_RAIO_METROS) return true;
+  }
+  return false;
+}
+
+// Chamado depois de posicionar um terminal/caixa - esconde reservas que ficaram
+// "resolvidas" por essa caixa ter aparecido perto dela.
+function reavaliarReservasPerto(latlng){
+  for (const [, entry] of markersById) {
+    if (entry.tipo !== 'reserva' || entry.oculta) continue;
+    if (entry.marker.getLatLng().distanceTo(latlng) <= RESERVA_RAIO_METROS) {
+      clusters.reserva.removeLayer(entry.marker);
+      entry.oculta = true;
+    }
+  }
 }
 
 function upsertMarker(id, data){
@@ -329,15 +376,47 @@ function upsertMarker(id, data){
   if (!entry) {
     const marker = iconePara(data.item);
     marker.bindPopup('');
-    clusters[data.item].addLayer(marker);
-    entry = {marker, tipo: data.item};
+    marker.on('popupopen', () => carregarEquipamento(id, data.item));
+    entry = {marker, tipo: data.item, oculta: false};
     markersById.set(id, entry);
     contagens[data.item] = (contagens[data.item] || 0) + 1;
   }
 
-  entry.marker.setLatLng([Number(data.latitude), Number(data.longitude)]);
-  entry.marker.setPopupContent(popupHtml(data));
+  const latlng = [Number(data.latitude), Number(data.longitude)];
+  entry.marker.setLatLng(latlng);
+  entry.marker.setPopupContent(popupHtml(data, id));
   entry.marker._dados = data;
+
+  if (data.item === 'reserva') {
+    entry.oculta = temCaixaPerto(latlng);
+    if (!entry.oculta && !clusters.reserva.hasLayer(entry.marker)) clusters.reserva.addLayer(entry.marker);
+  } else {
+    if (!clusters[data.item].hasLayer(entry.marker)) clusters[data.item].addLayer(entry.marker);
+    if (data.item === 'terminal' || data.item === 'caixa') reavaliarReservasPerto(latlng);
+  }
+}
+
+// Splitter (ex.: "1x8") e a fibra que alimenta a entrada (número + cor, no padrão
+// de 12 cores do provedor) - vem de um endpoint separado (/api/geogrid-equipamento)
+// porque é uma chamada por item na API do GeoGrid; só busca quando o técnico
+// realmente abre o popup daquela CTO, não pra todas de uma vez.
+async function carregarEquipamento(id, tipoItem){
+  if (tipoItem !== 'terminal') return;
+  const el = document.getElementById(`equip-${id}`);
+  if (!el) return;
+  try {
+    const res = await fetch(`/api/geogrid-equipamento?id=${id}`);
+    const dados = await res.json();
+    if (!dados.ok) { el.textContent = 'não foi possível carregar detalhes técnicos'; return; }
+    const partes = [];
+    if (dados.splitter) partes.push(`splitter: ${dados.splitter}`);
+    if (dados.fibra) {
+      partes.push(`<div>fibra de alimentação: <span class="cor-porta" style="background:${dados.fibra.hex}"></span>${dados.fibra.numero} (${dados.fibra.nome})</div>`);
+    }
+    el.innerHTML = partes.join('') || 'sem dados de equipamento cadastrados';
+  } catch (e) {
+    el.textContent = 'não foi possível carregar detalhes técnicos';
+  }
 }
 
 function removeMarker(id){
@@ -362,6 +441,10 @@ function construirIndicePastas(){
   for (const [, entry] of markersById) {
     const d = entry.marker._dados;
     if (!d) continue;
+    // "Raiz" e pastas tipo "Jebnet - Itapipoca" são estruturais do GeoGrid (a pasta
+    // raiz da conta, não um município de verdade) - item caiu direto nela em vez de
+    // estar dentro de uma pasta de município. Não interessa pra navegação.
+    if (d.municipio === 'Raiz' || (d.municipio || '').startsWith('Jebnet')) continue;
     const mun = d.municipio || '(sem município)';
     const loc = d.localidade || '(sem localidade)';
     const ll = entry.marker.getLatLng();
@@ -466,7 +549,7 @@ document.getElementById('searchInput').addEventListener('keydown', e => {
     if (d && d.item === 'terminal' && d.numero === num) {
       Object.values(clusters).forEach(c => { if (!map.hasLayer(c)) map.addLayer(c); });
       map.setView(entry.marker.getLatLng(), 18);
-      clusters.terminal.zoomToShowLayer(entry.marker, () => entry.marker.openPopup());
+      entry.marker.openPopup();
       return;
     }
   }
@@ -510,10 +593,111 @@ document.getElementById('locateBtn').addEventListener('click', function(){
   }, {enableHighAccuracy: true, maximumAge: 5000});
 });
 
+// ---- Cabos (traçado de fibra) ----
+// A API do GeoGrid não expõe geometria de cabo (só o próprio app oficial deles
+// mostra isso, via um canal interno). Alternativa: a equipe exporta um KMZ de
+// dentro do GeoGrid de vez em quando e substitui mapa-campo/cabos.kmz no repo
+// (git push normal) - o mapa lê e desenha sozinho, sem precisar de mais nada.
+function coordenadasKmlParaLatLngs(texto){
+  return texto.trim().split(/\s+/).map(par => {
+    const [lon, lat] = par.split(',').map(Number);
+    return [lat, lon];
+  });
+}
+
+const ESTILO_CABO = {color: '#f1c40f', weight: 3, opacity: .85};
+const ESTILO_CABO_DESTACADO = {color: '#ffffff', weight: 6, opacity: 1};
+let caboDestacado = null;
+
+// Clicar em qualquer outro lugar do mapa (fora de um cabo) desfaz o destaque.
+map.on('click', () => {
+  if (caboDestacado) {
+    caboDestacado.setStyle(ESTILO_CABO);
+    caboDestacado = null;
+  }
+});
+
+// Soma a distância entre os pontos consecutivos da linha (não confia no "Xm" que
+// às vezes vem no nome do cabo - nem todo cabo tem isso, e pode estar desatualizado).
+function metragemCabo(latlngs){
+  let metros = 0;
+  for (let i = 1; i < latlngs.length; i++) {
+    metros += L.latLng(latlngs[i - 1]).distanceTo(L.latLng(latlngs[i]));
+  }
+  return metros;
+}
+
+function popupHtmlCabo(nome, descricao, metros){
+  const metragemTexto = metros >= 1000
+    ? `${(metros / 1000).toLocaleString('pt-BR', {maximumFractionDigits: 2})} km`
+    : `${Math.round(metros).toLocaleString('pt-BR')} m`;
+  return `<div class="popup-item">
+    <div class="tipo">CABO</div>
+    <div class="sigla">${nome}</div>
+    ${descricao ? `<div class="loc">${descricao}</div>` : ''}
+    <div class="loc">metragem: ${metragemTexto}</div>
+  </div>`;
+}
+
+function desenharCabosDoKml(kmlTexto){
+  const xml = new DOMParser().parseFromString(kmlTexto, 'text/xml');
+  const placemarks = xml.getElementsByTagName('Placemark');
+  let total = 0;
+  for (const pm of placemarks) {
+    const linha = pm.getElementsByTagName('LineString')[0];
+    if (!linha) continue;
+    const coordsEl = linha.getElementsByTagName('coordinates')[0];
+    if (!coordsEl || !coordsEl.textContent.trim()) continue;
+    const latlngs = coordenadasKmlParaLatLngs(coordsEl.textContent);
+    if (latlngs.length < 2) continue;
+
+    const nomeEl = pm.getElementsByTagName('name')[0];
+    const nome = (nomeEl && nomeEl.textContent.trim()) || 'Cabo sem nome';
+    const descEl = pm.getElementsByTagName('description')[0];
+    // A descrição vem como HTML/entidades escapadas (ex.: "SAÍDA DA CTO 11 ATÉ CTO
+    // 12 PON 13") - é onde a equipe costuma anotar a interligação do cabo.
+    const descricao = descEl ? descEl.textContent.replace(/<[^>]+>/g, ' ').trim() : '';
+
+    const polilinha = L.polyline(latlngs, ESTILO_CABO).addTo(cabosLayer);
+    polilinha.bindPopup(popupHtmlCabo(nome, descricao, metragemCabo(latlngs)));
+    polilinha.on('click', (e) => {
+      L.DomEvent.stopPropagation(e); // não deixa o clique "vazar" pro mapa e desfazer o destaque na hora
+      if (caboDestacado && caboDestacado !== polilinha) caboDestacado.setStyle(ESTILO_CABO);
+      polilinha.setStyle(ESTILO_CABO_DESTACADO);
+      polilinha.bringToFront();
+      caboDestacado = polilinha;
+    });
+    total++;
+  }
+  const el = document.getElementById('contagemCabos');
+  if (el) el.textContent = total ? `(${total.toLocaleString('pt-BR')})` : '';
+}
+
+async function carregarCabos(){
+  try {
+    const res = await fetch('./cabos.kmz');
+    if (!res.ok) return; // arquivo ainda não foi exportado - sem erro, só sem cabos
+    const buffer = await res.arrayBuffer();
+    let kmlTexto;
+    try {
+      const zip = await JSZip.loadAsync(buffer);
+      const arquivoKml = Object.keys(zip.files).find(nome => nome.toLowerCase().endsWith('.kml'));
+      kmlTexto = await zip.file(arquivoKml).async('text');
+    } catch {
+      // não é um zip válido - talvez seja um .kml puro (sem compactar), tenta direto
+      kmlTexto = new TextDecoder().decode(buffer);
+    }
+    desenharCabosDoKml(kmlTexto);
+  } catch (e) {
+    console.error('Falha ao carregar cabos.kmz:', e);
+  }
+}
+
 // ---- Login (senha própria deste app, ver <head>) ----
 function liberarAcesso(){
   document.getElementById('loginOverlay').style.display = 'none';
   window._iniciarSync();
+  carregarCabos();
 }
 window.liberarAcesso = liberarAcesso;
 // Não chama aqui direto se já autenticado: window._iniciarSync ainda não existe

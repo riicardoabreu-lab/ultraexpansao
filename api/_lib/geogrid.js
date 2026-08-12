@@ -3,22 +3,38 @@ const admin = require('firebase-admin');
 // Conta "alencar" no GeoGrid (Jebnet). Não é segredo por si só - só funciona com o api-key.
 const GEOGRID_BASE = 'https://eros.geogridmaps.com.br/alencar/api/v3';
 
-// Tipos de item de rede que viram ponto no mapa. Fora: "reserva" (reserva de porta,
-// não é um ponto físico), "grupoAcesso" (conta 0 registros nesta conta) e "poste"
-// (muito numeroso - 4300+ - e não é o que os técnicos precisam localizar em campo).
-const TIPOS_SINCRONIZADOS = ['terminal', 'caixa', 'rack', 'estacao', 'pontoAcesso', 'interesse'];
+// Tipos de item de rede que viram ponto no mapa. "reserva" é local reservado pra
+// uma futura caixa/CTO - útil pro técnico ver onde já tem posição planejada. Fora:
+// "grupoAcesso" (conta 0 registros nesta conta) e "poste" (muito numeroso - 4300+ -
+// e não é o que os técnicos precisam localizar em campo).
+const TIPOS_SINCRONIZADOS = ['terminal', 'caixa', 'rack', 'estacao', 'pontoAcesso', 'interesse', 'reserva'];
+
+// Credencial via FIREBASE_SERVICE_ACCOUNT_B64 (o .json inteiro da service
+// account, em base64, numa variável só) - muito mais à prova de erro de
+// copiar/colar do que separar em 3 variáveis com quebra de linha dentro.
+function carregarCredencial() {
+  const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_B64;
+  if (b64) {
+    const json = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+    return {
+      projectId: json.project_id,
+      clientEmail: json.client_email,
+      privateKey: json.private_key,
+    };
+  }
+  // Fallback pro formato antigo (3 variáveis separadas), caso ainda em uso.
+  return {
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+  };
+}
 
 let dbSingleton = null;
 function getDb() {
   if (!dbSingleton) {
     if (!admin.apps.length) {
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
-        }),
-      });
+      admin.initializeApp({credential: admin.credential.cert(carregarCredencial())});
     }
     dbSingleton = admin.firestore();
   }
@@ -52,6 +68,27 @@ async function carregarPastas() {
   return mapa;
 }
 
+// O campo "observacao" do GeoGrid é HTML livre digitado pela equipe, tipo:
+// "<pre>SPLITTER: 1x8 / 1x16\nCABO: 4 12fo\nFIBRA: \nPOTÊNCIA: 25,69 dbm</pre>..."
+// Extrai os campos estruturados de dentro desse texto, quando presentes.
+function extrairInfoObservacao(observacao) {
+  if (!observacao) return {};
+  const texto = String(observacao).replace(/<[^>]+>/g, ' ');
+  const pegar = (rotulo) => {
+    // [ \t]* (não \s*) depois dos dois-pontos - \s* cruzaria a quebra de linha e
+    // pegaria o valor do PRÓXIMO campo quando este estiver vazio (ex.: "FIBRA:\n").
+    const m = texto.match(new RegExp(rotulo + '[ \\t]*:[ \\t]*([^\\n]+)', 'i'));
+    const valor = m ? m[1].trim() : null;
+    return valor || null;
+  };
+  return {
+    splitter: pegar('SPLITTER'),
+    cabo: pegar('CABO'),
+    fibra: pegar('FIBRA'),
+    potencia: pegar('POT[ÊE]NCIA'),
+  };
+}
+
 // Normaliza um item (seja do retorno de /itensRede - tem "pasta": {id,...} -
 // ou de /itensRede/{id}/mapa - tem só "idPasta") pro doc que vai pro Firestore.
 function montarDoc(item, pastaInfo) {
@@ -75,7 +112,51 @@ function montarDoc(item, pastaInfo) {
     doc.numero = m ? parseInt(m[0], 10) : null;
   }
 
+  if (dados.item === 'terminal' || dados.item === 'caixa') {
+    Object.assign(doc, extrairInfoObservacao(dados.observacao));
+  }
+
   return doc;
 }
 
-module.exports = {admin, getDb, geogridFetch, carregarPastas, montarDoc, TIPOS_SINCRONIZADOS};
+// Varre os tipos informados na API do GeoGrid e grava cada item em mapa_rede/{id}.
+// Usada tanto pelo endpoint manual (geogrid-full-sync) quanto pelo cron diário.
+async function sincronizarTipos(tipos) {
+  const db = getDb();
+  const pastaInfo = await carregarPastas();
+
+  const resumo = {};
+  let totalGravados = 0;
+
+  for (const tipo of tipos) {
+    let pagina = 1;
+    let totalTipo = 0;
+
+    for (;;) {
+      const dados = await geogridFetch(`/itensRede?item[]=${tipo}&pagina=${pagina}&registrosPorPagina=500`);
+      const registros = dados.registros || [];
+      totalTipo = parseInt(dados.totalRegistros, 10) || 0;
+
+      for (let i = 0; i < registros.length; i += 500) {
+        const lote = registros.slice(i, i + 500);
+        const batch = db.batch();
+        for (const item of lote) {
+          const id = item.dados && item.dados.id;
+          if (!id) continue;
+          batch.set(db.collection('mapa_rede').doc(String(id)), montarDoc(item, pastaInfo), {merge: true});
+          totalGravados++;
+        }
+        await batch.commit();
+      }
+
+      if (registros.length === 0 || pagina * 500 >= totalTipo) break;
+      pagina++;
+    }
+
+    resumo[tipo] = totalTipo;
+  }
+
+  return {resumo, totalGravados};
+}
+
+module.exports = {admin, getDb, geogridFetch, carregarPastas, montarDoc, sincronizarTipos, TIPOS_SINCRONIZADOS};
