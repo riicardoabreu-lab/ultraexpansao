@@ -1963,10 +1963,11 @@ document.getElementById('fileImport').onchange = () => {
     root.setProperty('--accent', hex);
     root.setProperty('--accent-rgb', `${r},${g},${b}`);
     root.setProperty('--accent-dim', mix(hex, [0,0,0], 0.82));
-    const tableBg = mix(hex, [0,0,0], 0.72);
-    root.setProperty('--table-input-bg', tableBg);
+    // Caixinhas da tabela usam a MESMA cor escolhida (sem escurecer) —
+    // só a borda fica um pouco mais escura, pra dar contorno.
+    root.setProperty('--table-input-bg', hex);
     root.setProperty('--table-input-border', mix(hex, [0,0,0], 0.35));
-    root.setProperty('--table-input-fg', luminance(tableBg) > 0.35 ? '#1a0f2e' : '#ffffff');
+    root.setProperty('--table-input-fg', luminance(hex) > 0.35 ? '#1a0f2e' : '#ffffff');
     input.value = hex;
   }
 
