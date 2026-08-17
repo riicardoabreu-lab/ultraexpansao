@@ -999,13 +999,19 @@ function tplRede(){
   </div>`;
 }
 
+// Bump este número toda vez que relatorio-operacional.html for atualizado.
+// Muda a URL do iframe (?v=N), então navegador e qualquer cache de CDN no
+// meio do caminho tratam como um recurso novo em vez de reaproveitar uma
+// cópia antiga — sem isso, um Ctrl+Shift+R nem sempre é suficiente.
+const RELATORIO_VERSION = 2;
+
 function tplRelatorio(){
   return `
   <div class="sec-block">
     <h3>Relatório operacional</h3>
     <p class="hint">Painel operacional consolidado das provedoras (dados próprios do relatório, independentes deste provedor).</p>
     <div class="panel" style="padding:0;overflow:hidden;">
-      <iframe src="relatorio-operacional.html" class="relatorio-frame" title="Relatório operacional"></iframe>
+      <iframe src="relatorio-operacional.html?v=${RELATORIO_VERSION}" class="relatorio-frame" title="Relatório operacional"></iframe>
     </div>
   </div>`;
 }
