@@ -67,7 +67,7 @@
       if(!data.empresas || !data.empresas.length) return;
       if((data.updated||0) <= (window._lastKnownUpdated||0)) return; // eco do próprio salvamento, ou desatualizado
       window._lastKnownUpdated = data.updated;
-      if(window._applyRemoteState) window._applyRemoteState(data.empresas);
+      if(window._applyRemoteState) window._applyRemoteState(data.empresas, data.updated);
     }, err => console.error('Falha no listener de sincronização (Aquisições):', err));
   });
 </script>
@@ -565,7 +565,23 @@ function current(){ return app.empresas.find(e=>e.id===app.currentId) || app.emp
 // Não tira o usuário da empresa que ele está vendo, mesmo que os dados
 // dela tenham mudado. O marcador do KMZ (kmz:{name}) vem direto da nuvem
 // agora — o arquivo em si é buscado à parte (getKmzFile) quando preciso.
-function applyRemoteState(remoteEmpresas){
+// Se ainda houver uma edição local esperando pra ser enviada (dentro do
+// debounce de 1.5s de syncToCloud), NÃO aplica na hora — senão a edição
+// que a pessoa acabou de fazer aqui seria sobrescrita em silêncio pelo
+// estado antigo vindo da nuvem. Fica na fila e só aplica (ou descarta,
+// se ficou desatualizada) depois que a gravação local terminar.
+let _pendingRemoteState = null;
+function applyRemoteState(remoteEmpresas, updated){
+  if(_localSyncPending){ _pendingRemoteState = { empresas: remoteEmpresas, updated }; return; }
+  applyRemoteStateNow(remoteEmpresas);
+}
+function flushPendingRemoteState(){
+  if(!_pendingRemoteState || _localSyncPending) return;
+  const d = _pendingRemoteState; _pendingRemoteState = null;
+  if((d.updated||0) <= (window._lastKnownUpdated||0)) return; // desatualizou enquanto esperava
+  applyRemoteStateNow(d.empresas);
+}
+function applyRemoteStateNow(remoteEmpresas){
   app.empresas = remoteEmpresas.map(re => ({ ...re, kmz: re.kmz || null }));
   if(!app.empresas.find(e=>e.id===app.currentId)){
     app.currentId = app.empresas[0]?.id || null;
@@ -580,13 +596,21 @@ window._applyRemoteState = applyRemoteState;
 // atualizados. O campo kmz aqui é só o marcador leve ({name}) — o arquivo
 // em si (se pequeno o bastante) sincroniza à parte, via aquisicoes_kmz.
 let _cloudSyncTimer = null;
+// true enquanto uma gravação local está agendada mas ainda não chegou na
+// nuvem — usado pra NÃO deixar uma atualização remota chegando nesse
+// meio-tempo sobrescrever uma edição local que ainda nem foi enviada.
+let _localSyncPending = false;
 function syncToCloud(){
   if(!window._fbUser || !window._cloudSave) return;
   clearTimeout(_cloudSyncTimer);
+  _localSyncPending = true;
   _cloudSyncTimer = setTimeout(async ()=>{
     try{
-      await window._cloudSave({ empresas: app.empresas, currentId: app.currentId, updated: Date.now() });
+      const updated = Date.now();
+      window._lastKnownUpdated = updated; // ignora o eco dessa mesma gravação no listener
+      await window._cloudSave({ empresas: app.empresas, currentId: app.currentId, updated });
     }catch(e){ console.error('Falha ao sincronizar Aquisições com a nuvem:', e); }
+    finally{ _localSyncPending = false; flushPendingRemoteState(); }
   }, 1500);
 }
 
