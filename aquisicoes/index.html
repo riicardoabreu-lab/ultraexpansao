@@ -1048,17 +1048,35 @@ function bindRelatorioFrame(){
   const iframe = document.querySelector('.relatorio-frame');
   if(!iframe) return;
   const resize = () => {
+    if(!document.contains(iframe)){ clearInterval(iframe._resizeInterval); return; }
     try{
       const doc = iframe.contentWindow.document;
-      iframe.style.height = (doc.documentElement.scrollHeight + 24) + 'px';
+      // O relatório tem "min-height:100vh" no body — como o vh dele é
+      // relativo à altura ATUAL do próprio iframe, uma vez que o iframe
+      // cresce ele nunca mede menor de novo (100vh vira ele mesmo, num
+      // loop que só aumenta). Zera a altura antes de medir, pra 100vh
+      // virar praticamente 0 e o scrollHeight refletir o conteúdo real.
+      iframe.style.height = '0px';
+      const altura = doc.documentElement.scrollHeight;
+      iframe.style.height = (altura + 24) + 'px';
     }catch(e){}
   };
   iframe.addEventListener('load', () => {
     resize();
+    // O ResizeObserver sozinho não é suficiente aqui: como o body fica
+    // travado no min-height:100vh (= altura atual do iframe) enquanto o
+    // conteúdo real é menor, o body nunca chega a encolher de verdade —
+    // então o observer nunca dispara um evento de mudança quando o
+    // usuário troca pra uma aba mais curta dentro do relatório. Por isso
+    // essa checagem periódica é o mecanismo principal, não só um
+    // fallback: ela sempre zera e remede, então corrige tanto crescimento
+    // quanto encolhimento em até ~500ms.
+    clearInterval(iframe._resizeInterval);
+    iframe._resizeInterval = setInterval(resize, 500);
     try{
       const ro = new iframe.contentWindow.ResizeObserver(resize);
       ro.observe(iframe.contentWindow.document.body);
-    }catch(e){ setInterval(resize, 600); }
+    }catch(e){}
   });
 }
 
