@@ -334,7 +334,7 @@
   .map-empty{ height:540px; border-radius:10px; border:1px dashed var(--border); display:flex; align-items:center; justify-content:center; flex-direction:column; gap:14px; color:var(--text-faint); text-align:center; padding:30px; }
   .map-empty svg{ opacity:.5; }
   #kmzInput{ display:none; }
-  .relatorio-frame{ display:block; width:100%; height:calc(100vh - 220px); min-height:600px; border:none; }
+  .relatorio-frame{ display:block; width:100%; height:80vh; min-height:600px; border:none; }
 
   footer{ margin-top:50px; padding-top:24px; border-top:1px solid var(--border-soft); color:var(--text-faint); font-size:11.5px; }
 </style>
@@ -1004,6 +1004,28 @@ function tplRelatorio(){
       <iframe src="relatorio-operacional.html" class="relatorio-frame" title="Relatório operacional"></iframe>
     </div>
   </div>`;
+}
+
+// Ajusta a altura do iframe do relatório pra caber o conteúdo inteiro sem
+// barra de rolagem própria (mesma origem, então dá pra medir o documento
+// interno direto) — reajusta de novo quando o conteúdo interno muda de
+// altura (troca de aba dentro do relatório, gráficos carregando etc).
+function bindRelatorioFrame(){
+  const iframe = document.querySelector('.relatorio-frame');
+  if(!iframe) return;
+  const resize = () => {
+    try{
+      const doc = iframe.contentWindow.document;
+      iframe.style.height = (doc.documentElement.scrollHeight + 24) + 'px';
+    }catch(e){}
+  };
+  iframe.addEventListener('load', () => {
+    resize();
+    try{
+      const ro = new iframe.contentWindow.ResizeObserver(resize);
+      ro.observe(iframe.contentWindow.document.body);
+    }catch(e){ setInterval(resize, 600); }
+  });
 }
 
 /* ======================================================================
@@ -2299,6 +2321,7 @@ function renderAll(){
   buildPropostasTable();
   bindAll();
   bindKmzControls();
+  bindRelatorioFrame();
   applyTab();
   recomputeAll();
   renderSidebar();
