@@ -1027,7 +1027,7 @@ function tplRede(){
 // Muda a URL do iframe (?v=N), então navegador e qualquer cache de CDN no
 // meio do caminho tratam como um recurso novo em vez de reaproveitar uma
 // cópia antiga — sem isso, um Ctrl+Shift+R nem sempre é suficiente.
-const RELATORIO_VERSION = 2;
+const RELATORIO_VERSION = 3;
 
 function tplRelatorio(){
   return `
@@ -1047,38 +1047,21 @@ function tplRelatorio(){
 function bindRelatorioFrame(){
   const iframe = document.querySelector('.relatorio-frame');
   if(!iframe) return;
+  // relatorio-operacional.html não tem mais min-height:100vh no body (foi
+  // removido de lá exatamente por causa disso), então scrollHeight já
+  // reflete o conteúdo real sem precisar de nenhum truque — só mede e
+  // aplica, sem mexer em nada por dentro do relatório nem colapsar o
+  // iframe durante a medição (o que empurrava a rolagem do usuário).
   const resize = () => {
     if(!document.contains(iframe)){ clearInterval(iframe._resizeInterval); return; }
     try{
       const doc = iframe.contentWindow.document;
-      // O relatório tem "min-height:100vh" no body — como o vh dele é
-      // relativo à altura ATUAL do próprio iframe, uma vez que o iframe
-      // cresce ele nunca mede menor de novo (100vh vira ele mesmo, num
-      // loop que só aumenta). Em vez de zerar a altura do IFRAME (o que
-      // encolhe/reexpande a página inteira a cada medição e empurra a
-      // rolagem do usuário de volta pro topo), neutraliza o min-height só
-      // por dentro do body do relatório enquanto mede — o iframe em si
-      // não muda de tamanho nesse meio-tempo, só no final, com o valor
-      // certo já calculado.
-      const body = doc.body;
-      const minHeightAntes = body.style.minHeight;
-      body.style.setProperty('min-height', '0px', 'important');
-      const altura = doc.documentElement.scrollHeight;
-      body.style.minHeight = minHeightAntes;
-      const nova = (altura + 24) + 'px';
+      const nova = (doc.documentElement.scrollHeight + 24) + 'px';
       if(iframe.style.height !== nova) iframe.style.height = nova;
     }catch(e){}
   };
   iframe.addEventListener('load', () => {
     resize();
-    // O ResizeObserver sozinho não é suficiente aqui: como o body fica
-    // travado no min-height:100vh (= altura atual do iframe) enquanto o
-    // conteúdo real é menor, o body nunca chega a encolher de verdade —
-    // então o observer nunca dispara um evento de mudança quando o
-    // usuário troca pra uma aba mais curta dentro do relatório. Por isso
-    // essa checagem periódica é o mecanismo principal, não só um
-    // fallback: ela sempre zera e remede, então corrige tanto crescimento
-    // quanto encolhimento em até ~500ms.
     clearInterval(iframe._resizeInterval);
     iframe._resizeInterval = setInterval(resize, 500);
     try{
