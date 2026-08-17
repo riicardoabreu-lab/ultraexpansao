@@ -334,6 +334,7 @@
   .map-empty{ height:540px; border-radius:10px; border:1px dashed var(--border); display:flex; align-items:center; justify-content:center; flex-direction:column; gap:14px; color:var(--text-faint); text-align:center; padding:30px; }
   .map-empty svg{ opacity:.5; }
   #kmzInput{ display:none; }
+  .relatorio-frame{ display:block; width:100%; height:calc(100vh - 220px); min-height:600px; border:none; }
 
   footer{ margin-top:50px; padding-top:24px; border-top:1px solid var(--border-soft); color:var(--text-faint); font-size:11.5px; }
 </style>
@@ -796,11 +797,13 @@ function mainSkeleton(){
       <button data-tab="valuation">Investimento &amp; Valuation</button>
       <button data-tab="propostas">Propostas</button>
       <button data-tab="rede">Rede (KMZ)</button>
+      <button data-tab="relatorio">Relatório</button>
     </div>
     <div class="tabpanel" data-panel="custos">${tplCustos()}</div>
     <div class="tabpanel" data-panel="valuation">${tplValuation()}</div>
     <div class="tabpanel" data-panel="propostas">${tplPropostas()}</div>
     <div class="tabpanel" data-panel="rede">${tplRede()}</div>
+    <div class="tabpanel" data-panel="relatorio">${tplRelatorio()}</div>
     <footer>Plataforma local — nenhum dado sai deste navegador. Cada provedor é salvo separadamente e pode ser exportado em JSON.</footer>
   `;
 }
@@ -988,6 +991,17 @@ function tplRede(){
         <div class="kpi hi"><div class="label">Valor estimado da rede</div><div class="value" id="kpi-kmz-valor">—</div><div class="sub">Caixas×custo + CEOs×custo + Σ(metragem×custo/metro por categoria)</div></div>
       </div>
       <p class="note">Pontos: nomes tipo "CT10B"/"CTO" → caixa; "CEO" → emenda. Cabos: primeiro procura a bitola escrita direto no nome/descrição da linha (ex: "12 FO"); se não achar, usa a <b>cor da linha</b> no KMZ cruzada com uma legenda de cores escrita em alguma descrição do arquivo (ex: "VERDE = 6 FO"). Cor sem legenda correspondente vira "Cabo cor X (bitola não identificada)" — ainda dá pra precificar, só não sabe a bitola exata. Confira visualmente no mapa acima se a classificação bateu.</p>
+    </div>
+  </div>`;
+}
+
+function tplRelatorio(){
+  return `
+  <div class="sec-block">
+    <h3>Relatório operacional</h3>
+    <p class="hint">Painel operacional consolidado das provedoras (dados próprios do relatório, independentes deste provedor).</p>
+    <div class="panel" style="padding:0;overflow:hidden;">
+      <iframe src="relatorio-operacional.html" class="relatorio-frame" title="Relatório operacional"></iframe>
     </div>
   </div>`;
 }
