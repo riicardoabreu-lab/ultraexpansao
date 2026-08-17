@@ -1054,11 +1054,19 @@ function bindRelatorioFrame(){
       // O relatório tem "min-height:100vh" no body — como o vh dele é
       // relativo à altura ATUAL do próprio iframe, uma vez que o iframe
       // cresce ele nunca mede menor de novo (100vh vira ele mesmo, num
-      // loop que só aumenta). Zera a altura antes de medir, pra 100vh
-      // virar praticamente 0 e o scrollHeight refletir o conteúdo real.
-      iframe.style.height = '0px';
+      // loop que só aumenta). Em vez de zerar a altura do IFRAME (o que
+      // encolhe/reexpande a página inteira a cada medição e empurra a
+      // rolagem do usuário de volta pro topo), neutraliza o min-height só
+      // por dentro do body do relatório enquanto mede — o iframe em si
+      // não muda de tamanho nesse meio-tempo, só no final, com o valor
+      // certo já calculado.
+      const body = doc.body;
+      const minHeightAntes = body.style.minHeight;
+      body.style.setProperty('min-height', '0px', 'important');
       const altura = doc.documentElement.scrollHeight;
-      iframe.style.height = (altura + 24) + 'px';
+      body.style.minHeight = minHeightAntes;
+      const nova = (altura + 24) + 'px';
+      if(iframe.style.height !== nova) iframe.style.height = nova;
     }catch(e){}
   };
   iframe.addEventListener('load', () => {
