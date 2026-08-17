@@ -775,6 +775,10 @@ document.getElementById('newProviderBtn').onclick = () => {
 let activeTab = 'custos';
 
 function mainSkeleton(){
+  const p = current();
+  // O relatório operacional embutido só faz sentido pro provedor IP2 (é
+  // dele que os dados do relatório são) — não deve aparecer nos outros.
+  const temRelatorio = /ip2/i.test(p?.nome || '');
   return `
     <div class="phead">
       <p class="eyebrow">Ficha da operação</p>
@@ -797,13 +801,13 @@ function mainSkeleton(){
       <button data-tab="valuation">Investimento &amp; Valuation</button>
       <button data-tab="propostas">Propostas</button>
       <button data-tab="rede">Rede (KMZ)</button>
-      <button data-tab="relatorio">Relatório</button>
+      ${temRelatorio ? '<button data-tab="relatorio">Relatório</button>' : ''}
     </div>
     <div class="tabpanel" data-panel="custos">${tplCustos()}</div>
     <div class="tabpanel" data-panel="valuation">${tplValuation()}</div>
     <div class="tabpanel" data-panel="propostas">${tplPropostas()}</div>
     <div class="tabpanel" data-panel="rede">${tplRede()}</div>
-    <div class="tabpanel" data-panel="relatorio">${tplRelatorio()}</div>
+    ${temRelatorio ? `<div class="tabpanel" data-panel="relatorio">${tplRelatorio()}</div>` : ''}
     <footer>Plataforma local — nenhum dado sai deste navegador. Cada provedor é salvo separadamente e pode ser exportado em JSON.</footer>
   `;
 }
@@ -1497,6 +1501,10 @@ function bindAll(){
   });
 }
 function applyTab(){
+  // Se a aba ativa não existe pra este provedor (ex: veio de "Relatório"
+  // no IP2 e trocou pra outro provedor que não tem essa aba), volta pra
+  // "Custos & EBITDA" em vez de deixar a tela em branco.
+  if(!document.querySelector(`#tabbar button[data-tab="${activeTab}"]`)) activeTab = 'custos';
   document.querySelectorAll('#tabbar button').forEach(b=> b.classList.toggle('active', b.dataset.tab===activeTab));
   document.querySelectorAll('.tabpanel').forEach(pnl=> pnl.classList.toggle('active', pnl.dataset.panel===activeTab));
   if(activeTab==='rede') initMapIfNeeded();
