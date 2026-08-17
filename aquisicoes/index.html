@@ -1963,6 +1963,16 @@ document.getElementById('fileImport').onchange = () => {
     root.setProperty('--accent', hex);
     root.setProperty('--accent-rgb', `${r},${g},${b}`);
     root.setProperty('--accent-dim', mix(hex, [0,0,0], 0.82));
+
+    // Fundo da página inteira (topbar, sidebar, painéis, cards) tingido
+    // com a mesma cor escolhida, escurecida pra continuar tema escuro.
+    root.setProperty('--bg', mix(hex, [0,0,0], 0.965));
+    root.setProperty('--bg-panel', mix(hex, [0,0,0], 0.90));
+    root.setProperty('--bg-panel-2', mix(hex, [0,0,0], 0.86));
+    root.setProperty('--bg-inset', mix(hex, [0,0,0], 0.93));
+    root.setProperty('--border', mix(hex, [0,0,0], 0.72));
+    root.setProperty('--border-soft', mix(hex, [0,0,0], 0.82));
+
     // Caixinhas da tabela usam a MESMA cor escolhida (sem escurecer) —
     // só a borda fica um pouco mais escura, pra dar contorno.
     root.setProperty('--table-input-bg', hex);
@@ -1971,11 +1981,26 @@ document.getElementById('fileImport').onchange = () => {
     input.value = hex;
   }
 
-  apply(localStorage.getItem(KEY) || DEFAULT);
+  const CUSTOM_PROPS = [
+    '--accent','--accent-rgb','--accent-dim',
+    '--bg','--bg-panel','--bg-panel-2','--bg-inset','--border','--border-soft',
+    '--table-input-bg','--table-input-border','--table-input-fg',
+  ];
+
+  const saved = localStorage.getItem(KEY);
+  if(saved){ apply(saved); } else { input.value = DEFAULT; }
 
   btn.onclick = () => input.click();
   input.oninput = () => { apply(input.value); localStorage.setItem(KEY, input.value); };
-  resetBtn.onclick = () => { apply(DEFAULT); localStorage.removeItem(KEY); };
+  resetBtn.onclick = () => {
+    // Remove os overrides inline pra voltar aos valores originais definidos
+    // no CSS (não os recalcula a partir da cor padrão — o tema original
+    // combina roxo de fundo com ciano de destaque, não é uma única cor).
+    const root = document.documentElement.style;
+    CUSTOM_PROPS.forEach(p => root.removeProperty(p));
+    input.value = DEFAULT;
+    localStorage.removeItem(KEY);
+  };
 })();
 
 /* ======================================================================
