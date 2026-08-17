@@ -82,7 +82,7 @@
   :root{
     --bg:#0d0620; --bg-panel:#1a0f2e; --bg-panel-2:#221540; --bg-inset:#170c28;
     --border:#3a2160; --border-soft:#2c1850;
-    --accent:#00d4c8; --accent-dim:#0d3a36;
+    --accent:#00d4c8; --accent-dim:#0d3a36; --accent-rgb:0,212,200;
     --amber:#fbbf24; --amber-dim:#4a3a13;
     --good:#34d399; --good-dim:#123a2c;
     --bad:#fb7185; --bad-dim:#3f1622;
@@ -99,7 +99,7 @@
   body{
     margin:0; background:var(--bg); color:var(--text); font-family:var(--body); font-size:14px; line-height:1.5;
     background-image:
-      radial-gradient(ellipse 900px 500px at 12% -10%, rgba(0,212,200,.09), transparent 60%),
+      radial-gradient(ellipse 900px 500px at 12% -10%, rgba(var(--accent-rgb),.09), transparent 60%),
       radial-gradient(ellipse 700px 500px at 100% 0%, rgba(185,28,208,.08), transparent 60%);
     background-attachment:fixed;
   }
@@ -110,7 +110,7 @@
   .topbar{ position:sticky; top:0; z-index:50; backdrop-filter:blur(10px); background:rgba(13,6,32,.9); border-bottom:1px solid var(--border-soft); }
   .topbar-inner{ max-width:1560px; margin:0 auto; padding:12px 22px; display:flex; align-items:center; gap:16px; }
   .brand{ display:flex; align-items:center; gap:9px; font-family:var(--disp); font-weight:600; font-size:14.5px; white-space:nowrap; }
-  .brand-dot{ width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px 2px rgba(0,212,200,.7); }
+  .brand-dot{ width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px 2px rgba(var(--accent-rgb),.7); }
   .topbar-actions{ margin-left:auto; display:flex; align-items:center; gap:8px; }
   .ghost-btn{ background:transparent; border:1px solid var(--border); color:var(--text-dim); padding:7px 13px; border-radius:7px; font-size:12px; cursor:pointer; white-space:nowrap; }
   .ghost-btn:hover{ border-color:var(--accent); color:var(--accent); }
@@ -134,10 +134,10 @@
   }
   .sidebar h4{ font-family:var(--disp); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-faint); margin:4px 6px 12px; }
   .new-provider-btn{
-    width:100%; background:linear-gradient(180deg, rgba(0,212,200,.14), rgba(0,212,200,.05)); border:1px dashed rgba(0,212,200,.45);
+    width:100%; background:linear-gradient(180deg, rgba(var(--accent-rgb),.14), rgba(var(--accent-rgb),.05)); border:1px dashed rgba(var(--accent-rgb),.45);
     color:var(--accent); padding:11px; border-radius:9px; font-size:12.5px; font-weight:600; cursor:pointer; margin-bottom:16px;
   }
-  .new-provider-btn:hover{ background:rgba(0,212,200,.18); }
+  .new-provider-btn:hover{ background:rgba(var(--accent-rgb),.18); }
   .side-btn-row{ display:flex; flex-direction:column; gap:6px; margin-bottom:18px; }
   .side-btn{
     width:100%; background:var(--bg-inset); border:1px solid var(--border-soft); color:var(--text-dim);
@@ -150,7 +150,7 @@
     background:var(--bg-panel); border:1px solid var(--border-soft); border-radius:9px; padding:11px 12px; cursor:pointer; position:relative; transition:.15s;
   }
   .provider-card:hover{ border-color:var(--border); }
-  .provider-card.active{ border-color:var(--accent); background:linear-gradient(180deg, rgba(0,212,200,.09), var(--bg-panel) 70%); }
+  .provider-card.active{ border-color:var(--accent); background:linear-gradient(180deg, rgba(var(--accent-rgb),.09), var(--bg-panel) 70%); }
   .provider-card .pname{ font-weight:600; font-size:13px; margin-bottom:3px; padding-right:20px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .provider-card .pmeta{ color:var(--text-faint); font-size:11px; font-family:var(--mono); display:flex; justify-content:space-between; gap:6px; }
   .provider-card .pstatus-chip{
@@ -192,7 +192,7 @@
     background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%23a99bc4'/></svg>");
     background-repeat:no-repeat; background-position:right 12px center;
   }
-  select.status-select:focus{ outline:none; box-shadow:0 0 0 3px rgba(0,212,200,.18); }
+  select.status-select:focus{ outline:none; box-shadow:0 0 0 3px rgba(var(--accent-rgb),.18); }
   .motivo-toggle{
     display:none; align-items:center; gap:6px; border:1px solid var(--border); border-radius:20px;
     padding:6px 13px; font-family:var(--mono); font-size:11.5px; font-weight:600; cursor:pointer;
@@ -244,7 +244,7 @@
     background:var(--bg-inset); border:1px solid var(--border); color:var(--text); font-family:var(--mono);
     font-size:13.5px; padding:9px 10px; border-radius:7px; width:100%;
   }
-  .field input:focus, .field select:focus, table input:focus, table select:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(0,212,200,.15); }
+  .field input:focus, .field select:focus, table input:focus, table select:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(var(--accent-rgb),.15); }
   .field-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; }
   .field .money{ position:relative; }
   .field .money .prefix{ position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--text-faint); font-family:var(--mono); font-size:13.5px; pointer-events:none; }
@@ -255,7 +255,7 @@
   .kpi .label{ color:var(--text-faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; margin-bottom:7px; }
   .kpi .value{ font-family:var(--mono); font-weight:600; font-size:19px; }
   .kpi .sub{ color:var(--text-dim); font-size:11px; margin-top:4px; }
-  .kpi.hi{ border-color:rgba(0,212,200,.4); background:linear-gradient(180deg, rgba(0,212,200,.08), var(--bg-panel) 60%); }
+  .kpi.hi{ border-color:rgba(var(--accent-rgb),.4); background:linear-gradient(180deg, rgba(var(--accent-rgb),.08), var(--bg-panel) 60%); }
   .kpi.hi .value{ color:var(--accent); font-size:22px; }
 
   .table-scroll{ overflow-x:auto; border-radius:8px; border:1px solid var(--border-soft); }
@@ -347,9 +347,9 @@
       <a href="../home.html" class="ghost-btn" style="text-decoration:none;">← Voltar</a>
       <div class="status-pill"><span class="dot" id="statusDot"></span>Conclusão: <b id="statusText">—</b></div>
       <div class="color-picker-wrap">
-        <button class="ghost-btn icon-btn" id="tableColorBtn" title="Escolher a cor das células da tabela">🎨</button>
+        <button class="ghost-btn icon-btn" id="tableColorBtn" title="Escolher a cor do tema (afeta a página toda)">🎨</button>
         <button class="ghost-btn icon-btn" id="tableColorResetBtn" title="Restaurar cor padrão">↺</button>
-        <input type="color" id="tableColorInput" value="#2b1a4a">
+        <input type="color" id="tableColorInput" value="#00d4c8">
       </div>
       <button class="ghost-btn" id="exportBtn">Exportar tudo</button>
       <button class="ghost-btn" id="importBtn">Importar</button>
@@ -1121,7 +1121,7 @@ function buildPropostasTable(){
   const sug = m.propostaSugerida;
   const cs = proposalCalc(sug,p,m);
   const clsS = cs.viavel==='SIM'?'sim':(cs.viavel==='NÃO'?'nao':'rev');
-  rows += `<tr data-i="sug" style="background:rgba(0,212,200,.06);">
+  rows += `<tr data-i="sug" style="background:rgba(var(--accent-rgb),.06);">
       <td><em>${esc(sug.nome)}</em></td>
       <td class="computed" style="color:var(--accent);font-weight:600;">${fmtBRL(sug.valor)}</td>
       <td><input data-role="entrada" type="number" step="1" value="${sug.entrada}"></td>
@@ -1928,30 +1928,45 @@ document.getElementById('fileImport').onchange = () => {
 };
 
 /* ======================================================================
-   COR DAS CÉLULAS DA TABELA (personalizável, salva no navegador)
+   COR DO TEMA (personalizável, salva no navegador) — recolore a página
+   inteira (botões, abas ativas, destaques) via --accent/--accent-rgb, e
+   deriva um tom escurecido da mesma cor pras caixinhas da tabela, pra
+   não virar um bloco inteiro na cor viva (ilegível com tanta célula).
 ====================================================================== */
-(function initTableColorPicker(){
-  const KEY = 'aquisicoes-table-color';
-  const DEFAULT = '#2b1a4a';
+(function initThemeColorPicker(){
+  const KEY = 'aquisicoes-theme-color';
+  const DEFAULT = '#00d4c8';
   const btn = document.getElementById('tableColorBtn');
   const resetBtn = document.getElementById('tableColorResetBtn');
   const input = document.getElementById('tableColorInput');
   if(!btn || !input) return;
 
+  function toRgb(hex){
+    return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+  }
+  function toHex([r,g,b]){
+    const c = n => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2,'0');
+    return '#' + c(r) + c(g) + c(b);
+  }
+  function mix(hex, targetRgb, amt){
+    const [r,g,b] = toRgb(hex);
+    return toHex([r,g,b].map((v,i) => v + (targetRgb[i]-v)*amt));
+  }
   function luminance(hex){
-    const r = parseInt(hex.slice(1,3),16)/255, g = parseInt(hex.slice(3,5),16)/255, b = parseInt(hex.slice(5,7),16)/255;
+    const [r,g,b] = toRgb(hex).map(v => v/255);
     const lin = c => c<=0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4);
     return 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b);
   }
-  function lighten(hex, amt){
-    const c = n => Math.max(0, Math.min(255, parseInt(hex.slice(n,n+2),16) + amt)).toString(16).padStart(2,'0');
-    return '#' + c(1) + c(3) + c(5);
-  }
   function apply(hex){
     const root = document.documentElement.style;
-    root.setProperty('--table-input-bg', hex);
-    root.setProperty('--table-input-border', lighten(hex, 45));
-    root.setProperty('--table-input-fg', luminance(hex) > 0.35 ? '#1a0f2e' : '#ffffff');
+    const [r,g,b] = toRgb(hex);
+    root.setProperty('--accent', hex);
+    root.setProperty('--accent-rgb', `${r},${g},${b}`);
+    root.setProperty('--accent-dim', mix(hex, [0,0,0], 0.82));
+    const tableBg = mix(hex, [0,0,0], 0.72);
+    root.setProperty('--table-input-bg', tableBg);
+    root.setProperty('--table-input-border', mix(hex, [0,0,0], 0.35));
+    root.setProperty('--table-input-fg', luminance(tableBg) > 0.35 ? '#1a0f2e' : '#ffffff');
     input.value = hex;
   }
 
