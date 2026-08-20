@@ -37,6 +37,26 @@
   // salvou (last write wins).
   const SHARED_DOC_ID = 'equipe';
   window._lastKnownUpdated = 0;
+
+  // ---- BOTÃO TEMPORÁRIO DE RECUPERAÇÃO (remover depois de usado) ----
+  // Traz de volta, para o documento compartilhado, o backup salvo sob a
+  // conta de quem clicar (documento antigo, de antes da troca pra dado
+  // compartilhado, que nunca foi apagado nem sobrescrito pelo código novo).
+  window._restoreMeuBackup = async function(){
+    if(!window._fbUser){ alert('Você precisa estar logado.'); return; }
+    try{
+      const oldSnap = await getDoc(doc(fsDb, 'aquisicoes_backups', window._fbUser.uid));
+      if(!oldSnap.exists()){ alert('Não encontrei um backup antigo salvo com esta conta.'); return; }
+      const oldData = oldSnap.data();
+      if(!oldData.empresas || !oldData.empresas.length){ alert('O backup antigo desta conta está vazio.'); return; }
+      if(!confirm(`Encontrei um backup antigo com ${oldData.empresas.length} empresa(s). Restaurar isso como o dado compartilhado da equipe agora (substitui o que está lá)?`)) return;
+      window._lastKnownUpdated = Date.now();
+      await setDoc(doc(fsDb, 'aquisicoes_backups', SHARED_DOC_ID), { empresas: oldData.empresas, currentId: oldData.currentId || null, updated: window._lastKnownUpdated });
+      alert('Restaurado! Recarregando a página...');
+      location.reload();
+    }catch(e){ console.error(e); alert('Erro ao restaurar: ' + e.message); }
+  };
+
   window._cloudSave = (data) => {
     if(!window._fbUser) return Promise.resolve();
     window._lastKnownUpdated = data.updated;
@@ -374,6 +394,7 @@
       <button class="ghost-btn" id="exportBtn">Exportar tudo</button>
       <button class="ghost-btn" id="importBtn">Importar</button>
       <input type="file" id="fileImport" accept="application/json">
+      <button class="ghost-btn" style="border-color:var(--bad);color:var(--bad);" onclick="window._restoreMeuBackup()" title="Recupera o backup salvo antes da mudança para dado compartilhado da equipe">⚠️ Restaurar meu backup antigo</button>
       <button class="ghost-btn" onclick="window._doLogout()">Sair</button>
     </div>
   </div>
