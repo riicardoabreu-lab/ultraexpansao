@@ -31,15 +31,16 @@
   };
 
   // ---- Sincronização em tempo real com a nuvem (Firestore) ----
-  // Mesmo projeto Firebase do ISP Manage: quem loga com a mesma conta vê,
-  // na hora (sem precisar recarregar a página), o que qualquer outra
-  // pessoa salvar em outro navegador/dispositivo. Em caso de edição
-  // simultânea, vale a última que salvou (last write wins).
+  // Dado compartilhado por toda a equipe (não por conta individual): todo
+  // mundo que loga na plataforma, com o próprio usuário/senha, lê e grava
+  // no MESMO documento. Em caso de edição simultânea, vale a última que
+  // salvou (last write wins).
+  const SHARED_DOC_ID = 'equipe';
   window._lastKnownUpdated = 0;
   window._cloudSave = (data) => {
     if(!window._fbUser) return Promise.resolve();
     window._lastKnownUpdated = data.updated;
-    return setDoc(doc(fsDb, 'aquisicoes_backups', window._fbUser.uid), data);
+    return setDoc(doc(fsDb, 'aquisicoes_backups', SHARED_DOC_ID), data);
   };
 
   // ---- KMZ na nuvem (documento à parte por provedor) ----
@@ -58,10 +59,28 @@
     return deleteDoc(doc(fsDb, 'aquisicoes_kmz', empresaId)).catch(err => console.error('Falha ao remover KMZ da nuvem:', err));
   };
 
-  onAuthStateChanged(auth, user => {
+  onAuthStateChanged(auth, async user => {
     if(!user) return;
     window._fbUser = user;
-    onSnapshot(doc(fsDb, 'aquisicoes_backups', user.uid), snap => {
+
+    // Migração única: essa conta tinha um backup salvo no formato antigo
+    // (um documento por uid) e o documento compartilhado da equipe ainda
+    // não existe? Usa o backup antigo como semente do documento
+    // compartilhado, pra ninguém perder dado na troca de arquitetura.
+    try{
+      const sharedSnap = await getDoc(doc(fsDb, 'aquisicoes_backups', SHARED_DOC_ID));
+      if(!sharedSnap.exists()){
+        const oldSnap = await getDoc(doc(fsDb, 'aquisicoes_backups', user.uid));
+        if(oldSnap.exists()){
+          const oldData = oldSnap.data();
+          if(oldData.empresas && oldData.empresas.length){
+            await setDoc(doc(fsDb, 'aquisicoes_backups', SHARED_DOC_ID), oldData);
+          }
+        }
+      }
+    }catch(e){ console.error('Falha na migração do backup compartilhado (Aquisições):', e); }
+
+    onSnapshot(doc(fsDb, 'aquisicoes_backups', SHARED_DOC_ID), snap => {
       if(!snap.exists()) return;
       const data = snap.data();
       if(!data.empresas || !data.empresas.length) return;
