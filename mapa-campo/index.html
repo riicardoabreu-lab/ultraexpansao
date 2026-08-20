@@ -681,15 +681,32 @@ function desenharCabosDoKml(kmlTexto){
   if (el) el.textContent = total ? `(${total.toLocaleString('pt-BR')})` : '';
 }
 
+// Mostra a falha no lugar do contador de cabos (em vez de sumir em silêncio -
+// se o JSZip do CDN não carregar ou o fetch falhar, o técnico via só "sem
+// cabos" sem nenhuma pista de que era erro e não falta de dado mesmo).
+function avisarErroCabos(msg){
+  console.error('Falha ao carregar cabos.kmz:', msg);
+  const el = document.getElementById('contagemCabos');
+  if (el) el.textContent = '(erro ao carregar)';
+}
+
 async function carregarCabos(){
   try {
-    const res = await fetch('./cabos.kmz');
-    if (!res.ok) return; // arquivo ainda não foi exportado - sem erro, só sem cabos
+    // "?v=" evita servir uma cópia velha de cabos.kmz cacheada pelo navegador -
+    // o arquivo é atualizado via git push sem trocar de nome, então sem isso o
+    // técnico podia ficar preso numa versão antiga até um hard-refresh manual.
+    const res = await fetch(`./cabos.kmz?v=${Date.now()}`, {cache: 'no-store'});
+    if (!res.ok) { avisarErroCabos(`HTTP ${res.status}`); return; }
     const buffer = await res.arrayBuffer();
     let kmlTexto;
+    if (typeof JSZip === 'undefined') {
+      avisarErroCabos('JSZip não carregou (CDN bloqueado?)');
+      return;
+    }
     try {
       const zip = await JSZip.loadAsync(buffer);
       const arquivoKml = Object.keys(zip.files).find(nome => nome.toLowerCase().endsWith('.kml'));
+      if (!arquivoKml) { avisarErroCabos('KMZ sem arquivo .kml dentro'); return; }
       kmlTexto = await zip.file(arquivoKml).async('text');
     } catch {
       // não é um zip válido - talvez seja um .kml puro (sem compactar), tenta direto
@@ -697,7 +714,7 @@ async function carregarCabos(){
     }
     desenharCabosDoKml(kmlTexto);
   } catch (e) {
-    console.error('Falha ao carregar cabos.kmz:', e);
+    avisarErroCabos(e);
   }
 }
 
