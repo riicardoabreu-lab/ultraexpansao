@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script>
-  // Bloqueia acesso direto a esta página sem passar pelo login do portal.
   if (sessionStorage.getItem('infolink_hub_auth') !== 'ok') {
     window.location.href = '../index.html';
   }
@@ -216,6 +215,26 @@
   .kmz-caption{padding:10px 12px; font-size:12px; color:var(--text-muted); line-height:1.4;}
   .kmz-caption b{color:var(--text); display:block; margin-bottom:2px; font-size:12.5px;}
 
+  /* grouped ativação x cancelamento table */
+  .growthtable{width:100%; border-collapse:collapse; font-size:12.5px;}
+  .growthtable th, .growthtable td{padding:8px 9px; text-align:right; white-space:nowrap;}
+  .growthtable thead tr.group-row th{
+    font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--text-faint); border-bottom:1px solid var(--border); padding-bottom:4px;
+  }
+  .growthtable thead tr.sub-row th{
+    font-family:var(--mono); font-size:10px; text-transform:uppercase; color:var(--text-faint);
+    border-bottom:1px solid var(--border); padding-top:2px;
+  }
+  .growthtable td:first-child, .growthtable th:first-child{text-align:left;}
+  .growthtable tbody td{border-bottom:1px solid var(--border); font-family:var(--mono);}
+  .growthtable tbody tr:hover{background:var(--surface2);}
+  .growthtable tbody tr:last-child td{border-bottom:none;}
+  .growthtable .grp-start{border-left:1px dashed var(--border);}
+  .growthtable tfoot td{font-family:var(--mono); font-weight:600; background:var(--surface2); border-top:1px solid var(--border);}
+  .growthtable .liq-pos{color:var(--accent); font-weight:600;}
+  .growthtable .liq-neg{color:var(--danger); font-weight:600;}
+
   /* lightbox */
   .lightbox{
     position:fixed; inset:0; z-index:200; background:rgba(10,15,22,0.86);
@@ -327,6 +346,35 @@ const COMPANY_COLORS = {
   ip2_telecom: '#B8720A',
   tera_network:'#8B3FE0',
 };
+const EMPLOYEES = {
+  tera_network: [
+    ['Técnico de Rede', 5, 'tec'],
+    ['Auxiliar Técnico de Rede', 4, 'tec'],
+    ['Suporte técnico', 2, 'tec'],
+    ['Atendentes (SAC)', 2, 'aten'],
+    ['Administrativo / Financeiro', 1, 'adm'],
+  ],
+  connect_ce: [
+    ['Técnicos de Rede', 2, 'tec'],
+    ['Auxiliar técnico de rede', 2, 'tec'],
+    ['Atendentes (SAC)', 4, 'aten'],
+  ],
+  ip2_internet: [
+    ['Técnicos de Rede', 8, 'tec'],
+    ['Auxiliar Técnico de Rede', 4, 'tec'],
+  ],
+  ip2_telecom: [
+    ['NOC de Rede', 2, 'tec'],
+    ['Suporte Técnico', 5, 'tec'],
+    ['Atendentes (SAC)', 3, 'aten'],
+    ['RH', 1, 'adm'],
+    ['Administrativo / Financeiro', 1, 'adm'],
+    ['Estoque', 1, 'adm'],
+  ],
+};
+const CAT_LABELS = { tec:'Técnico / Rede', aten:'Atendimento (SAC)', adm:'Administrativo' };
+const CAT_COLORS = { tec:'#1C7ED6', aten:'#B8720A', adm:'#8B3FE0' };
+
 const COMPANY_INFRA = {
   connect_ce: [
     ["Quantidade de POPs","2 POPs"],
@@ -368,6 +416,37 @@ const fmtN = v => v.toLocaleString('pt-BR');
 const fmtPct = v => v.toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:1}) + '%';
 const sum = arr => arr.reduce((a,b)=>a+b,0);
 const avg = arr => sum(arr)/arr.length;
+
+// ---------- linear trend / 12-month projection ----------
+function linearRegression(yValues){
+  const n = yValues.length;
+  const xs = Array.from({length:n}, (_,i)=>i);
+  const sumX = sum(xs), sumY = sum(yValues);
+  const sumXY = xs.reduce((s,x,i)=>s+x*yValues[i],0);
+  const sumX2 = xs.reduce((s,x)=>s+x*x,0);
+  const denom = (n*sumX2 - sumX*sumX);
+  const slope = denom === 0 ? 0 : (n*sumXY - sumX*sumY) / denom;
+  const intercept = (sumY - slope*sumX) / n;
+  return {slope, intercept};
+}
+function projectForward(yValues, monthsAhead){
+  const {slope, intercept} = linearRegression(yValues);
+  const n = yValues.length;
+  const projected = [];
+  for(let i=0;i<monthsAhead;i++) projected.push(intercept + slope*(n+i));
+  return {projected, slope, intercept};
+}
+function futureMonthLabels(count){
+  const monthNames = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  // last known month is Junho/2026 (index 5 = Jun, year 26)
+  let m = 5, y = 26; // Jun/26
+  const labels = [];
+  for(let i=0;i<count;i++){
+    m++; if(m>11){ m=0; y++; }
+    labels.push(monthNames[m]+'/'+y);
+  }
+  return labels;
+}
 
 // ---------- month-over-month delta ----------
 function deltaHtml(curr, prev, {isPP=false, goodWhenUp=true} = {}){
@@ -486,7 +565,7 @@ const baseScales = {
 const tabsEl = document.getElementById('tabs');
 const panelsEl = document.getElementById('panels');
 
-const views = [{id:'consolidado', name:'Consolidado'}, ...DATA.companies.map(c=>({id:c.id, name:c.name})), {id:'infraestrutura', name:'Infraestrutura'}];
+const views = [{id:'consolidado', name:'Consolidado'}, ...DATA.companies.map(c=>({id:c.id, name:c.name})), {id:'funcionarios', name:'Funcionários'}, {id:'infraestrutura', name:'Infraestrutura'}];
 
 views.forEach((v,i)=>{
   const btn = document.createElement('button');
@@ -663,6 +742,7 @@ function renderPanel(id){
   rendered.add(id);
   if(id === 'consolidado') renderConsolidado();
   else if(id === 'infraestrutura') renderInfraestrutura();
+  else if(id === 'funcionarios') renderFuncionarios();
   else renderCompany(id);
 }
 
@@ -772,6 +852,8 @@ function renderConsolidado(){
       </div>
     </div>
 
+    <div class="card" style="margin-bottom:16px;" id="projection-card-consolidado"></div>
+
 
     <div class="card">
       <div class="data-toggle-row">
@@ -796,7 +878,50 @@ function renderConsolidado(){
         <table id="monthly-table-consol"></table>
       </div>
     </div>
+
+    <div class="card" style="margin-top:16px; margin-bottom:16px;">
+      <div class="card-head"><h3>Ativação x Cancelamento — crescimento por operadora</h3><span class="tag">totais 12m</span></div>
+      <p class="explain">Quanto cada operadora ativou, cancelou e o saldo líquido resultante no período — e o quanto isso representa de crescimento sobre a base atual de clientes.</p>
+      <div style="overflow-x:auto;">
+      <table>
+        <thead><tr>
+          <th>Operadora</th><th class="num">Ativações</th><th class="num">Cancelamentos</th>
+          <th class="num">Crescimento líquido</th><th class="num">% crescimento da base</th><th class="num">Clientes ativos hoje</th>
+        </tr></thead>
+        <tbody id="ac-comparativo-body"></tbody>
+      </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-head"><h3>Crescimento líquido mensal por operadora</h3><span class="tag">ativações − cancelamentos</span></div>
+      <p class="explain">Barras acima de zero indicam mais ativações do que cancelamentos no mês; abaixo, o inverso.</p>
+      <div class="chart-box tall"><canvas id="c-growth-ac"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>Ativações, cancelamentos e crescimento — detalhado por mês</h3><span class="tag">todas as operadoras</span></div>
+      <p class="explain">Para cada operadora: ativações, cancelamentos e o saldo líquido (coluna "Líq.") em cada mês. Role para o lado para ver todas as colunas.</p>
+      <div style="overflow-x:auto;">
+        <table class="growthtable" id="ac-growth-table"></table>
+      </div>
+    </div>
   `;
+
+  document.getElementById('ac-comparativo-body').innerHTML = renderACComparativoRows();
+  document.getElementById('ac-growth-table').innerHTML = renderGrowthTable();
+  mkChart('c-growth-ac', {
+    type:'bar',
+    data:{ labels: DATA.months_short,
+      datasets: DATA.companies.map(c=>({
+        label:c.name, data:c.ativacoes.map((a,i)=>a-c.cancelamentos[i]), backgroundColor:COMPANY_COLORS[c.id]+'CC'
+      }))
+    },
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom', labels:{boxWidth:8, boxHeight:8, usePointStyle:true, padding:12}}},
+      scales:baseScales
+    }
+  });
 
   document.getElementById('metric-select-consol').addEventListener('change', renderConsolMonthlyTable);
   renderConsolMonthlyTable();
@@ -895,6 +1020,8 @@ function renderConsolidado(){
     }
   });
 
+  renderProjectionConsolidado();
+
   document.getElementById('month-filter-consolidado').addEventListener('change', e => {
     renderConsolKPIs(parseInt(e.target.value, 10));
   });
@@ -937,6 +1064,225 @@ function renderConsolKPIs(monthIdx){
     <div class="kpi" style="--kpi-color:#E1394A"><div class="label">Inadimplência${all ? ' (12m)' : ''}</div><div class="value danger">${fmtR$(inad)}</div><div class="sub">${fmtPct(inad/receita*100)} da receita</div>${hasPrev?deltaHtml(inad,pInad,{goodWhenUp:false}):''}</div>
     <div class="kpi" style="--kpi-color:#57616D"><div class="label">Despesas fixas${all ? ' (12m)' : ''}</div><div class="value">${fmtR$(despesas)}</div><div class="sub">${fmtPct(despesas/receita*100)} da receita</div>${hasPrev?deltaHtml(despesas,pDespesas,{goodWhenUp:false}):''}</div>
   `;
+}
+
+// ================= ATIVAÇÃO X CANCELAMENTO (usado dentro do Consolidado) =================
+function renderACComparativoRows(){
+  const totalAtiv = sum(DATA.companies.map(c=>sum(c.ativacoes)));
+  const totalCancel = sum(DATA.companies.map(c=>sum(c.cancelamentos)));
+  const totalLiquido = totalAtiv - totalCancel;
+  const totalClientes = sum(DATA.companies.map(c=>c.clientes_ativos));
+  const liquidoPctBase = (totalLiquido/(totalClientes-totalLiquido))*100;
+
+  const rows = DATA.companies.map(c=>{
+    const ativ = sum(c.ativacoes), canc = sum(c.cancelamentos), liq = ativ-canc;
+    const baseInicio = c.clientes_ativos - liq;
+    const pct = baseInicio>0 ? (liq/baseInicio*100) : 0;
+    return `<tr>
+      <td class="name-cell"><span class="swatch" style="background:${COMPANY_COLORS[c.id]}"></span>${c.name}</td>
+      <td class="num">${fmtN(ativ)}</td>
+      <td class="num">${fmtN(canc)}</td>
+      <td class="num ${liq>=0?'liq-pos':'liq-neg'}">${liq>=0?'+':''}${fmtN(liq)}</td>
+      <td class="num ${pct>=0?'liq-pos':'liq-neg'}">${pct>=0?'+':''}${fmtPct(pct)}</td>
+      <td class="num">${fmtN(c.clientes_ativos)}</td>
+    </tr>`;
+  }).join('');
+
+  const totalRow = `<tr style="font-weight:600; background:var(--surface2);">
+    <td>Total do grupo</td>
+    <td class="num">${fmtN(totalAtiv)}</td>
+    <td class="num">${fmtN(totalCancel)}</td>
+    <td class="num ${totalLiquido>=0?'liq-pos':'liq-neg'}">${totalLiquido>=0?'+':''}${fmtN(totalLiquido)}</td>
+    <td class="num ${liquidoPctBase>=0?'liq-pos':'liq-neg'}">${liquidoPctBase>=0?'+':''}${fmtPct(liquidoPctBase)}</td>
+    <td class="num">${fmtN(totalClientes)}</td>
+  </tr>`;
+
+  return rows + totalRow;
+}
+
+function renderGrowthTable(){
+  const groupRow = `<tr class="group-row">
+    <th rowspan="2">Mês</th>
+    ${DATA.companies.map(c=>`<th colspan="3" class="grp-start">${c.name}</th>`).join('')}
+    <th colspan="3" class="grp-start">Total</th>
+  </tr>`;
+  const subRow = `<tr class="sub-row">
+    ${DATA.companies.map(()=>`<th class="grp-start">Ativ.</th><th>Cancel.</th><th>Líq.</th>`).join('')}
+    <th class="grp-start">Ativ.</th><th>Cancel.</th><th>Líq.</th>
+  </tr>`;
+
+  let rows = '';
+  DATA.months.forEach((m,i)=>{
+    const totAtiv = sum(DATA.companies.map(c=>c.ativacoes[i]));
+    const totCancel = sum(DATA.companies.map(c=>c.cancelamentos[i]));
+    const totLiq = totAtiv - totCancel;
+    rows += `<tr>
+      <td>${m}</td>
+      ${DATA.companies.map(c=>{
+        const a = c.ativacoes[i], can = c.cancelamentos[i], l = a-can;
+        return `<td class="grp-start">${fmtN(a)}</td><td>${fmtN(can)}</td><td class="${l>=0?'liq-pos':'liq-neg'}">${l>=0?'+':''}${fmtN(l)}</td>`;
+      }).join('')}
+      <td class="grp-start">${fmtN(totAtiv)}</td><td>${fmtN(totCancel)}</td><td class="${totLiq>=0?'liq-pos':'liq-neg'}">${totLiq>=0?'+':''}${fmtN(totLiq)}</td>
+    </tr>`;
+  });
+
+  const mediaAtivTot = avg(DATA.months.map((m,i)=>sum(DATA.companies.map(c=>c.ativacoes[i]))));
+  const mediaCancelTot = avg(DATA.months.map((m,i)=>sum(DATA.companies.map(c=>c.cancelamentos[i]))));
+  const mediaRow = `<tr>
+    <td>Média mensal</td>
+    ${DATA.companies.map(c=>{
+      const a = avg(c.ativacoes), can = avg(c.cancelamentos), l = a-can;
+      return `<td class="grp-start">${a.toFixed(1)}</td><td>${can.toFixed(1)}</td><td class="${l>=0?'liq-pos':'liq-neg'}">${l>=0?'+':''}${l.toFixed(1)}</td>`;
+    }).join('')}
+    <td class="grp-start">${mediaAtivTot.toFixed(1)}</td><td>${mediaCancelTot.toFixed(1)}</td><td class="${mediaAtivTot-mediaCancelTot>=0?'liq-pos':'liq-neg'}">${mediaAtivTot-mediaCancelTot>=0?'+':''}${(mediaAtivTot-mediaCancelTot).toFixed(1)}</td>
+  </tr>`;
+
+  const totalAtivGroup = sum(DATA.companies.map(c=>sum(c.ativacoes)));
+  const totalCancelGroup = sum(DATA.companies.map(c=>sum(c.cancelamentos)));
+  const totalRow = `<tr>
+    <td>Total 12m</td>
+    ${DATA.companies.map(c=>{
+      const a = sum(c.ativacoes), can = sum(c.cancelamentos), l = a-can;
+      return `<td class="grp-start">${fmtN(a)}</td><td>${fmtN(can)}</td><td class="${l>=0?'liq-pos':'liq-neg'}">${l>=0?'+':''}${fmtN(l)}</td>`;
+    }).join('')}
+    <td class="grp-start">${fmtN(totalAtivGroup)}</td><td>${fmtN(totalCancelGroup)}</td><td class="${totalAtivGroup-totalCancelGroup>=0?'liq-pos':'liq-neg'}">${totalAtivGroup-totalCancelGroup>=0?'+':''}${fmtN(totalAtivGroup-totalCancelGroup)}</td>
+  </tr>`;
+
+  return `<thead>${groupRow}${subRow}</thead><tbody>${rows}</tbody><tfoot>${mediaRow}${totalRow}</tfoot>`;
+}
+
+// ================= FUNCIONÁRIOS (VISÃO DO GRUPO) =================
+function catTotals(list){
+  const totals = { tec:0, aten:0, adm:0 };
+  list.forEach(([role, qty, cat]) => { totals[cat] += qty; });
+  return totals;
+}
+function companyTotal(id){
+  return sum(EMPLOYEES[id].map(([,qty])=>qty));
+}
+
+function renderFuncionarios(){
+  const el = document.getElementById('panel-funcionarios');
+
+  const totalFuncionarios = sum(DATA.companies.map(c=>companyTotal(c.id)));
+  const totalClientes = sum(DATA.companies.map(c=>c.clientes_ativos));
+  const clientesPorFunc = totalClientes / totalFuncionarios;
+  const groupCat = { tec:0, aten:0, adm:0 };
+  DATA.companies.forEach(c=>{ const t = catTotals(EMPLOYEES[c.id]); groupCat.tec+=t.tec; groupCat.aten+=t.aten; groupCat.adm+=t.adm; });
+
+  el.innerHTML = `
+    <div class="company-head">
+      <div>
+        <h2>Funcionários — visão do grupo</h2>
+        <div class="meta">Equipe reportada pelas 4 operadoras</div>
+      </div>
+      <span class="badge">${totalFuncionarios} funcionários</span>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi" style="--kpi-color:var(--accent)"><div class="label">Total de funcionários</div><div class="value accent">${totalFuncionarios}</div><div class="sub">nas 4 operadoras</div></div>
+      <div class="kpi" style="--kpi-color:#1C7ED6"><div class="label">Técnico / Rede</div><div class="value">${groupCat.tec}</div><div class="sub">${fmtPct(groupCat.tec/totalFuncionarios*100)} da equipe</div></div>
+      <div class="kpi" style="--kpi-color:#B8720A"><div class="label">Atendimento (SAC)</div><div class="value amber">${groupCat.aten}</div><div class="sub">${fmtPct(groupCat.aten/totalFuncionarios*100)} da equipe</div></div>
+      <div class="kpi" style="--kpi-color:#8B3FE0"><div class="label">Clientes por funcionário</div><div class="value">${clientesPorFunc.toFixed(0)}</div><div class="sub">${fmtN(totalClientes)} clientes ÷ ${totalFuncionarios} funcionários</div></div>
+    </div>
+
+    <div class="insight" style="background:var(--accent-dim); border-color:rgba(var(--accent-rgb),.3); color:var(--text-muted);">
+      <div class="ic" style="color:var(--accent);">◆</div>
+      <div>Dados de equipe repassados por mensagem (não fazem parte das planilhas originais) — cobrem apenas headcount por função, sem custo de folha. Útil para leitura de produtividade (clientes por funcionário), mas não permite calcular margem real sem o valor da folha de pagamento.</div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-head"><h3>Comparativo de equipe por operadora</h3><span class="tag">headcount</span></div>
+      <p class="explain">Tamanho e composição da equipe de cada operadora, e quantos clientes ativos cada uma atende por funcionário — uma leitura aproximada de produtividade operacional.</p>
+      <div style="overflow-x:auto;">
+      <table>
+        <thead><tr>
+          <th>Operadora</th><th class="num">Total funcionários</th><th class="num">Técnico/Rede</th>
+          <th class="num">Atendimento</th><th class="num">Administrativo</th><th class="num">Clientes ativos</th><th class="num">Clientes / funcionário</th>
+        </tr></thead>
+        <tbody>
+          ${DATA.companies.map(c=>{
+            const t = catTotals(EMPLOYEES[c.id]);
+            const total = companyTotal(c.id);
+            const cpf = c.clientes_ativos/total;
+            return `<tr>
+              <td class="name-cell"><span class="swatch" style="background:${COMPANY_COLORS[c.id]}"></span>${c.name}</td>
+              <td class="num">${total}</td>
+              <td class="num">${t.tec}</td>
+              <td class="num">${t.aten}</td>
+              <td class="num">${t.adm}</td>
+              <td class="num">${fmtN(c.clientes_ativos)}</td>
+              <td class="num" style="color:var(--accent); font-weight:600;">${cpf.toFixed(0)}</td>
+            </tr>`;
+          }).join('')}
+          <tr style="font-weight:600; background:var(--surface2);">
+            <td>Total do grupo</td>
+            <td class="num">${totalFuncionarios}</td>
+            <td class="num">${groupCat.tec}</td>
+            <td class="num">${groupCat.aten}</td>
+            <td class="num">${groupCat.adm}</td>
+            <td class="num">${fmtN(totalClientes)}</td>
+            <td class="num" style="color:var(--accent);">${clientesPorFunc.toFixed(0)}</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="card-head"><h3>Equipe por operadora</h3><span class="tag">total de funcionários</span></div>
+        <p class="explain">Tamanho absoluto de cada equipe.</p>
+        <div class="chart-box"><canvas id="c-func-total"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Composição por área</h3><span class="tag">técnico · atendimento · administrativo</span></div>
+        <p class="explain">Distribuição da equipe entre função técnica/rede, atendimento ao cliente e administrativo, por operadora.</p>
+        <div class="chart-box"><canvas id="c-func-cat"></canvas></div>
+      </div>
+    </div>
+
+    ${DATA.companies.map(c=>`
+      <div class="card" style="margin-top:16px;">
+        <div class="card-head"><h3>${c.name} — equipe por função</h3><span class="tag">${companyTotal(c.id)} funcionários</span></div>
+        <div class="infra">
+          ${EMPLOYEES[c.id].map(([role,qty,cat])=>`
+            <div class="infra-item">
+              <div class="k">${CAT_LABELS[cat]}</div>
+              <div class="v">${qty}x ${role}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `).join('')}
+  `;
+
+  mkChart('c-func-total', {
+    type:'bar',
+    data:{ labels: DATA.companies.map(c=>c.name),
+      datasets:[{ label:'Funcionários', data: DATA.companies.map(c=>companyTotal(c.id)), backgroundColor: DATA.companies.map(c=>COMPANY_COLORS[c.id]), borderRadius:6 }]
+    },
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:baseScales
+    }
+  });
+
+  mkChart('c-func-cat', {
+    type:'bar',
+    data:{ labels: DATA.companies.map(c=>c.name),
+      datasets:['tec','aten','adm'].map(cat => ({
+        label: CAT_LABELS[cat],
+        data: DATA.companies.map(c => catTotals(EMPLOYEES[c.id])[cat]),
+        backgroundColor: CAT_COLORS[cat],
+        stack:'s'
+      }))
+    },
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom', labels:{boxWidth:8, boxHeight:8, usePointStyle:true, padding:12}}},
+      scales:{ x:{...baseScales.x, stacked:true}, y:{...baseScales.y, stacked:true} }
+    }
+  });
 }
 
 // ================= INFRAESTRUTURA (VISÃO DO GRUPO) =================
@@ -1049,6 +1395,102 @@ function renderInfraestrutura(){
   `;
 }
 
+function renderProjectionConsolidado(){
+  const el = document.getElementById('projection-card-consolidado');
+  const receitaMensal = DATA.months.map((m,i)=> sum(DATA.companies.map(c=>c.receitas[i])));
+  const liquidoMensal = DATA.months.map((m,i)=> sum(DATA.companies.map(c=>c.ativacoes[i]-c.cancelamentos[i])));
+  const currentClients = sum(DATA.companies.map(c=>c.clientes_ativos));
+  const totalLiquido12m = sum(liquidoMensal);
+  const baseInicioEstimada = currentClients - totalLiquido12m;
+  const clientesTrajetoria = [];
+  let acc = baseInicioEstimada;
+  liquidoMensal.forEach(l => { acc += l; clientesTrajetoria.push(acc); });
+
+  const { projected: receitaProj, slope: recSlope } = projectForward(receitaMensal, 12);
+  const { projected: clientesProj, slope: cliSlope } = projectForward(clientesTrajetoria, 12);
+  const futureLabels = futureMonthLabels(12);
+
+  const receitaAtual = receitaMensal[receitaMensal.length-1];
+  const receitaFutura = receitaProj[receitaProj.length-1];
+  const receitaVar = (receitaFutura/receitaAtual - 1) * 100;
+
+  const clientesFuturo = clientesProj[clientesProj.length-1];
+  const clientesVar = clientesFuturo - currentClients;
+  const clientesVarPct = (clientesFuturo/currentClients - 1) * 100;
+
+  el.innerHTML = `
+    <div class="card-head"><h3>Projeção de crescimento (12 meses à frente)</h3><span class="tag">tendência linear</span></div>
+    <p class="explain">Estimativa simples baseada na tendência dos últimos 12 meses (regressão linear), projetada mês a mês até ${futureLabels[futureLabels.length-1]}. Não considera sazonalidade, novos investimentos, concorrência ou mudanças de mercado — é um "se tudo continuar no ritmo atual", não uma previsão financeira.</p>
+
+    <div class="kpi-grid" style="margin-bottom:18px;">
+      <div class="kpi" style="--kpi-color:var(--accent)">
+        <div class="label">Receita mensal projetada</div>
+        <div class="value accent">${fmtR$(receitaFutura)}</div>
+        <div class="sub">${futureLabels[futureLabels.length-1]} · ${receitaVar>=0?'+':''}${receitaVar.toFixed(1)}% vs. hoje</div>
+      </div>
+      <div class="kpi" style="--kpi-color:#1C7ED6">
+        <div class="label">Clientes ativos projetados</div>
+        <div class="value">${fmtN(Math.round(clientesFuturo))}</div>
+        <div class="sub">${futureLabels[futureLabels.length-1]} · ${clientesVar>=0?'+':''}${fmtN(Math.round(clientesVar))} clientes (${clientesVarPct>=0?'+':''}${clientesVarPct.toFixed(1)}%)</div>
+      </div>
+      <div class="kpi" style="--kpi-color:#B8720A">
+        <div class="label">Ritmo de crescimento atual</div>
+        <div class="value amber">${recSlope>=0?'+':''}${fmtR$(recSlope)}</div>
+        <div class="sub">de receita mensal, por mês (inclinação da tendência)</div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div>
+        <div style="font-size:12.5px; color:var(--text-muted); margin-bottom:8px; font-weight:600;">Receita mensal — real + projeção</div>
+        <div class="chart-box"><canvas id="c-proj-receita"></canvas></div>
+      </div>
+      <div>
+        <div style="font-size:12.5px; color:var(--text-muted); margin-bottom:8px; font-weight:600;">Base de clientes ativos — real (estimada) + projeção</div>
+        <div class="chart-box"><canvas id="c-proj-clientes"></canvas></div>
+      </div>
+    </div>
+  `;
+
+  const allLabels = [...DATA.months_short, ...futureLabels];
+  const receitaFull = [...receitaMensal, ...new Array(12).fill(null)];
+  const receitaFullProj = [...new Array(11).fill(null), receitaMensal[11], ...receitaProj];
+
+  const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#00A87E';
+  mkChart('c-proj-receita', {
+    type:'line',
+    data:{ labels: allLabels,
+      datasets:[
+        { label:'Real', data:receitaFull, borderColor:accentColor, backgroundColor:'transparent', tension:.3, pointRadius:2.5, borderWidth:2.5 },
+        { label:'Projeção', data:receitaFullProj, borderColor:'#94A3B8', backgroundColor:'transparent', borderDash:[6,4], tension:.3, pointRadius:2, borderWidth:2 },
+      ]
+    },
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom', labels:{boxWidth:8, boxHeight:8, usePointStyle:true, padding:12}},
+        tooltip:{callbacks:{label:ctx=> ctx.parsed.y==null?undefined:` ${ctx.dataset.label}: ${fmtR$(ctx.parsed.y)}`}}},
+      scales:{...baseScales, y:{...baseScales.y, ticks:{...baseScales.y.ticks, callback:v=>'R$'+(v/1000).toFixed(0)+'k'}}}
+    }
+  });
+
+  const clientesFull = [...clientesTrajetoria, ...new Array(12).fill(null)];
+  const clientesFullProj = [...new Array(11).fill(null), clientesTrajetoria[11], ...clientesProj];
+
+  mkChart('c-proj-clientes', {
+    type:'line',
+    data:{ labels: allLabels,
+      datasets:[
+        { label:'Real (estimado)', data:clientesFull, borderColor:'#1C7ED6', backgroundColor:'transparent', tension:.3, pointRadius:2.5, borderWidth:2.5 },
+        { label:'Projeção', data:clientesFullProj, borderColor:'#94A3B8', backgroundColor:'transparent', borderDash:[6,4], tension:.3, pointRadius:2, borderWidth:2 },
+      ]
+    },
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom', labels:{boxWidth:8, boxHeight:8, usePointStyle:true, padding:12}},
+        tooltip:{callbacks:{label:ctx=> ctx.parsed.y==null?undefined:` ${ctx.dataset.label}: ${fmtN(Math.round(ctx.parsed.y))}`}}},
+      scales:{...baseScales, y:{...baseScales.y, ticks:{...baseScales.y.ticks, callback:v=>fmtN(Math.round(v))}}}
+    }
+  });
+}
+
 // ================= EMPRESA INDIVIDUAL =================
 function renderCompany(id){
   const c = DATA.companies.find(x=>x.id===id);
@@ -1071,6 +1513,8 @@ function renderCompany(id){
     </div>
 
     <div class="kpi-grid" id="kpi-grid-${id}"></div>
+
+    <div class="card" id="projection-card-${id}" style="margin-bottom:16px;"></div>
 
     <div class="card alerts-card" id="alerts-${id}"></div>
 
@@ -1224,7 +1668,49 @@ function renderCompany(id){
   });
   renderCompanyKPIs(c, id, -1);
   renderAlertsCard('alerts-'+id, id);
+  renderProjectionCompany(c, id);
 }
+
+function renderProjectionCompany(c, id){
+  const el = document.getElementById('projection-card-'+id);
+  const color = COMPANY_COLORS[id];
+  const liquidoMensal = c.ativacoes.map((a,i)=>a-c.cancelamentos[i]);
+  const totalLiquido12m = sum(liquidoMensal);
+  const baseInicioEstimada = c.clientes_ativos - totalLiquido12m;
+  const clientesTrajetoria = [];
+  let acc = baseInicioEstimada;
+  liquidoMensal.forEach(l => { acc += l; clientesTrajetoria.push(acc); });
+
+  const { projected: receitaProj, slope: recSlope } = projectForward(c.receitas, 12);
+  const { projected: clientesProj } = projectForward(clientesTrajetoria, 12);
+  const futureLabels = futureMonthLabels(12);
+
+  const receitaAtual = c.receitas[c.receitas.length-1];
+  const receitaFutura = receitaProj[receitaProj.length-1];
+  const receitaVar = receitaAtual ? (receitaFutura/receitaAtual - 1) * 100 : 0;
+  const clientesFuturo = clientesProj[clientesProj.length-1];
+  const clientesVar = clientesFuturo - c.clientes_ativos;
+  const clientesVarPct = (clientesFuturo/c.clientes_ativos - 1) * 100;
+  const trendGood = recSlope >= 0;
+
+  el.innerHTML = `
+    <div class="card-head"><h3>Projeção 12 meses à frente</h3><span class="tag">tendência linear</span></div>
+    <p class="explain">Se o ritmo dos últimos 12 meses se mantiver, é onde ${c.name} chegaria em ${futureLabels[futureLabels.length-1]}. Estimativa simples (regressão linear), não é previsão financeira.</p>
+    <div class="kpi-grid">
+      <div class="kpi" style="--kpi-color:${color}">
+        <div class="label">Receita mensal projetada</div>
+        <div class="value" style="color:${trendGood?color:'var(--danger)'}">${fmtR$(receitaFutura)}</div>
+        <div class="sub">${futureLabels[futureLabels.length-1]} · ${receitaVar>=0?'+':''}${receitaVar.toFixed(1)}% vs. hoje</div>
+      </div>
+      <div class="kpi" style="--kpi-color:#1C7ED6">
+        <div class="label">Clientes ativos projetados</div>
+        <div class="value">${fmtN(Math.round(Math.max(0,clientesFuturo)))}</div>
+        <div class="sub">${futureLabels[futureLabels.length-1]} · ${clientesVar>=0?'+':''}${fmtN(Math.round(clientesVar))} (${clientesVarPct>=0?'+':''}${clientesVarPct.toFixed(1)}%)</div>
+      </div>
+    </div>
+  `;
+}
+
 
 function renderCompanyKPIs(c, id, monthIdx){
   const all = monthIdx === -1;
