@@ -429,7 +429,7 @@ function blankEmpresa(nome){
     finSelic:14.5, finValorOverride:null,
     finCarenciaTri:3, finParcelasTri:13, finFlatPct:1.6, finIRPct:17.647,
     intencaoVendaValor:0,
-    crescPctMes:0, crescInfolinkInstMes:0,
+    crescClientesHa12Meses:0, crescInfolinkInstMes:0,
     kmz:null, // {name} — o arquivo em si fica no IndexedDB deste navegador, não aqui
     kmzCustoCaixa:0, kmzCustoCeo:0,
     kmzCustoMetroPorModelo:{}, // ex: {"12": 2.5, "24": 4, "outro": 1.8} — R$/metro por bitola de fibra
@@ -773,7 +773,12 @@ function computeCrescimento(p){
   const baseClientes = p.clientes||0;
   const baseMRR = p.mrr||0;
   const ticket = baseClientes? baseMRR/baseClientes : 0;
-  const pctMes = (p.crescPctMes||0)/100;
+  // A taxa de crescimento não é digitada — é calculada a partir do que o
+  // provedor realmente fez nos últimos 12 meses (clientes de hoje vs.
+  // clientes há 12 meses). Se não tiver esse dado ainda, ou se não mudou
+  // nada, a taxa fica 0% e a projeção "provedor sozinho" sai igual a hoje.
+  const clientesHa12Meses = p.crescClientesHa12Meses||0;
+  const pctMes = (clientesHa12Meses>0 && baseClientes>0) ? Math.pow(baseClientes/clientesHa12Meses, 1/12) - 1 : 0;
   const instMes = p.crescInfolinkInstMes||0;
   const horizontes = [3,6,12].map(meses=>{
     const clientesAtual = baseClientes * Math.pow(1+pctMes, meses);
@@ -783,7 +788,7 @@ function computeCrescimento(p){
     return { meses, clientesAtual, mrrAtual, clientesInfolink, mrrInfolink,
       ganhoClientes: clientesInfolink-clientesAtual, ganhoMRR: mrrInfolink-mrrAtual };
   });
-  return { baseClientes, baseMRR, ticket, horizontes };
+  return { baseClientes, baseMRR, ticket, clientesHa12Meses, pctMes, horizontes };
 }
 
 /* ======================================================================
@@ -1036,12 +1041,17 @@ function tplCrescimento(){
   return `
   <div class="sec-block">
     <h3>Premissas de crescimento</h3>
-    <p class="hint">Duas taxas, dois futuros possíveis: o provedor sozinho, no ritmo dele, e o provedor já dentro da Infolink, com a meta de instalações que a gente definir.</p>
+    <p class="hint">Dois futuros possíveis: o provedor sozinho, no ritmo que ele já vinha andando, e o provedor já dentro da Infolink, com a meta de instalações que a gente definir.</p>
     <div class="panel">
       <div class="field-grid">
-        <div class="field"><label>Crescimento orgânico do provedor (% de clientes ao mês)</label><input id="in-cresc-pct" type="number" step="0.1"></div>
+        <div class="field">
+          <label>Clientes há 12 meses (mesmo mês, ano passado)</label>
+          <input id="in-cresc-clientes12m" type="number" min="0" step="1">
+        </div>
         <div class="field"><label>Instalações líquidas/mês pós-aquisição (meta Infolink)</label><input id="in-cresc-infolink" type="number" step="1"></div>
       </div>
+      <p class="note">Não precisa calcular taxa nenhuma — só informe quantos clientes o provedor tinha há 12 meses (olhando o histórico dele). O ritmo mensal é calculado sozinho a partir da diferença até os clientes de hoje. Se não cresceu nada nesse período, deixe igual ao número de clientes atual (ou em branco) — a projeção "provedor sozinho" fica estável, sem inventar crescimento.</p>
+      <p class="note" id="cresc-taxa-calc" style="font-weight:600;"></p>
       <p class="note">Ticket médio (MRR ÷ clientes de hoje) é mantido constante nos dois cenários — a única diferença projetada é o ritmo de clientes novos.</p>
     </div>
   </div>
@@ -1432,6 +1442,19 @@ function setText(id, val){ const el=document.getElementById(id); if(el) el.textC
 
 function renderCrescimento(p){
   const c = computeCrescimento(p);
+
+  const taxaEl = document.getElementById('cresc-taxa-calc');
+  if(taxaEl){
+    if(c.clientesHa12Meses>0){
+      const pctAno = Math.pow(1+c.pctMes,12)-1;
+      taxaEl.textContent = `Taxa calculada: ${fmtPct(c.pctMes)} ao mês (equivale a ${fmtPct(pctAno)} no ano) — de ${fmtNum(c.clientesHa12Meses)} para ${fmtNum(c.baseClientes)} clientes.`;
+      taxaEl.style.color = c.pctMes>0 ? 'var(--good)' : (c.pctMes<0 ? 'var(--bad)' : 'var(--text-dim)');
+    } else {
+      taxaEl.textContent = 'Taxa calculada: — (informe os clientes de há 12 meses ao lado para calcular)';
+      taxaEl.style.color = 'var(--text-dim)';
+    }
+  }
+
   const body = document.getElementById('crescimento-body');
   if(body) body.innerHTML = c.horizontes.map(h=>`
     <tr>
@@ -1568,7 +1591,7 @@ function fillFields(){
   set('in-fin-flat', p.finFlatPct);
   set('in-fin-ir', p.finIRPct);
   set('in-intencao-valor', fmtMoneyInput(p.intencaoVendaValor));
-  set('in-cresc-pct', p.crescPctMes);
+  set('in-cresc-clientes12m', p.crescClientesHa12Meses || '');
   set('in-cresc-infolink', p.crescInfolinkInstMes);
   set('pstatus', p.status||"Prospecção");
   set('in-motivo', p.motivoDescarte||"");
@@ -1631,7 +1654,7 @@ function bindAll(){
   bindField('in-fin-flat', (p,v)=>p.finFlatPct=parseFloat(v)||0);
   bindField('in-fin-ir', (p,v)=>p.finIRPct=parseFloat(v)||0);
   bindMoneyField('in-intencao-valor', (p,v)=>p.intencaoVendaValor=v);
-  bindField('in-cresc-pct', (p,v)=>p.crescPctMes=parseFloat(v)||0);
+  bindField('in-cresc-clientes12m', (p,v)=>p.crescClientesHa12Meses=parseFloat(v)||0);
   bindField('in-cresc-infolink', (p,v)=>p.crescInfolinkInstMes=parseFloat(v)||0);
   bindMoneyField('in-fin-valor', (p,v)=>p.finValorOverride=v);
 
