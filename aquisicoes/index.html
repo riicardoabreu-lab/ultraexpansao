@@ -429,6 +429,7 @@ function blankEmpresa(nome){
     finSelic:14.5, finValorOverride:null,
     finCarenciaTri:3, finParcelasTri:13, finFlatPct:1.6, finIRPct:17.647,
     intencaoVendaValor:0,
+    crescPctMes:0, crescInfolinkInstMes:0,
     kmz:null, // {name} — o arquivo em si fica no IndexedDB deste navegador, não aqui
     kmzCustoCaixa:0, kmzCustoCeo:0,
     kmzCustoMetroPorModelo:{}, // ex: {"12": 2.5, "24": 4, "outro": 1.8} — R$/metro por bitola de fibra
@@ -765,6 +766,27 @@ function proposalCalc(pr, p, m){
 }
 
 /* ======================================================================
+   CRESCIMENTO — projeção 3/6/12 meses: provedor sozinho (crescimento
+   composto mensal) vs. já dentro da Infolink (instalações líquidas/mês).
+====================================================================== */
+function computeCrescimento(p){
+  const baseClientes = p.clientes||0;
+  const baseMRR = p.mrr||0;
+  const ticket = baseClientes? baseMRR/baseClientes : 0;
+  const pctMes = (p.crescPctMes||0)/100;
+  const instMes = p.crescInfolinkInstMes||0;
+  const horizontes = [3,6,12].map(meses=>{
+    const clientesAtual = baseClientes * Math.pow(1+pctMes, meses);
+    const mrrAtual = clientesAtual * ticket;
+    const clientesInfolink = baseClientes + instMes*meses;
+    const mrrInfolink = clientesInfolink * ticket;
+    return { meses, clientesAtual, mrrAtual, clientesInfolink, mrrInfolink,
+      ganhoClientes: clientesInfolink-clientesAtual, ganhoMRR: mrrInfolink-mrrAtual };
+  });
+  return { baseClientes, baseMRR, ticket, horizontes };
+}
+
+/* ======================================================================
    SIDEBAR
 ====================================================================== */
 function renderSidebar(){
@@ -851,12 +873,14 @@ function mainSkeleton(){
       <button data-tab="custos">Custos &amp; EBITDA</button>
       <button data-tab="valuation">Investimento &amp; Valuation</button>
       <button data-tab="propostas">Propostas</button>
+      <button data-tab="crescimento">Crescimento</button>
       <button data-tab="rede">Rede (KMZ)</button>
       ${temRelatorio ? '<button data-tab="relatorio">Relatório</button>' : ''}
     </div>
     <div class="tabpanel" data-panel="custos">${tplCustos()}</div>
     <div class="tabpanel" data-panel="valuation">${tplValuation()}</div>
     <div class="tabpanel" data-panel="propostas">${tplPropostas()}</div>
+    <div class="tabpanel" data-panel="crescimento">${tplCrescimento()}</div>
     <div class="tabpanel" data-panel="rede">${tplRede()}</div>
     ${temRelatorio ? `<div class="tabpanel" data-panel="relatorio">${tplRelatorio()}</div>` : ''}
     <footer>Plataforma local — nenhum dado sai deste navegador. Cada provedor é salvo separadamente e pode ser exportado em JSON.</footer>
@@ -1004,6 +1028,37 @@ function tplPropostas(){
       </table></div>
       <button class="add-row" data-add="proposta">+ adicionar proposta</button>
       <p class="note">Viável = caixa mensal positivo após a parcela e payback dentro da meta definida em Investimento &amp; Valuation.</p>
+    </div>
+  </div>`;
+}
+
+function tplCrescimento(){
+  return `
+  <div class="sec-block">
+    <h3>Premissas de crescimento</h3>
+    <p class="hint">Duas taxas, dois futuros possíveis: o provedor sozinho, no ritmo dele, e o provedor já dentro da Infolink, com a meta de instalações que a gente definir.</p>
+    <div class="panel">
+      <div class="field-grid">
+        <div class="field"><label>Crescimento orgânico do provedor (% de clientes ao mês)</label><input id="in-cresc-pct" type="number" step="0.1"></div>
+        <div class="field"><label>Instalações líquidas/mês pós-aquisição (meta Infolink)</label><input id="in-cresc-infolink" type="number" step="1"></div>
+      </div>
+      <p class="note">Ticket médio (MRR ÷ clientes de hoje) é mantido constante nos dois cenários — a única diferença projetada é o ritmo de clientes novos.</p>
+    </div>
+  </div>
+  <div class="sec-block">
+    <h3>Projeção de recebimento — 3, 6 e 12 meses</h3>
+    <p class="hint">Cenário 1: provedor seguindo sozinho. Cenário 2: já operando com a marca/estrutura da Infolink, puxando instalações no ritmo definido acima.</p>
+    <div class="panel">
+      <div class="kpi-row" id="crescimentoKpis" style="margin-bottom:18px;"></div>
+      <div class="table-scroll"><table id="tbl-crescimento">
+        <thead><tr>
+          <th>Horizonte</th>
+          <th>Clientes (provedor sozinho)</th><th>MRR (provedor sozinho)</th>
+          <th>Clientes (na Infolink)</th><th>MRR (na Infolink)</th>
+          <th>Ganho de clientes</th><th>Ganho de MRR</th>
+        </tr></thead>
+        <tbody id="crescimento-body"></tbody>
+      </table></div>
     </div>
   </div>`;
 }
@@ -1370,9 +1425,34 @@ function recomputeAll(){
   buildEmprestimoTable(m.emprestimo);
 
   refreshProposalsComputed(p, m);
+  renderCrescimento(p);
   renderSidebar();
 }
 function setText(id, val){ const el=document.getElementById(id); if(el) el.textContent = val; }
+
+function renderCrescimento(p){
+  const c = computeCrescimento(p);
+  const body = document.getElementById('crescimento-body');
+  if(body) body.innerHTML = c.horizontes.map(h=>`
+    <tr>
+      <td>${h.meses} meses</td>
+      <td class="computed">${fmtNum(Math.round(h.clientesAtual))}</td>
+      <td class="computed">${fmtBRL(h.mrrAtual)}</td>
+      <td class="computed">${fmtNum(Math.round(h.clientesInfolink))}</td>
+      <td class="computed">${fmtBRL(h.mrrInfolink)}</td>
+      <td class="computed" style="color:${h.ganhoClientes>=0?'var(--good)':'var(--bad)'}">${h.ganhoClientes>=0?'+':''}${fmtNum(Math.round(h.ganhoClientes))}</td>
+      <td class="computed" style="color:${h.ganhoMRR>=0?'var(--good)':'var(--bad)'}">${h.ganhoMRR>=0?'+':''}${fmtBRL(h.ganhoMRR)}</td>
+    </tr>`).join('');
+
+  const kpis = document.getElementById('crescimentoKpis');
+  const h12 = c.horizontes[2];
+  if(kpis) kpis.innerHTML = `
+    <div class="kpi"><div class="label">Clientes hoje</div><div class="value">${fmtNum(c.baseClientes)}</div></div>
+    <div class="kpi"><div class="label">MRR hoje</div><div class="value">${fmtBRL(c.baseMRR)}</div></div>
+    <div class="kpi hi"><div class="label">MRR em 12 meses — provedor sozinho</div><div class="value">${fmtBRL(h12.mrrAtual)}</div><div class="sub">${fmtNum(Math.round(h12.clientesAtual))} clientes</div></div>
+    <div class="kpi hi"><div class="label">MRR em 12 meses — na Infolink</div><div class="value">${fmtBRL(h12.mrrInfolink)}</div><div class="sub">${fmtNum(Math.round(h12.clientesInfolink))} clientes</div></div>
+  `;
+}
 
 function refreshProposalsComputed(p, m){
   const tbody = document.getElementById('propostas-body'); if(!tbody) return;
@@ -1488,6 +1568,8 @@ function fillFields(){
   set('in-fin-flat', p.finFlatPct);
   set('in-fin-ir', p.finIRPct);
   set('in-intencao-valor', fmtMoneyInput(p.intencaoVendaValor));
+  set('in-cresc-pct', p.crescPctMes);
+  set('in-cresc-infolink', p.crescInfolinkInstMes);
   set('pstatus', p.status||"Prospecção");
   set('in-motivo', p.motivoDescarte||"");
   const motivoTa = document.getElementById('in-motivo'); if(motivoTa) motivoTa.style.display = 'none';
@@ -1549,6 +1631,8 @@ function bindAll(){
   bindField('in-fin-flat', (p,v)=>p.finFlatPct=parseFloat(v)||0);
   bindField('in-fin-ir', (p,v)=>p.finIRPct=parseFloat(v)||0);
   bindMoneyField('in-intencao-valor', (p,v)=>p.intencaoVendaValor=v);
+  bindField('in-cresc-pct', (p,v)=>p.crescPctMes=parseFloat(v)||0);
+  bindField('in-cresc-infolink', (p,v)=>p.crescInfolinkInstMes=parseFloat(v)||0);
   bindMoneyField('in-fin-valor', (p,v)=>p.finValorOverride=v);
 
   document.querySelectorAll('[data-add]').forEach(btn=>{
