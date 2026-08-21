@@ -135,8 +135,6 @@
   .topbar-actions{ margin-left:auto; display:flex; align-items:center; gap:8px; }
   .ghost-btn{ background:transparent; border:1px solid var(--border); color:var(--text-dim); padding:7px 13px; border-radius:7px; font-size:12px; cursor:pointer; white-space:nowrap; }
   .ghost-btn:hover{ border-color:var(--accent); color:var(--accent); }
-  .status-pill{ display:flex; align-items:center; gap:8px; padding:6px 12px; border-radius:20px; border:1px solid var(--border); font-family:var(--mono); font-size:12px; white-space:nowrap; }
-  .status-pill b{ font-family:var(--body); font-weight:600;}
   .dot{width:7px;height:7px;border-radius:50%;}
   .color-picker-wrap{ position:relative; display:flex; align-items:center; gap:4px; }
   .icon-btn{ padding:7px 10px; font-size:14px; line-height:1; }
@@ -371,7 +369,6 @@
     <a href="../home.html" class="brand" style="text-decoration:none;color:inherit;"><span class="brand-dot"></span>Plataforma de Aquisições ISP</a>
     <div class="topbar-actions">
       <a href="../home.html" class="ghost-btn" style="text-decoration:none;">← Voltar</a>
-      <div class="status-pill"><span class="dot" id="statusDot"></span>Conclusão: <b id="statusText">—</b></div>
       <div class="color-picker-wrap">
         <button class="ghost-btn icon-btn" id="tableColorBtn" title="Escolher a cor do tema (afeta a página toda)">🎨</button>
         <button class="ghost-btn icon-btn" id="tableColorResetBtn" title="Restaurar cor padrão">↺</button>
@@ -1431,13 +1428,6 @@ function recomputeAll(){
     <div class="check"><div class="ctext">${c.label} <span class="cmeta">(${c.val} · meta ${c.meta})</span></div>
     <span class="badge ${c.ok?'sim':'nao'}">${c.ok?'SIM':'NÃO'}</span></div>`).join('') +
     `<div class="check"><div class="ctext"><b>Conclusão geral</b></div><span class="badge ${m.conclusao==='SIM'?'sim':'rev'}">${m.conclusao}</span></div>`;
-
-  const dot = document.getElementById('statusDot'); const txt = document.getElementById('statusText');
-  if(dot && txt){
-    txt.textContent = m.conclusao;
-    dot.style.background = m.conclusao==='SIM' ? 'var(--good)' : 'var(--amber)';
-    dot.style.boxShadow = `0 0 8px 2px ${m.conclusao==='SIM' ? 'rgba(52,211,153,.6)':'rgba(251,191,36,.6)'}`;
-  }
 
   const finValEl = document.getElementById('in-fin-valor');
   if(finValEl && document.activeElement!==finValEl) finValEl.value = fmtMoneyInput(m.emprestimo.valor);
