@@ -429,7 +429,7 @@ function blankEmpresa(nome){
     finSelic:14.5, finValorOverride:null,
     finCarenciaTri:3, finParcelasTri:13, finFlatPct:1.6, finIRPct:17.647,
     intencaoVendaValor:0,
-    crescClientesHa12Meses:0, crescInfolinkInstMes:0,
+    crescAtivMes:0, crescCancelMes:0, crescInfolinkInstMes:0,
     kmz:null, // {name} — o arquivo em si fica no IndexedDB deste navegador, não aqui
     kmzCustoCaixa:0, kmzCustoCeo:0,
     kmzCustoMetroPorModelo:{}, // ex: {"12": 2.5, "24": 4, "outro": 1.8} — R$/metro por bitola de fibra
@@ -766,29 +766,31 @@ function proposalCalc(pr, p, m){
 }
 
 /* ======================================================================
-   CRESCIMENTO — projeção 3/6/12 meses: provedor sozinho (crescimento
-   composto mensal) vs. já dentro da Infolink (instalações líquidas/mês).
+   CRESCIMENTO — projeção 3/6/12 meses: provedor sozinho (instalações
+   menos cancelamentos médios/mês, no ritmo histórico dele) vs. já
+   dentro da Infolink (meta de instalações líquidas/mês pós-aquisição).
 ====================================================================== */
 function computeCrescimento(p){
   const baseClientes = p.clientes||0;
   const baseMRR = p.mrr||0;
   const ticket = baseClientes? baseMRR/baseClientes : 0;
-  // A taxa de crescimento não é digitada — é calculada a partir do que o
-  // provedor realmente fez nos últimos 12 meses (clientes de hoje vs.
-  // clientes há 12 meses). Se não tiver esse dado ainda, ou se não mudou
-  // nada, a taxa fica 0% e a projeção "provedor sozinho" sai igual a hoje.
-  const clientesHa12Meses = p.crescClientesHa12Meses||0;
-  const pctMes = (clientesHa12Meses>0 && baseClientes>0) ? Math.pow(baseClientes/clientesHa12Meses, 1/12) - 1 : 0;
+  // Nada de taxa % digitada — só a média real de instalações e
+  // cancelamentos por mês do provedor. O líquido (instalações menos
+  // cancelamentos) é o ritmo mensal aplicado pra frente.
+  const ativMes = p.crescAtivMes||0;
+  const cancelMes = p.crescCancelMes||0;
+  const netProvedorMes = ativMes - cancelMes;
+  const pctMes = baseClientes? netProvedorMes/baseClientes : 0;
   const instMes = p.crescInfolinkInstMes||0;
   const horizontes = [3,6,12].map(meses=>{
-    const clientesAtual = baseClientes * Math.pow(1+pctMes, meses);
+    const clientesAtual = Math.max(0, baseClientes + netProvedorMes*meses);
     const mrrAtual = clientesAtual * ticket;
-    const clientesInfolink = baseClientes + instMes*meses;
+    const clientesInfolink = Math.max(0, baseClientes + instMes*meses);
     const mrrInfolink = clientesInfolink * ticket;
     return { meses, clientesAtual, mrrAtual, clientesInfolink, mrrInfolink,
       ganhoClientes: clientesInfolink-clientesAtual, ganhoMRR: mrrInfolink-mrrAtual };
   });
-  return { baseClientes, baseMRR, ticket, clientesHa12Meses, pctMes, horizontes };
+  return { baseClientes, baseMRR, ticket, ativMes, cancelMes, netProvedorMes, pctMes, horizontes };
 }
 
 /* ======================================================================
@@ -1038,21 +1040,28 @@ function tplPropostas(){
 }
 
 function tplCrescimento(){
+  const p = current();
+  const temRelatorio = /ip2/i.test(p?.nome || '');
   return `
   <div class="sec-block">
     <h3>Premissas de crescimento</h3>
     <p class="hint">Dois futuros possíveis: o provedor sozinho, no ritmo que ele já vinha andando, e o provedor já dentro da Infolink, com a meta de instalações que a gente definir.</p>
     <div class="panel">
+      ${temRelatorio ? `
+      <button class="ghost-btn" id="puxarRelatorioBtn" type="button" style="margin-bottom:14px;">📥 Puxar médias do relatório operacional</button>
+      <p class="note" id="cresc-puxar-status"></p>
+      ` : ''}
+      <p class="hint" style="margin-top:0;">Provedor sozinho — média mensal histórica dele</p>
       <div class="field-grid">
-        <div class="field">
-          <label>Clientes há 12 meses (mesmo mês, ano passado)</label>
-          <input id="in-cresc-clientes12m" type="number" min="0" step="1">
-        </div>
+        <div class="field"><label>Instalações médias/mês</label><input id="in-cresc-ativ" type="number" step="1"></div>
+        <div class="field"><label>Cancelamentos médios/mês</label><input id="in-cresc-cancel" type="number" step="1"></div>
+      </div>
+      <p class="note" id="cresc-taxa-calc" style="font-weight:600;"></p>
+      <p class="hint" style="margin-top:18px;">Na Infolink — meta pós-aquisição</p>
+      <div class="field-grid">
         <div class="field"><label>Instalações líquidas/mês pós-aquisição (meta Infolink)</label><input id="in-cresc-infolink" type="number" step="1"></div>
       </div>
-      <p class="note">Não precisa calcular taxa nenhuma — só informe quantos clientes o provedor tinha há 12 meses (olhando o histórico dele). O ritmo mensal é calculado sozinho a partir da diferença até os clientes de hoje. Se não cresceu nada nesse período, deixe igual ao número de clientes atual (ou em branco) — a projeção "provedor sozinho" fica estável, sem inventar crescimento.</p>
-      <p class="note" id="cresc-taxa-calc" style="font-weight:600;"></p>
-      <p class="note">Ticket médio (MRR ÷ clientes de hoje) é mantido constante nos dois cenários — a única diferença projetada é o ritmo de clientes novos.</p>
+      <p class="note">Não precisa calcular taxa nenhuma — só informe a média de instalações e cancelamentos por mês do provedor (ou clique em "Puxar médias do relatório" acima, se disponível). O líquido (instalações − cancelamentos) é o ritmo aplicado pra frente. Ticket médio (MRR ÷ clientes de hoje) é mantido constante nos dois cenários — a única diferença projetada é o ritmo de clientes novos.</p>
     </div>
   </div>
   <div class="sec-block">
@@ -1445,12 +1454,12 @@ function renderCrescimento(p){
 
   const taxaEl = document.getElementById('cresc-taxa-calc');
   if(taxaEl){
-    if(c.clientesHa12Meses>0){
-      const pctAno = Math.pow(1+c.pctMes,12)-1;
-      taxaEl.textContent = `Taxa calculada: ${fmtPct(c.pctMes)} ao mês (equivale a ${fmtPct(pctAno)} no ano) — de ${fmtNum(c.clientesHa12Meses)} para ${fmtNum(c.baseClientes)} clientes.`;
-      taxaEl.style.color = c.pctMes>0 ? 'var(--good)' : (c.pctMes<0 ? 'var(--bad)' : 'var(--text-dim)');
+    if(c.ativMes || c.cancelMes){
+      const pctAno = c.pctMes*12;
+      taxaEl.textContent = `Líquido: ${c.netProvedorMes>=0?'+':''}${fmtNum(c.netProvedorMes)} clientes/mês (${fmtNum(c.ativMes)} instalações − ${fmtNum(c.cancelMes)} cancelamentos) = ${fmtPct(c.pctMes)} da base atual por mês, equivalente a ${fmtPct(pctAno)} em 12 meses.`;
+      taxaEl.style.color = c.netProvedorMes>0 ? 'var(--good)' : (c.netProvedorMes<0 ? 'var(--bad)' : 'var(--text-dim)');
     } else {
-      taxaEl.textContent = 'Taxa calculada: — (informe os clientes de há 12 meses ao lado para calcular)';
+      taxaEl.textContent = 'Informe as médias de instalações e cancelamentos acima pra calcular o líquido.';
       taxaEl.style.color = 'var(--text-dim)';
     }
   }
@@ -1475,6 +1484,44 @@ function renderCrescimento(p){
     <div class="kpi hi"><div class="label">MRR em 12 meses — provedor sozinho</div><div class="value">${fmtBRL(h12.mrrAtual)}</div><div class="sub">${fmtNum(Math.round(h12.clientesAtual))} clientes</div></div>
     <div class="kpi hi"><div class="label">MRR em 12 meses — na Infolink</div><div class="value">${fmtBRL(h12.mrrInfolink)}</div><div class="sub">${fmtNum(Math.round(h12.clientesInfolink))} clientes</div></div>
   `;
+}
+
+// Lê o histórico real de ativações/cancelamentos do relatório operacional
+// embutido (iframe .relatorio-frame, mesma origem) e usa isso pra calcular
+// "clientes há 12 meses" de verdade, em vez de depender do usuário estimar
+// isso de cabeça. Só existe pro provedor IP2 (ver temRelatorio).
+function puxarCrescimentoDoRelatorio(){
+  const status = document.getElementById('cresc-puxar-status');
+  const setStatus = (msg, color) => { if(status){ status.textContent = msg; status.style.color = color || 'var(--text-dim)'; } };
+  const p = current(); if(!p) return;
+  const iframe = document.querySelector('.relatorio-frame');
+  if(!iframe){ setStatus('Relatório ainda não carregou — abra a aba Relatório uma vez e volte aqui.', 'var(--amber)'); return; }
+  let data;
+  try{ data = iframe.contentWindow && iframe.contentWindow.DATA; }catch(e){ data = null; }
+  if(!data || !data.companies){ setStatus('Relatório ainda carregando — espera um instante e tenta de novo (ou abre a aba Relatório uma vez pra garantir que carregou).', 'var(--amber)'); return; }
+
+  const norm = s => String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+  const alvo = norm(p.nome);
+  let candidatos = data.companies.filter(c => norm(c.name)===alvo);
+  if(!candidatos.length) candidatos = data.companies.filter(c => alvo.includes(norm(c.name)) || norm(c.name).includes(alvo));
+  if(!candidatos.length){ setStatus(`Não encontrei "${p.nome}" no relatório operacional.`, 'var(--bad)'); return; }
+
+  const empresaRel = candidatos[0];
+  const totalMeses = (empresaRel.ativacoes||[]).length || 12;
+  const ativTotal = (empresaRel.ativacoes||[]).reduce((s,n)=>s+n,0);
+  const cancelTotal = (empresaRel.cancelamentos||[]).reduce((s,n)=>s+n,0);
+  const ativMedia = Math.round((ativTotal/totalMeses)*10)/10;
+  const cancelMedia = Math.round((cancelTotal/totalMeses)*10)/10;
+
+  p.crescAtivMes = ativMedia;
+  p.crescCancelMes = cancelMedia;
+  const inputAtiv = document.getElementById('in-cresc-ativ');
+  const inputCancel = document.getElementById('in-cresc-cancel');
+  if(inputAtiv) inputAtiv.value = ativMedia;
+  if(inputCancel) inputCancel.value = cancelMedia;
+  recomputeAll(); saveApp();
+
+  setStatus(`Puxado de "${empresaRel.name}": média de ${fmtNum(ativMedia)} instalações e ${fmtNum(cancelMedia)} cancelamentos/mês, com base nos últimos ${totalMeses} meses (${fmtNum(ativTotal)} instalações e ${fmtNum(cancelTotal)} cancelamentos no total).`, 'var(--good)');
 }
 
 function refreshProposalsComputed(p, m){
@@ -1591,7 +1638,8 @@ function fillFields(){
   set('in-fin-flat', p.finFlatPct);
   set('in-fin-ir', p.finIRPct);
   set('in-intencao-valor', fmtMoneyInput(p.intencaoVendaValor));
-  set('in-cresc-clientes12m', p.crescClientesHa12Meses || '');
+  set('in-cresc-ativ', p.crescAtivMes || '');
+  set('in-cresc-cancel', p.crescCancelMes || '');
   set('in-cresc-infolink', p.crescInfolinkInstMes);
   set('pstatus', p.status||"Prospecção");
   set('in-motivo', p.motivoDescarte||"");
@@ -1654,9 +1702,12 @@ function bindAll(){
   bindField('in-fin-flat', (p,v)=>p.finFlatPct=parseFloat(v)||0);
   bindField('in-fin-ir', (p,v)=>p.finIRPct=parseFloat(v)||0);
   bindMoneyField('in-intencao-valor', (p,v)=>p.intencaoVendaValor=v);
-  bindField('in-cresc-clientes12m', (p,v)=>p.crescClientesHa12Meses=parseFloat(v)||0);
+  bindField('in-cresc-ativ', (p,v)=>p.crescAtivMes=parseFloat(v)||0);
+  bindField('in-cresc-cancel', (p,v)=>p.crescCancelMes=parseFloat(v)||0);
   bindField('in-cresc-infolink', (p,v)=>p.crescInfolinkInstMes=parseFloat(v)||0);
   bindMoneyField('in-fin-valor', (p,v)=>p.finValorOverride=v);
+  const puxarBtn = document.getElementById('puxarRelatorioBtn');
+  if(puxarBtn) puxarBtn.onclick = puxarCrescimentoDoRelatorio;
 
   document.querySelectorAll('[data-add]').forEach(btn=>{
     btn.onclick = () => {
