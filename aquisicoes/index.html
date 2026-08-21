@@ -138,7 +138,6 @@
   .status-pill{ display:flex; align-items:center; gap:8px; padding:6px 12px; border-radius:20px; border:1px solid var(--border); font-family:var(--mono); font-size:12px; white-space:nowrap; }
   .status-pill b{ font-family:var(--body); font-weight:600;}
   .dot{width:7px;height:7px;border-radius:50%;}
-  #fileImport{ display:none; }
   .color-picker-wrap{ position:relative; display:flex; align-items:center; gap:4px; }
   .icon-btn{ padding:7px 10px; font-size:14px; line-height:1; }
   #tableColorInput{ position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; left:0; top:0; }
@@ -379,9 +378,7 @@
         <input type="color" id="tableColorInput" value="#0d9488">
       </div>
       <button class="ghost-btn icon-btn" id="themeModeBtn" title="Alternar entre tema claro e escuro">🌙</button>
-      <button class="ghost-btn" id="exportBtn">Exportar tudo</button>
-      <button class="ghost-btn" id="importBtn">Importar</button>
-      <input type="file" id="fileImport" accept="application/json">
+      <button class="ghost-btn icon-btn" id="refreshPageBtn" title="Atualizar a página">🔄</button>
       <button class="ghost-btn" onclick="window._doLogout()">Sair</button>
     </div>
   </div>
@@ -429,7 +426,7 @@ function blankEmpresa(nome){
     finSelic:14.5, finValorOverride:null,
     finCarenciaTri:3, finParcelasTri:13, finFlatPct:1.6, finIRPct:17.647,
     intencaoVendaValor:0,
-    crescAtivMes:0, crescCancelMes:0, crescInfolinkInstMes:0,
+    crescAtivMes:0, crescCancelMes:0, crescInfolinkAtivMes:0, crescInfolinkCancelMes:0,
     kmz:null, // {name} — o arquivo em si fica no IndexedDB deste navegador, não aqui
     kmzCustoCaixa:0, kmzCustoCeo:0,
     kmzCustoMetroPorModelo:{}, // ex: {"12": 2.5, "24": 4, "outro": 1.8} — R$/metro por bitola de fibra
@@ -781,7 +778,13 @@ function computeCrescimento(p){
   const cancelMes = p.crescCancelMes||0;
   const netProvedorMes = ativMes - cancelMes;
   const pctMes = baseClientes? netProvedorMes/baseClientes : 0;
-  const instMes = p.crescInfolinkInstMes||0;
+  // Mesma lógica pro cenário Infolink: instalações e cancelamentos-meta
+  // separados, não só um número líquido — assim dá pra comparar os
+  // dois ritmos (bruto e líquido) lado a lado com o do provedor.
+  const ativInfolinkMes = p.crescInfolinkAtivMes||0;
+  const cancelInfolinkMes = p.crescInfolinkCancelMes||0;
+  const instMes = ativInfolinkMes - cancelInfolinkMes;
+  const pctInfolinkMes = baseClientes? instMes/baseClientes : 0;
   const horizontes = [3,6,12].map(meses=>{
     const clientesAtual = Math.max(0, baseClientes + netProvedorMes*meses);
     const mrrAtual = clientesAtual * ticket;
@@ -790,7 +793,8 @@ function computeCrescimento(p){
     return { meses, clientesAtual, mrrAtual, clientesInfolink, mrrInfolink,
       ganhoClientes: clientesInfolink-clientesAtual, ganhoMRR: mrrInfolink-mrrAtual };
   });
-  return { baseClientes, baseMRR, ticket, ativMes, cancelMes, netProvedorMes, pctMes, horizontes };
+  return { baseClientes, baseMRR, ticket, ativMes, cancelMes, netProvedorMes, pctMes,
+    ativInfolinkMes, cancelInfolinkMes, instMes, pctInfolinkMes, horizontes };
 }
 
 /* ======================================================================
@@ -890,7 +894,7 @@ function mainSkeleton(){
     <div class="tabpanel" data-panel="crescimento">${tplCrescimento()}</div>
     <div class="tabpanel" data-panel="rede">${tplRede()}</div>
     ${temRelatorio ? `<div class="tabpanel" data-panel="relatorio">${tplRelatorio()}</div>` : ''}
-    <footer>Plataforma local — nenhum dado sai deste navegador. Cada provedor é salvo separadamente e pode ser exportado em JSON.</footer>
+    <footer>Dados sincronizados em tempo real com a equipe.</footer>
   `;
 }
 
@@ -1059,9 +1063,11 @@ function tplCrescimento(){
       <p class="note" id="cresc-taxa-calc" style="font-weight:600;"></p>
       <p class="hint" style="margin-top:18px;">Na Infolink — meta pós-aquisição</p>
       <div class="field-grid">
-        <div class="field"><label>Instalações líquidas/mês pós-aquisição (meta Infolink)</label><input id="in-cresc-infolink" type="number" step="1"></div>
+        <div class="field"><label>Instalações médias/mês (meta Infolink)</label><input id="in-cresc-infolink-ativ" type="number" step="1"></div>
+        <div class="field"><label>Cancelamentos médios/mês (meta Infolink)</label><input id="in-cresc-infolink-cancel" type="number" step="1"></div>
       </div>
-      <p class="note">Não precisa calcular taxa nenhuma — só informe a média de instalações e cancelamentos por mês do provedor (ou clique em "Puxar médias do relatório" acima, se disponível). O líquido (instalações − cancelamentos) é o ritmo aplicado pra frente. Ticket médio (MRR ÷ clientes de hoje) é mantido constante nos dois cenários — a única diferença projetada é o ritmo de clientes novos.</p>
+      <p class="note" id="cresc-infolink-taxa-calc" style="font-weight:600;"></p>
+      <p class="note">Não precisa calcular taxa nenhuma — só informe a média de instalações e cancelamentos por mês (ou clique em "Puxar médias do relatório" acima, se disponível, pro provedor sozinho). O líquido (instalações − cancelamentos) é o ritmo aplicado pra frente em cada cenário. Ticket médio (MRR ÷ clientes de hoje) é mantido constante nos dois — a única diferença projetada é o ritmo de clientes novos.</p>
     </div>
   </div>
   <div class="sec-block">
@@ -1464,6 +1470,18 @@ function renderCrescimento(p){
     }
   }
 
+  const taxaInfolinkEl = document.getElementById('cresc-infolink-taxa-calc');
+  if(taxaInfolinkEl){
+    if(c.ativInfolinkMes || c.cancelInfolinkMes){
+      const pctAnoInfolink = c.pctInfolinkMes*12;
+      taxaInfolinkEl.textContent = `Líquido: ${c.instMes>=0?'+':''}${fmtNum(c.instMes)} clientes/mês (${fmtNum(c.ativInfolinkMes)} instalações − ${fmtNum(c.cancelInfolinkMes)} cancelamentos) = ${fmtPct(c.pctInfolinkMes)} da base atual por mês, equivalente a ${fmtPct(pctAnoInfolink)} em 12 meses.`;
+      taxaInfolinkEl.style.color = c.instMes>0 ? 'var(--good)' : (c.instMes<0 ? 'var(--bad)' : 'var(--text-dim)');
+    } else {
+      taxaInfolinkEl.textContent = 'Informe as médias de instalações e cancelamentos acima pra calcular o líquido.';
+      taxaInfolinkEl.style.color = 'var(--text-dim)';
+    }
+  }
+
   const body = document.getElementById('crescimento-body');
   if(body) body.innerHTML = c.horizontes.map(h=>`
     <tr>
@@ -1640,7 +1658,8 @@ function fillFields(){
   set('in-intencao-valor', fmtMoneyInput(p.intencaoVendaValor));
   set('in-cresc-ativ', p.crescAtivMes || '');
   set('in-cresc-cancel', p.crescCancelMes || '');
-  set('in-cresc-infolink', p.crescInfolinkInstMes);
+  set('in-cresc-infolink-ativ', p.crescInfolinkAtivMes || '');
+  set('in-cresc-infolink-cancel', p.crescInfolinkCancelMes || '');
   set('pstatus', p.status||"Prospecção");
   set('in-motivo', p.motivoDescarte||"");
   const motivoTa = document.getElementById('in-motivo'); if(motivoTa) motivoTa.style.display = 'none';
@@ -1704,7 +1723,8 @@ function bindAll(){
   bindMoneyField('in-intencao-valor', (p,v)=>p.intencaoVendaValor=v);
   bindField('in-cresc-ativ', (p,v)=>p.crescAtivMes=parseFloat(v)||0);
   bindField('in-cresc-cancel', (p,v)=>p.crescCancelMes=parseFloat(v)||0);
-  bindField('in-cresc-infolink', (p,v)=>p.crescInfolinkInstMes=parseFloat(v)||0);
+  bindField('in-cresc-infolink-ativ', (p,v)=>p.crescInfolinkAtivMes=parseFloat(v)||0);
+  bindField('in-cresc-infolink-cancel', (p,v)=>p.crescInfolinkCancelMes=parseFloat(v)||0);
   bindMoneyField('in-fin-valor', (p,v)=>p.finValorOverride=v);
   const puxarBtn = document.getElementById('puxarRelatorioBtn');
   if(puxarBtn) puxarBtn.onclick = puxarCrescimentoDoRelatorio;
@@ -2169,31 +2189,9 @@ function bindKmzControls(){
 }
 
 /* ======================================================================
-   IMPORT / EXPORT
+   ATUALIZAR PÁGINA
 ====================================================================== */
-document.getElementById('exportBtn').onclick = () => {
-  const blob = new Blob([JSON.stringify(app,null,2)], {type:'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href=url; a.download='plataforma-isp-backup.json'; a.click();
-  URL.revokeObjectURL(url);
-};
-document.getElementById('importBtn').onclick = () => document.getElementById('fileImport').click();
-document.getElementById('fileImport').onchange = () => {
-  const file = document.getElementById('fileImport').files[0]; if(!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    try{
-      const parsed = JSON.parse(reader.result);
-      if(!parsed.empresas || !Array.isArray(parsed.empresas)) throw new Error('Formato inválido.');
-      if(!confirm(`Importar ${parsed.empresas.length} provedor(es)? Isso substituirá os dados atuais desta plataforma.`)) return;
-      app = parsed;
-      if(!app.currentId && app.empresas.length) app.currentId = app.empresas[0].id;
-      saveApp(); renderAll();
-    }catch(err){ alert('Não foi possível importar: '+err.message); }
-  };
-  reader.readAsText(file);
-  document.getElementById('fileImport').value='';
-};
+document.getElementById('refreshPageBtn').onclick = () => location.reload();
 
 /* ======================================================================
    COR DO TEMA (personalizável, salva no navegador) — recolore a página
