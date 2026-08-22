@@ -753,18 +753,6 @@ function compute(p){
     ebitdaPositivo, margemOk, paybackOk, conclusao, emprestimo };
 }
 
-// Investimento total "e se": as linhas vinculadas a uma proposta (via
-// "Vincular Proposta") usam a entrada DESSA proposta em vez da que
-// estiver realmente selecionada — assim cada linha do simulador mostra
-// o empréstimo/banco que essa proposta específica geraria, não o
-// empréstimo real da ficha (que reflete só a proposta hoje vinculada).
-function investTotalParaProposta(p, pr){
-  return p.investimentos.reduce((sum,r)=>{
-    if(r.propostaLink) return sum + (r.qtd||0)*(pr.valor*(pr.entrada/100||0));
-    return sum + rowTotal(r);
-  }, 0);
-}
-
 function proposalCalc(pr, p, m){
   const entradaR = pr.valor*(pr.entrada/100);
   const saldoFin = pr.valor-entradaR;
@@ -774,8 +762,7 @@ function proposalCalc(pr, p, m){
   const evEBITDAi = m.ebitdaComprador>0 ? pr.valor/(m.ebitdaComprador*12) : Infinity;
   const paybackI = m.ebitdaComprador>0 ? pr.valor/m.ebitdaComprador : Infinity;
   const caixaMensal = m.ebitdaComprador - parcela;
-  const investTotalHip = investTotalParaProposta(p, pr);
-  const banco = calcEmprestimo(p, investTotalHip).reservaMensalAno1;
+  const banco = m.emprestimo ? m.emprestimo.reservaMensalAno1 : 0;
   const caixaReal = caixaMensal - banco;
   let viavel;
   if(caixaMensal<=0) viavel="NÃO";
