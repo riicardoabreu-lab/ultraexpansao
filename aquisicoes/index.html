@@ -267,6 +267,10 @@
   }
   .field input:focus, .field select:focus, table input:focus, table select:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(var(--accent-rgb),.15); }
   .field-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; }
+  .mode-toggle{ display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-bottom:18px; }
+  .mode-toggle button{ background:var(--bg-inset); border:none; color:var(--text-dim); padding:8px 14px; font-size:12px; font-family:var(--body); cursor:pointer; }
+  .mode-toggle button:not(:last-child){ border-right:1px solid var(--border); }
+  .mode-toggle button.active{ background:var(--accent); color:#fff; font-weight:600; }
   .field .money{ position:relative; }
   .field .money .prefix{ position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--text-faint); font-family:var(--mono); font-size:13.5px; pointer-events:none; }
   .field .money input{ padding-left:30px; }
@@ -427,7 +431,9 @@ function blankEmpresa(nome){
     finSelic:14.5, finValorOverride:null,
     finCarenciaTri:3, finParcelasTri:13, finFlatPct:1.6, finIRPct:17.647,
     intencaoVendaValor:0,
+    crescModo:'unidades',
     crescAtivMes:0, crescCancelMes:0, crescInfolinkAtivMes:0, crescInfolinkCancelMes:0,
+    crescPctProvedorMes:0, crescPctInfolinkMes:0,
     kmz:null, // {name} — o arquivo em si fica no IndexedDB deste navegador, não aqui
     kmzCustoCaixa:0, kmzCustoCeo:0,
     kmzCustoMetroPorModelo:{}, // ex: {"12": 2.5, "24": 4, "outro": 1.8} — R$/metro por bitola de fibra
@@ -772,30 +778,41 @@ function computeCrescimento(p){
   const baseClientes = p.clientes||0;
   const baseMRR = p.mrr||0;
   const ticket = baseClientes? baseMRR/baseClientes : 0;
-  // Nada de taxa % digitada — só a média real de instalações e
-  // cancelamentos por mês do provedor. O líquido (instalações menos
-  // cancelamentos) é o ritmo mensal aplicado pra frente.
+  const modo = p.crescModo==='pct' ? 'pct' : 'unidades';
+
+  // Modo "unidades": nada de taxa % digitada — só a média real de
+  // instalações e cancelamentos por mês. O líquido (instalações menos
+  // cancelamentos) é o ritmo mensal aplicado pra frente (linear).
   const ativMes = p.crescAtivMes||0;
   const cancelMes = p.crescCancelMes||0;
   const netProvedorMes = ativMes - cancelMes;
   const pctMes = baseClientes? netProvedorMes/baseClientes : 0;
-  // Mesma lógica pro cenário Infolink: instalações e cancelamentos-meta
-  // separados, não só um número líquido — assim dá pra comparar os
-  // dois ritmos (bruto e líquido) lado a lado com o do provedor.
   const ativInfolinkMes = p.crescInfolinkAtivMes||0;
   const cancelInfolinkMes = p.crescInfolinkCancelMes||0;
   const instMes = ativInfolinkMes - cancelInfolinkMes;
   const pctInfolinkMes = baseClientes? instMes/baseClientes : 0;
+
+  // Modo "pct": uma taxa mensal digitada direto, aplicada composta
+  // (cada mês cresce em cima do mês anterior, não do total original).
+  const pctProvedorInput = (p.crescPctProvedorMes||0)/100;
+  const pctInfolinkInput = (p.crescPctInfolinkMes||0)/100;
+
   const horizontes = [3,6,12].map(meses=>{
-    const clientesAtual = Math.max(0, baseClientes + netProvedorMes*meses);
+    const clientesAtual = modo==='pct'
+      ? Math.max(0, baseClientes * Math.pow(1+pctProvedorInput, meses))
+      : Math.max(0, baseClientes + netProvedorMes*meses);
+    const clientesInfolink = modo==='pct'
+      ? Math.max(0, baseClientes * Math.pow(1+pctInfolinkInput, meses))
+      : Math.max(0, baseClientes + instMes*meses);
     const mrrAtual = clientesAtual * ticket;
-    const clientesInfolink = Math.max(0, baseClientes + instMes*meses);
     const mrrInfolink = clientesInfolink * ticket;
     return { meses, clientesAtual, mrrAtual, clientesInfolink, mrrInfolink,
       ganhoClientes: clientesInfolink-clientesAtual, ganhoMRR: mrrInfolink-mrrAtual };
   });
-  return { baseClientes, baseMRR, ticket, ativMes, cancelMes, netProvedorMes, pctMes,
-    ativInfolinkMes, cancelInfolinkMes, instMes, pctInfolinkMes, horizontes };
+  return { baseClientes, baseMRR, ticket, modo,
+    ativMes, cancelMes, netProvedorMes, pctMes,
+    ativInfolinkMes, cancelInfolinkMes, instMes, pctInfolinkMes,
+    pctProvedorInput, pctInfolinkInput, horizontes };
 }
 
 /* ======================================================================
@@ -1056,19 +1073,32 @@ function tplCrescimento(){
       <button class="ghost-btn" id="puxarRelatorioBtn" type="button" style="margin-bottom:14px;">📥 Puxar médias do relatório operacional</button>
       <p class="note" id="cresc-puxar-status"></p>
       ` : ''}
+      <div class="mode-toggle" id="crescModoToggle">
+        <button type="button" data-modo="unidades">Instalações/Cancelamentos</button>
+        <button type="button" data-modo="pct">Percentual (%)</button>
+      </div>
+
       <p class="hint" style="margin-top:0;">Provedor sozinho — média mensal histórica dele</p>
-      <div class="field-grid">
+      <div class="field-grid" id="cresc-provedor-unidades">
         <div class="field"><label>Instalações médias/mês</label><input id="in-cresc-ativ" type="number" step="1"></div>
         <div class="field"><label>Cancelamentos médios/mês</label><input id="in-cresc-cancel" type="number" step="1"></div>
       </div>
+      <div class="field-grid" id="cresc-provedor-pct" style="display:none;">
+        <div class="field"><label>Crescimento mensal do provedor (%)</label><input id="in-cresc-pct-provedor" type="number" step="0.1"></div>
+      </div>
       <p class="note" id="cresc-taxa-calc" style="font-weight:600;"></p>
+
       <p class="hint" style="margin-top:18px;">Na Infolink — meta pós-aquisição</p>
-      <div class="field-grid">
+      <div class="field-grid" id="cresc-infolink-unidades">
         <div class="field"><label>Instalações médias/mês (meta Infolink)</label><input id="in-cresc-infolink-ativ" type="number" step="1"></div>
         <div class="field"><label>Cancelamentos médios/mês (meta Infolink)</label><input id="in-cresc-infolink-cancel" type="number" step="1"></div>
       </div>
+      <div class="field-grid" id="cresc-infolink-pct" style="display:none;">
+        <div class="field"><label>Crescimento mensal na Infolink (%)</label><input id="in-cresc-pct-infolink" type="number" step="0.1"></div>
+      </div>
       <p class="note" id="cresc-infolink-taxa-calc" style="font-weight:600;"></p>
-      <p class="note">Não precisa calcular taxa nenhuma — só informe a média de instalações e cancelamentos por mês (ou clique em "Puxar médias do relatório" acima, se disponível, pro provedor sozinho). O líquido (instalações − cancelamentos) é o ritmo aplicado pra frente em cada cenário. Ticket médio (MRR ÷ clientes de hoje) é mantido constante nos dois — a única diferença projetada é o ritmo de clientes novos.</p>
+
+      <p class="note" id="cresc-modo-explicacao"></p>
     </div>
   </div>
   <div class="sec-block">
@@ -1452,9 +1482,30 @@ function setText(id, val){ const el=document.getElementById(id); if(el) el.textC
 function renderCrescimento(p){
   const c = computeCrescimento(p);
 
+  // Alterna qual par de campos aparece (instalações/cancelamentos vs.
+  // percentual) e destaca o botão do modo ativo no alternador.
+  document.querySelectorAll('#crescModoToggle button').forEach(b=>{
+    b.classList.toggle('active', b.dataset.modo===c.modo);
+  });
+  const showUnidades = c.modo==='unidades';
+  const provUnidadesEl = document.getElementById('cresc-provedor-unidades');
+  const provPctEl = document.getElementById('cresc-provedor-pct');
+  const infUnidadesEl = document.getElementById('cresc-infolink-unidades');
+  const infPctEl = document.getElementById('cresc-infolink-pct');
+  if(provUnidadesEl) provUnidadesEl.style.display = showUnidades ? '' : 'none';
+  if(provPctEl) provPctEl.style.display = showUnidades ? 'none' : '';
+  if(infUnidadesEl) infUnidadesEl.style.display = showUnidades ? '' : 'none';
+  if(infPctEl) infPctEl.style.display = showUnidades ? 'none' : '';
+
   const taxaEl = document.getElementById('cresc-taxa-calc');
   if(taxaEl){
-    if(c.ativMes || c.cancelMes){
+    if(c.modo==='pct'){
+      const pctAno = Math.pow(1+c.pctProvedorInput,12)-1;
+      taxaEl.textContent = c.pctProvedorInput!==0
+        ? `${fmtPct(c.pctProvedorInput)} ao mês, equivalente a ${fmtPct(pctAno)} em 12 meses (composto).`
+        : 'Informe o crescimento mensal do provedor acima.';
+      taxaEl.style.color = c.pctProvedorInput>0 ? 'var(--good)' : (c.pctProvedorInput<0 ? 'var(--bad)' : 'var(--text-dim)');
+    } else if(c.ativMes || c.cancelMes){
       const pctAno = c.pctMes*12;
       taxaEl.textContent = `Líquido: ${c.netProvedorMes>=0?'+':''}${fmtNum(c.netProvedorMes)} clientes/mês (${fmtNum(c.ativMes)} instalações − ${fmtNum(c.cancelMes)} cancelamentos) = ${fmtPct(c.pctMes)} da base atual por mês, equivalente a ${fmtPct(pctAno)} em 12 meses.`;
       taxaEl.style.color = c.netProvedorMes>0 ? 'var(--good)' : (c.netProvedorMes<0 ? 'var(--bad)' : 'var(--text-dim)');
@@ -1466,7 +1517,13 @@ function renderCrescimento(p){
 
   const taxaInfolinkEl = document.getElementById('cresc-infolink-taxa-calc');
   if(taxaInfolinkEl){
-    if(c.ativInfolinkMes || c.cancelInfolinkMes){
+    if(c.modo==='pct'){
+      const pctAnoInfolink = Math.pow(1+c.pctInfolinkInput,12)-1;
+      taxaInfolinkEl.textContent = c.pctInfolinkInput!==0
+        ? `${fmtPct(c.pctInfolinkInput)} ao mês, equivalente a ${fmtPct(pctAnoInfolink)} em 12 meses (composto).`
+        : 'Informe o crescimento mensal na Infolink acima.';
+      taxaInfolinkEl.style.color = c.pctInfolinkInput>0 ? 'var(--good)' : (c.pctInfolinkInput<0 ? 'var(--bad)' : 'var(--text-dim)');
+    } else if(c.ativInfolinkMes || c.cancelInfolinkMes){
       const pctAnoInfolink = c.pctInfolinkMes*12;
       taxaInfolinkEl.textContent = `Líquido: ${c.instMes>=0?'+':''}${fmtNum(c.instMes)} clientes/mês (${fmtNum(c.ativInfolinkMes)} instalações − ${fmtNum(c.cancelInfolinkMes)} cancelamentos) = ${fmtPct(c.pctInfolinkMes)} da base atual por mês, equivalente a ${fmtPct(pctAnoInfolink)} em 12 meses.`;
       taxaInfolinkEl.style.color = c.instMes>0 ? 'var(--good)' : (c.instMes<0 ? 'var(--bad)' : 'var(--text-dim)');
@@ -1474,6 +1531,13 @@ function renderCrescimento(p){
       taxaInfolinkEl.textContent = 'Informe as médias de instalações e cancelamentos acima pra calcular o líquido.';
       taxaInfolinkEl.style.color = 'var(--text-dim)';
     }
+  }
+
+  const explicacaoEl = document.getElementById('cresc-modo-explicacao');
+  if(explicacaoEl){
+    explicacaoEl.textContent = c.modo==='pct'
+      ? 'No modo percentual, cada mês cresce em cima do mês anterior (juros compostos) — bom pra simular um "e se crescer X% ao mês" rápido, sem precisar dos números exatos de instalação/cancelamento. Ticket médio (MRR ÷ clientes de hoje) é mantido constante nos dois cenários.'
+      : 'Não precisa calcular taxa nenhuma — só informe a média de instalações e cancelamentos por mês (ou clique em "Puxar médias do relatório" acima, se disponível, pro provedor sozinho). O líquido (instalações − cancelamentos) é o ritmo aplicado pra frente em cada cenário. Ticket médio (MRR ÷ clientes de hoje) é mantido constante nos dois — a única diferença projetada é o ritmo de clientes novos.';
   }
 
   const body = document.getElementById('crescimento-body');
@@ -1654,6 +1718,8 @@ function fillFields(){
   set('in-cresc-cancel', p.crescCancelMes || '');
   set('in-cresc-infolink-ativ', p.crescInfolinkAtivMes || '');
   set('in-cresc-infolink-cancel', p.crescInfolinkCancelMes || '');
+  set('in-cresc-pct-provedor', p.crescPctProvedorMes || '');
+  set('in-cresc-pct-infolink', p.crescPctInfolinkMes || '');
   set('pstatus', p.status||"Prospecção");
   set('in-motivo', p.motivoDescarte||"");
   const motivoTa = document.getElementById('in-motivo'); if(motivoTa) motivoTa.style.display = 'none';
@@ -1719,6 +1785,14 @@ function bindAll(){
   bindField('in-cresc-cancel', (p,v)=>p.crescCancelMes=parseFloat(v)||0);
   bindField('in-cresc-infolink-ativ', (p,v)=>p.crescInfolinkAtivMes=parseFloat(v)||0);
   bindField('in-cresc-infolink-cancel', (p,v)=>p.crescInfolinkCancelMes=parseFloat(v)||0);
+  bindField('in-cresc-pct-provedor', (p,v)=>p.crescPctProvedorMes=parseFloat(v)||0);
+  bindField('in-cresc-pct-infolink', (p,v)=>p.crescPctInfolinkMes=parseFloat(v)||0);
+  document.querySelectorAll('#crescModoToggle button').forEach(btn=>{
+    btn.onclick = () => {
+      current().crescModo = btn.dataset.modo;
+      recomputeAll(); saveApp();
+    };
+  });
   bindMoneyField('in-fin-valor', (p,v)=>p.finValorOverride=v);
   const puxarBtn = document.getElementById('puxarRelatorioBtn');
   if(puxarBtn) puxarBtn.onclick = puxarCrescimentoDoRelatorio;
