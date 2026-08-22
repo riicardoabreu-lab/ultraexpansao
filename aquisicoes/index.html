@@ -754,6 +754,18 @@ function compute(p){
     ebitdaPositivo, margemOk, paybackOk, conclusao, emprestimo };
 }
 
+// Investimento total "e se": as linhas vinculadas a uma proposta (via
+// "Vincular Proposta") usam a entrada DESSA proposta em vez da que
+// estiver realmente selecionada — assim cada linha do simulador mostra
+// o empréstimo/banco que essa proposta específica geraria, somado às
+// demais linhas de investimento (fixas/manuais).
+function investTotalParaProposta(p, pr){
+  return p.investimentos.reduce((sum,r)=>{
+    if(r.propostaLink) return sum + (r.qtd||0)*(pr.valor*(pr.entrada/100||0));
+    return sum + rowTotal(r);
+  }, 0);
+}
+
 function proposalCalc(pr, p, m){
   const entradaR = pr.valor*(pr.entrada/100);
   const saldoFin = pr.valor-entradaR;
@@ -763,14 +775,14 @@ function proposalCalc(pr, p, m){
   const evEBITDAi = m.ebitdaComprador>0 ? pr.valor/(m.ebitdaComprador*12) : Infinity;
   const paybackI = m.ebitdaComprador>0 ? pr.valor/m.ebitdaComprador : Infinity;
   const caixaMensal = m.ebitdaComprador - parcela;
-  // Banco/Caixa Real só fazem sentido pra proposta que está de fato
-  // vinculada a alguma linha de investimento (aba Investimento &
-  // Valuation, coluna "Vincular Proposta") — é essa vinculação que
-  // gera o empréstimo real. Sem vínculo, não tem o que mostrar.
-  const linkId = pr.id!==undefined ? pr.id : 'sug';
-  const vinculada = p.investimentos.some(r=>r.propostaLink===linkId);
-  const banco = vinculada && m.emprestimo ? m.emprestimo.reservaMensalAno1 : null;
-  const caixaReal = banco!=null ? caixaMensal - banco : null;
+  // Banco/Caixa Real são automáticos por proposta: simula o investimento
+  // inicial como se a entrada DESSA proposta fosse a que financia as
+  // linhas vinculadas (aba Investimento & Valuation), somada às demais
+  // linhas fixas/manuais — e roda o cálculo de empréstimo em cima disso.
+  // Não depende de vincular manualmente essa proposta específica.
+  const investTotalHip = investTotalParaProposta(p, pr);
+  const banco = calcEmprestimo(p, investTotalHip).reservaMensalAno1;
+  const caixaReal = caixaMensal - banco;
   let viavel;
   if(caixaMensal<=0) viavel="NÃO";
   else if(isFinite(paybackI) && paybackI<=(p.metaPayback||0)) viavel="SIM";
