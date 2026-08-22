@@ -428,7 +428,7 @@ function blankEmpresa(nome){
     metaMargem:0, metaPayback:12, multMRR:14, multEBITDA:4,
     custosAtual:[], custosComprador:[], investimentos:[],
     propostas:[], propostaSugEntrada:50, propostaSugParcelas:12,
-    finSelic:14.5, finValorOverride:null,
+    finSelic:14.5,
     finCarenciaTri:3, finParcelasTri:13, finFlatPct:1.6, finIRPct:17.647,
     intencaoVendaValor:0,
     crescModo:'unidades',
@@ -664,7 +664,7 @@ const novoId = prefix => prefix+'_'+Date.now().toString(36)+Math.random().toStri
    comissão flat + IR sobre juros, igual à planilha de reestruturação)
 ====================================================================== */
 function calcEmprestimo(p, investTotal){
-  const valor = p.finValorOverride!=null ? p.finValorOverride : investTotal;
+  const valor = investTotal;
   const carencia = Math.max(0, Math.round(p.finCarenciaTri||0));
   const parcelasAmort = Math.max(1, Math.round(p.finParcelasTri||1));
   const taxaTri = (p.finSelic||0)/4/100; // Selic a.a. ÷ 4 trimestres, taxa simples
@@ -1017,7 +1017,11 @@ function tplValuation(){
     <p class="hint">Memória de cálculo igual à planilha de reestruturação: carência + amortização trimestral (SAC) + comissão flat + IR sobre os juros.</p>
     <div class="panel">
       <div class="field-grid">
-        <div class="field"><label>Valor do empréstimo (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-fin-valor" type="text" inputmode="numeric"></div></div>
+        <div class="field">
+          <label>Valor do empréstimo (R$)</label>
+          <div class="money"><span class="prefix">R$</span><input id="in-fin-valor" type="text" inputmode="numeric" readonly style="background:var(--bg-panel-2); color:var(--text-dim); cursor:default;"></div>
+          <p class="note" style="margin:4px 0 0;">🔗 Automático — segue o Investimento total da aba acima.</p>
+        </div>
         <div class="field"><label>Selic de referência (% a.a.)</label><input id="in-fin-selic" type="number" step="0.1"></div>
         <div class="field"><label>Carência (trimestres)</label><input id="in-fin-carencia" type="number" step="1"></div>
         <div class="field"><label>Parcelas trimestrais de principal</label><input id="in-fin-parcelas" type="number" step="1"></div>
@@ -1464,7 +1468,7 @@ function recomputeAll(){
     `<div class="check"><div class="ctext"><b>Conclusão geral</b></div><span class="badge ${m.conclusao==='SIM'?'sim':'rev'}">${m.conclusao}</span></div>`;
 
   const finValEl = document.getElementById('in-fin-valor');
-  if(finValEl && document.activeElement!==finValEl) finValEl.value = fmtMoneyInput(m.emprestimo.valor);
+  if(finValEl) finValEl.value = fmtMoneyInput(m.emprestimo.valor);
   setText('kpi-fin-juros', fmtBRL(m.emprestimo.somaJuros));
   setText('kpi-fin-ir-total', fmtBRL(m.emprestimo.somaIR));
   setText('kpi-fin-flat', fmtBRL(m.emprestimo.flatValor));
@@ -1793,7 +1797,6 @@ function bindAll(){
       recomputeAll(); saveApp();
     };
   });
-  bindMoneyField('in-fin-valor', (p,v)=>p.finValorOverride=v);
   const puxarBtn = document.getElementById('puxarRelatorioBtn');
   if(puxarBtn) puxarBtn.onclick = puxarCrescimentoDoRelatorio;
 
