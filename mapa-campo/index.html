@@ -244,6 +244,7 @@
     </div>
   </div>
   <div class="header-actions">
+    <button class="btn-ghost-sm" id="btnSincronizar">🔄 Sincronizar</button>
     <button class="btn-ghost-sm" id="btnSair">Sair</button>
   </div>
 </header>
@@ -742,6 +743,36 @@ document.getElementById('loginForm').addEventListener('submit', e => {
 document.getElementById('btnSair').addEventListener('click', () => {
   sessionStorage.removeItem('mapa_campo_auth');
   location.reload();
+});
+
+// Sincroniza sob demanda em vez de esperar o cron diário - chama um tipo por
+// vez (mesmo limite de tempo por execução do full-sync) e reflete o progresso
+// no próprio botão. Os dados atualizados chegam no mapa sozinhos, via o
+// listener do Firestore já ligado (window._iniciarSync) - não precisa recarregar.
+document.getElementById('btnSincronizar').addEventListener('click', async () => {
+  const btn = document.getElementById('btnSincronizar');
+  const textoOriginal = btn.textContent;
+  btn.disabled = true;
+  const tipos = Object.keys(TIPOS); // mesmos tipos de TIPOS_SINCRONIZADOS (api/_lib/geogrid.js)
+  let totalGravados = 0;
+  try {
+    for (let i = 0; i < tipos.length; i++) {
+      const tipo = tipos[i];
+      btn.textContent = `🔄 Sincronizando (${i + 1}/${tipos.length})…`;
+      const res = await fetch(`/api/geogrid-manual-sync?tipo=${tipo}`, {
+        headers: {'x-mapa-campo-token': window._MAPA_CAMPO_TOKEN},
+      });
+      const dados = await res.json();
+      if (!res.ok || !dados.ok) throw new Error(dados.erro || `HTTP ${res.status}`);
+      totalGravados += dados.totalGravados;
+    }
+    btn.textContent = `✅ ${totalGravados.toLocaleString('pt-BR')} itens`;
+  } catch (e) {
+    console.error('Falha ao sincronizar GeoGrid:', e);
+    btn.textContent = '⚠️ Falha ao sincronizar';
+  } finally {
+    setTimeout(() => { btn.textContent = textoOriginal; btn.disabled = false; }, 4000);
+  }
 });
 </script>
 </body>
