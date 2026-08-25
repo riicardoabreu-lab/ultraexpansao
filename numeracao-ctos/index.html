@@ -85,6 +85,9 @@ body{margin:0;font-family:var(--sans);background:var(--paper);color:var(--ink);m
 .sync-note .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block;margin-right:6px;}
 .sync-note .dot.warn{background:var(--warn);}
 .sync-note .dot.err{background:var(--danger);}
+.btn-sync-now{font-size:11px;padding:5px 11px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);cursor:pointer;font-family:var(--sans);white-space:nowrap;flex-shrink:0;}
+.btn-sync-now:hover:not(:disabled){border-color:var(--violet-500);color:var(--violet-600);}
+.btn-sync-now:disabled{opacity:0.55;cursor:default;}
 
 .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:24px;}
 .stat{background:var(--ink);color:#fff;padding:16px 18px;position:relative;}
@@ -189,6 +192,7 @@ tbody tr:hover{background:var(--paper);}
 
   <div class="sync-note">
     <span><span class="dot" id="syncDot"></span><span id="syncText">carregando reservas da equipe…</span></span>
+    <button class="btn-sync-now" id="btnSyncNow" title="O painel já sincroniza sozinho (webhook + diário) — isso só força agora">🔄 Sincronizar agora</button>
   </div>
 
   <div class="stats" id="stats"></div>
@@ -449,6 +453,26 @@ document.getElementById('btnCopyReservados').addEventListener('click', ()=>{
     const btn = document.getElementById('btnCopyReservados'); const orig = btn.textContent;
     btn.textContent = 'Copiado ✓'; setTimeout(()=>btn.textContent=orig, 1500);
   });
+});
+
+// Botão manual: o painel já sincroniza sozinho (webhook do GeoGrid + cron diário),
+// isso só chama o endpoint sem segredo /api/geogrid-sync-now pra adiantar a espera.
+document.getElementById('btnSyncNow').addEventListener('click', async ()=>{
+  const btn = document.getElementById('btnSyncNow');
+  btn.disabled = true;
+  btn.textContent = '🔄 Sincronizando...';
+  try{
+    const resp = await fetch('/api/geogrid-sync-now', { method:'POST' });
+    const data = await resp.json().catch(()=>({}));
+    if(resp.ok && data.ok){
+      btn.textContent = `✓ ${data.totalGravados ?? 0} CTO(s) sincronizada(s)`;
+    } else {
+      btn.textContent = '✕ ' + (data.erro || 'falha ao sincronizar');
+    }
+  } catch(e){
+    btn.textContent = '✕ erro de rede';
+  }
+  setTimeout(()=>{ btn.disabled = false; btn.textContent = '🔄 Sincronizar agora'; }, 4000);
 });
 
 function getFiltered(){
