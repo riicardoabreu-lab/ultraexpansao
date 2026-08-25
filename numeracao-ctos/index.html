@@ -85,6 +85,9 @@ body{margin:0;font-family:var(--sans);background:var(--paper);color:var(--ink);m
 .sync-note .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block;margin-right:6px;}
 .sync-note .dot.warn{background:var(--warn);}
 .sync-note .dot.err{background:var(--danger);}
+.btn-sync-now{font-size:11px;padding:5px 11px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);cursor:pointer;font-family:var(--sans);white-space:nowrap;flex-shrink:0;}
+.btn-sync-now:hover:not(:disabled){border-color:var(--violet-500);color:var(--violet-600);}
+.btn-sync-now:disabled{opacity:0.55;cursor:default;}
 
 .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:24px;}
 .stat{background:var(--ink);color:#fff;padding:16px 18px;position:relative;}
@@ -147,6 +150,10 @@ tbody tr:hover{background:var(--paper);}
 .modal-sub{font-size:12px;color:#6b6280;font-family:var(--mono);}
 .gaps-list{padding:18px 22px;overflow-y:auto;display:flex;flex-wrap:wrap;gap:8px;}
 .gap-chip{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--violet-700);background:var(--paper-2);border:1px solid var(--line);padding:5px 11px;border-radius:7px;}
+.reserva-item{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:9px 12px;background:var(--paper-2);border:1px solid var(--line);border-radius:8px;width:100%;}
+.reserva-item .cto-code{font-size:13px;}
+.reserva-item .loc{font-size:12.5px;color:#6b6280;}
+.reserva-item .obs{font-size:11.5px;color:#9d94b8;font-style:italic;}
 .modal-foot{padding:14px 22px;border-top:1.5px solid var(--paper-2);display:flex;justify-content:flex-end;}
 .icon-btn{border:none;background:none;cursor:pointer;font-size:13px;padding:4px 7px;border-radius:6px;color:#8b8299;}
 .icon-btn:hover{background:var(--paper-2);color:var(--ink);}
@@ -185,6 +192,7 @@ tbody tr:hover{background:var(--paper);}
 
   <div class="sync-note">
     <span><span class="dot" id="syncDot"></span><span id="syncText">carregando reservas da equipe…</span></span>
+    <button class="btn-sync-now" id="btnSyncNow" title="O painel já sincroniza sozinho (webhook + diário) — isso só força agora">🔄 Sincronizar agora</button>
   </div>
 
   <div class="stats" id="stats"></div>
@@ -254,6 +262,17 @@ tbody tr:hover{background:var(--paper);}
     </div>
     <div class="gaps-list" id="gapsList"></div>
     <div class="modal-foot"><button class="btn-ghost" id="btnCopyGaps">Copiar lista</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="reservadosOverlay">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div><h3>Reservados aqui — ainda faltam ser colocados no GeoGrid</h3><div class="modal-sub" id="reservadosCount"></div></div>
+      <button class="icon-btn" id="btnCloseReservados">✕</button>
+    </div>
+    <div class="gaps-list" id="reservadosList" style="flex-direction:column;flex-wrap:nowrap;"></div>
+    <div class="modal-foot"><button class="btn-ghost" id="btnCopyReservados">Copiar lista</button></div>
   </div>
 </div>
 
@@ -373,8 +392,8 @@ function computeStats(){
   const used = new Set(nums);
   const gapList = [];
   for(let i=min;i<=max;i++) if(!used.has(i)) gapList.push(i);
-  const reservados = records.filter(r=>r.status==='reservado').length;
-  return {total: records.length, min, max, gaps: gapList.length, gapList, reservados};
+  const reservadosList = records.filter(r=>r.status==='reservado').sort((a,b)=>a.numero-b.numero);
+  return {total: records.length, min, max, gaps: gapList.length, gapList, reservados: reservadosList.length, reservadosList};
 }
 function nextGapNumber(){
   const nums = new Set(records.map(r=>r.numero));
@@ -384,17 +403,20 @@ function nextGapNumber(){
 }
 function nextSeqNumber(){ return Math.max(...records.map(r=>r.numero))+1; }
 
+let lastReservadosList = [];
 function renderStats(){
   const s = computeStats();
   lastGapList = s.gapList;
+  lastReservadosList = s.reservadosList;
   document.getElementById('stats').innerHTML = `
     <div class="stat"><div class="val">${s.total.toLocaleString('pt-BR')}</div><div class="lbl">CTOs no GeoGrid</div></div>
     <div class="stat"><div class="val">${s.min}–${s.max}</div><div class="lbl">Faixa de numeração</div></div>
     <div class="stat stat-clickable" id="statGaps"><div class="val">${s.gaps}</div><div class="lbl">Lacunas disponíveis ↗</div></div>
-    <div class="stat"><div class="val">${s.reservados}</div><div class="lbl">Reservados aqui</div></div>
+    <div class="stat stat-clickable" id="statReservados"><div class="val">${s.reservados}</div><div class="lbl">Reservados aqui ↗</div></div>
     <div class="stat"><div class="val">${s.max+1}</div><div class="lbl">Próximo sequencial</div></div>
   `;
   document.getElementById('statGaps').addEventListener('click', ()=>openGapsModal(s));
+  document.getElementById('statReservados').addEventListener('click', ()=>openReservadosModal(s));
 }
 function openGapsModal(s){
   const list = document.getElementById('gapsList');
@@ -409,6 +431,48 @@ document.getElementById('btnCopyGaps').addEventListener('click', ()=>{
     const btn = document.getElementById('btnCopyGaps'); const orig = btn.textContent;
     btn.textContent = 'Copiado ✓'; setTimeout(()=>btn.textContent=orig, 1500);
   });
+});
+
+// Números que a equipe já reservou aqui mas ainda não cadastrou de
+// verdade no GeoGrid — o que falta "colocar" no campo.
+function openReservadosModal(s){
+  const list = document.getElementById('reservadosList');
+  list.innerHTML = s.reservadosList.length ? s.reservadosList.map(r=>`
+    <div class="reserva-item">
+      <span class="cto-code">CTO-${r.numero}</span>
+      <span class="loc">${r.municipio}${r.localidade ? ' / '+r.localidade : ''}</span>
+      ${r.obs ? `<span class="obs">${r.obs}</span>` : ''}
+    </div>`).join('') : '<div style="padding:20px;color:#9d94b8;">Nenhuma reserva pendente.</div>';
+  document.getElementById('reservadosCount').textContent = `${s.reservadosList.length} reserva(s) aguardando cadastro no GeoGrid`;
+  document.getElementById('reservadosOverlay').classList.add('show');
+}
+document.getElementById('btnCloseReservados').addEventListener('click', ()=>document.getElementById('reservadosOverlay').classList.remove('show'));
+document.getElementById('reservadosOverlay').addEventListener('click', e=>{ if(e.target.id==='reservadosOverlay') e.currentTarget.classList.remove('show'); });
+document.getElementById('btnCopyReservados').addEventListener('click', ()=>{
+  navigator.clipboard.writeText(lastReservadosList.map(r=>`CTO-${r.numero} — ${r.municipio}${r.localidade ? ' / '+r.localidade : ''}`).join('\n')).then(()=>{
+    const btn = document.getElementById('btnCopyReservados'); const orig = btn.textContent;
+    btn.textContent = 'Copiado ✓'; setTimeout(()=>btn.textContent=orig, 1500);
+  });
+});
+
+// Botão manual: o painel já sincroniza sozinho (webhook do GeoGrid + cron diário),
+// isso só chama o endpoint sem segredo /api/geogrid-sync-now pra adiantar a espera.
+document.getElementById('btnSyncNow').addEventListener('click', async ()=>{
+  const btn = document.getElementById('btnSyncNow');
+  btn.disabled = true;
+  btn.textContent = '🔄 Sincronizando...';
+  try{
+    const resp = await fetch('/api/geogrid-sync-now', { method:'POST' });
+    const data = await resp.json().catch(()=>({}));
+    if(resp.ok && data.ok){
+      btn.textContent = `✓ ${data.totalGravados ?? 0} CTO(s) sincronizada(s)`;
+    } else {
+      btn.textContent = '✕ ' + (data.erro || 'falha ao sincronizar');
+    }
+  } catch(e){
+    btn.textContent = '✕ erro de rede';
+  }
+  setTimeout(()=>{ btn.disabled = false; btn.textContent = '🔄 Sincronizar agora'; }, 4000);
 });
 
 function getFiltered(){
