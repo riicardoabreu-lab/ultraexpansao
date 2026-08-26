@@ -424,6 +424,34 @@ function mainSkeleton(){
     return;
   }
 
+  // Beberibe tem um relatório único e consolidado (igual ao HTML "Orçamento
+  // e Mapa da Rede" recebido da equipe) em vez da grade genérica de bairros —
+  // os bairros continuam cadastrados (dados usados pelo relatório), só não
+  // aparecem mais como cards separados aqui.
+  if((c.nome||'').trim().toLowerCase()==='beberibe'){
+    main.innerHTML = `
+      <div class="page-banner">
+        <input class="cname-input" id="in-nome" value="${esc(c.nome)}" placeholder="Nome do município">
+        <p class="page-banner-sub">Relatório consolidado de mapa da rede + orçamento (Campestre, Palmeira, Parajuru, Paripueira + CPD).</p>
+      </div>
+
+      <div class="bloco">
+        <div class="bloco-header">Projetos de ${esc(c.nome)}</div>
+        <div class="bloco-sub">Mapa da rede real (KMZ) e orçamento de infraestrutura externa + CPD dos 4 municípios, já consolidados num único relatório.</div>
+        <div class="bloco-body">
+          <div class="bairro-grid">
+            <a href="beberibe-projeto1.html" class="city-card" style="display:block;text-decoration:none;color:inherit;">
+              <div class="cname">📁 Projeto 1</div>
+              <div class="cmeta">Mapa + orçamento consolidado — Campestre, Palmeira, Parajuru, Paripueira e CPD</div>
+            </a>
+          </div>
+        </div>
+      </div>
+    `;
+    document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); };
+    return;
+  }
+
   const filhos = filhosDe(c.id);
   if(filhos.length){
     main.innerHTML = `
@@ -1050,6 +1078,9 @@ function renderAll(){
   mainSkeleton();
   const c = current();
   if(!c) return;
+  // Beberibe já vem totalmente montado/vinculado dentro do próprio
+  // mainSkeleton() (relatório único "Projeto 1"), sem grade de bairros.
+  if((c.nome||'').trim().toLowerCase()==='beberibe'){ return; }
   if(filhosDe(c.id).length){ bindHubView(); }
   else { bindAll(); initMapIfNeeded(); }
 }
