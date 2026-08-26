@@ -1142,28 +1142,48 @@ let app = loadApp();
 // cidade marca até onde a migração automática já foi aplicada, pra
 // atualizar quem recebeu a versão 1 (linha única) pra versão 2 (itens
 // detalhados) sem duplicar nem apagar edição manual feita depois disso.
+// V3 detalha por item (igual ao "Orçamento e Mapa da Rede" consolidado):
+// cabo, CTO, CEO e splitter 1x8 vêm da contagem exata do KMZ por município;
+// acoplador (1/porta) e raquete CEO (1/CEO) do dado real de campo; os
+// itens que a planilha mestra só informa em total do projeto (alça, BAP,
+// SUPA, poste, arame espinar, tubete, splitter 1x2) ficam numa linha de
+// rateio por município — o valor de cada rateio é exato (investimento
+// oficial do município menos a soma dos itens já detalhados acima), não
+// uma estimativa proporcional arredondada.
 (function seedInfolinkExpansao(){
-  const SEED_V = 2;
+  const SEED_V = 3;
   const municipios = [
-    {nome:'Campestre', casas:888, investimento:76429.99},
-    {nome:'Palmeira', casas:160, investimento:22633.03},
-    {nome:'Parajuru', casas:520, investimento:57356.89},
-    {nome:'Paripueira', casas:360, investimento:39440.32},
+    {nome:'Campestre', casas:888, cabo:29910, cx:111, ceo:8, investimento:76429.99},
+    {nome:'Palmeira', casas:160, cabo:9448, cx:20, ceo:2, investimento:22633.03},
+    {nome:'Parajuru', casas:520, cabo:23221, cx:65, ceo:5, investimento:57356.89},
+    {nome:'Paripueira', casas:360, cabo:15911, cx:45, ceo:4, investimento:39440.32},
   ];
   municipios.forEach(m=>{
     let c = app.cidades.find(x=>(x.nome||'').toLowerCase()===m.nome.toLowerCase());
     if(c && (c._seedV||0) >= SEED_V) return;
     if(!c){ c = blankCidade(m.nome); app.cidades.push(c); }
     c.casasRegiao = m.casas;
-    c.materiais = [{
-      id: novoId('m'),
-      nome: 'Infraestrutura externa (cabo 12FO, CTO, CEO, splitters, poste, BAP, SUPA, alça, acoplador, arame, tubete)',
-      unidade: 'Verba',
-      qtd: 1,
-      custo: m.investimento,
-      origemTipo: 'user',
-      origemTexto: 'Investimento consolidado do município (contagem do KMZ + dado real de campo, planilha mestra)',
-    }];
+    const detalhados = [
+      {nome:'Cabo de Fibra 12FO', unidade:'Metro', qtd:m.cabo, custo:1.79, origemTipo:'kmz', origemTexto:'Contagem do KMZ'},
+      {nome:'CTO (Caixa CX)', unidade:'Unid.', qtd:m.cx, custo:59.00, origemTipo:'kmz', origemTexto:'Contagem do KMZ'},
+      {nome:'CEO 24FO', unidade:'Unid.', qtd:m.ceo, custo:152.90, origemTipo:'kmz', origemTexto:'Contagem do KMZ (CEO novos)'},
+      {nome:'Splitter 1x8 SC', unidade:'Unid.', qtd:m.cx, custo:24.40, origemTipo:'kmz', origemTexto:'1 por caixa CX (contagem do KMZ)'},
+      {nome:'Acoplador', unidade:'Unid.', qtd:m.casas, custo:0.64, origemTipo:'user', origemTexto:'1 por porta (dado real de campo)'},
+      {nome:'Raquete CEO', unidade:'Unid.', qtd:m.ceo, custo:27.84, origemTipo:'user', origemTexto:'1 por CEO (dado real de campo)'},
+    ];
+    const custoDetalhado = detalhados.reduce((s,r)=>s+r.qtd*r.custo,0);
+    c.materiais = [
+      ...detalhados.map(r=>({id:novoId('m'), ...r})),
+      {
+        id: novoId('m'),
+        nome: 'Demais itens de infraestrutura externa (alça, BAP, SUPA, poste, arame espinar, tubete, splitter 1x2)',
+        unidade: 'Verba',
+        qtd: 1,
+        custo: Math.round((m.investimento-custoDetalhado)*100)/100,
+        origemTipo: 'user',
+        origemTexto: 'Rateio do valor desses itens pelo município — a planilha mestra só informa a quantidade total do projeto, não por município (contagem completa no orçamento consolidado)',
+      },
+    ];
     c._seedV = SEED_V;
   });
 
