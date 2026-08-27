@@ -162,6 +162,9 @@
   tbody tr:hover{background:#fafbfc;}
   td.fonte{color:var(--cinza);font-size:11.5px;font-style:italic;}
   tr.mao-de-obra td.qtd{background:#e3f2f3;font-weight:600;color:#0e7c86;}
+  tr.derivado td.qtd, tr.derivado td.num{background:#f0f4f8;}
+  .qtd-calc{color:#475569;font-style:italic;}
+  .calc-tag{font-size:9.5px;color:#0e7c86;background:#e3f2f3;padding:1px 6px;border-radius:8px;margin-left:5px;font-style:normal;font-weight:600;text-transform:uppercase;letter-spacing:.03em;vertical-align:middle;}
   tfoot td, tr.total-row td{
     padding:12px;
     font-weight:700;
@@ -318,6 +321,7 @@
         <strong>Observações</strong><br>
         • Preços iniciais vêm da planilha mestra de orçamento FTTH — ajuste aqui se mudar o fornecedor/cotação.<br>
         • Os preços editados aqui valem pra toda a ferramenta (Setores e Geral usam o mesmo preço unitário do Catálogo).<br>
+        • <b>Alça, Poste, Bap e Supa</b> (itens com a tag "calculado") não são digitados — vêm automático da quantidade de cabo, pelas mesmas fórmulas da planilha mestra: Alça = cabo ÷ 20; Poste = cabo ÷ 45 (06/12/24/48FO) ou ÷ 40 (36/72/144FO); Bap = mesmo valor do Poste; Supa = Bap × 1,5.<br>
         • A quantidade desta aba é só pra uma simulação avulsa — não entra no total da aba Geral (que soma os Setores).
       </div>
     </section>
@@ -451,7 +455,47 @@ function catalogoPadrao(){
 const STORAGE_KEY = 'orcamento-ftth-v1';
 const novoId = prefix => prefix+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const fmtBRL = n => (isFinite(n)?n:0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:2});
+const fmtNumCalc = n => (isFinite(n)?n:0).toLocaleString('pt-BR',{maximumFractionDigits:2});
 const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;').replace(/</g,'&lt;');
+
+/* ======================================================================
+   FÓRMULAS DA PLANILHA MESTRA — Alça, Poste, Bap e Supa não são digitados,
+   vêm da quantidade de cabo lançado (mesma fórmula em todas as abas
+   06FO–144FO da planilha original):
+     Alça(FO)  = Cabo(FO) ÷ 20
+     Poste     = Σ [Cabo(FO) ÷ divisor(FO)] — divisor varia por FO
+     Bap       = Poste (mesmo valor)
+     Supa      = Bap × 1,5
+====================================================================== */
+const CABO_POSTE_DIVISOR = { '06':45, '12':45, '24':45, '36':40, '48':45, '72':40, '144':40 };
+
+function ehDerivado(item){
+  if(!item) return false;
+  return /^Alça \d+FO$/.test(item.nome) || item.nome==='Poste' || item.nome==='Bap' || item.nome==='Supa';
+}
+
+// Recebe um mapa {itemId: quantidade} com pelo menos os cabos preenchidos
+// e devolve um novo mapa com alça/poste/bap/supa já calculados por cima.
+function computarDerivados(qtds){
+  const out = {...qtds};
+  let postesTotal = 0;
+  app.catalogo.forEach(it=>{
+    const m = it.nome.match(/^Cabo de Fibra (\d+)FO$/);
+    if(!m) return;
+    const fo = m[1];
+    const caboQtd = qtds[it.id]||0;
+    const alcaItem = app.catalogo.find(x=>x.nome===`Alça ${fo}FO`);
+    if(alcaItem) out[alcaItem.id] = caboQtd/20;
+    postesTotal += caboQtd/(CABO_POSTE_DIVISOR[fo]||45);
+  });
+  const posteItem = app.catalogo.find(it=>it.nome==='Poste');
+  const bapItem = app.catalogo.find(it=>it.nome==='Bap');
+  const supaItem = app.catalogo.find(it=>it.nome==='Supa');
+  if(posteItem) out[posteItem.id] = postesTotal;
+  if(bapItem) out[bapItem.id] = postesTotal;
+  if(supaItem) out[supaItem.id] = postesTotal*1.5;
+  return out;
+}
 
 function blankSetor(nome){
   return { id: novoId('s'), nome: nome||'Novo setor', qtds:{} };
@@ -492,40 +536,75 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
    ABA CATÁLOGO
 ====================================================================== */
 function renderCatalogo(){
+  atualizarDerivadosCatalogo(false);
   const tbody = document.getElementById('tbody-catalogo');
-  tbody.innerHTML = app.catalogo.map(it=>`
-    <tr data-id="${it.id}" class="${it.categoria==='mao_de_obra'?'mao-de-obra':''}">
-      <td class="desc" contenteditable="true">${esc(it.nome)}</td>
+  tbody.innerHTML = app.catalogo.map(it=>{
+    const derivado = ehDerivado(it);
+    const qtyCell = derivado
+      ? `<span class="qtd-calc" data-id="${it.id}">${fmtNumCalc(it.qtd)}</span>`
+      : `<input type="number" class="qty-in" value="${it.qtd||0}" min="0" step="1">`;
+    return `
+    <tr data-id="${it.id}" class="${it.categoria==='mao_de_obra'?'mao-de-obra':''}${derivado?' derivado':''}">
+      <td class="desc" contenteditable="${derivado?'false':'true'}">${esc(it.nome)}${derivado?' <span class="calc-tag">calculado</span>':''}</td>
       <td class="num" contenteditable="true">${esc(it.unidade)}</td>
-      <td class="num qtd"><input type="number" class="qty-in" value="${it.qtd||0}" min="0" step="1"></td>
+      <td class="num qtd">${qtyCell}</td>
       <td class="money"><input type="number" class="price-in" value="${it.custo||0}" min="0" step="0.01"></td>
-      <td class="money row-total">${fmtBRL((it.qtd||0)*(it.custo||0))}</td>
-      <td><button class="del-btn" type="button" title="Remover">✕</button></td>
-    </tr>`).join('');
+      <td class="money row-total" data-id="${it.id}">${fmtBRL((it.qtd||0)*(it.custo||0))}</td>
+      <td>${derivado?'':'<button class="del-btn" type="button" title="Remover">✕</button>'}</td>
+    </tr>`;
+  }).join('');
 
   tbody.querySelectorAll('tr[data-id]').forEach(row=>{
     const id = row.dataset.id;
     const item = app.catalogo.find(i=>i.id===id);
-    row.querySelector('.desc').addEventListener('input', e=>{ item.nome = e.target.textContent.trim(); saveApp(); });
+    const derivado = ehDerivado(item);
+    if(!derivado){
+      row.querySelector('.desc').addEventListener('input', e=>{ item.nome = e.target.textContent.trim(); saveApp(); });
+    }
     row.querySelectorAll('.num[contenteditable]').forEach(td=>{
       td.addEventListener('input', e=>{ item.unidade = e.target.textContent.trim(); saveApp(); });
     });
-    row.querySelector('.qty-in').addEventListener('input', e=>{
-      item.qtd = parseFloat(e.target.value)||0;
-      row.querySelector('.row-total').textContent = fmtBRL(item.qtd*(item.custo||0));
-      renderCatalogoResumo(); saveApp();
-    });
+    if(!derivado){
+      row.querySelector('.qty-in').addEventListener('input', e=>{
+        item.qtd = parseFloat(e.target.value)||0;
+        row.querySelector('.row-total').textContent = fmtBRL(item.qtd*(item.custo||0));
+        atualizarDerivadosCatalogo(true);
+        renderCatalogoResumo(); saveApp();
+      });
+    }
     row.querySelector('.price-in').addEventListener('input', e=>{
       item.custo = parseFloat(e.target.value)||0;
       row.querySelector('.row-total').textContent = fmtBRL((item.qtd||0)*item.custo);
       renderCatalogoResumo(); saveApp();
     });
-    row.querySelector('.del-btn').addEventListener('click', ()=>{
-      app.catalogo = app.catalogo.filter(i=>i.id!==id);
-      renderCatalogo(); renderCatalogoResumo(); saveApp();
-    });
+    if(!derivado){
+      row.querySelector('.del-btn').addEventListener('click', ()=>{
+        app.catalogo = app.catalogo.filter(i=>i.id!==id);
+        renderCatalogo(); renderCatalogoResumo(); saveApp();
+      });
+    }
   });
   renderCatalogoResumo();
+}
+
+// Recalcula alça/poste/bap/supa a partir dos cabos do Catálogo. Com
+// patchDom=true, atualiza só os spans/totais na tela (sem re-renderizar
+// a tabela toda, pra não perder o foco de quem está digitando).
+function atualizarDerivadosCatalogo(patchDom){
+  const qtds = {};
+  app.catalogo.forEach(it=>{ qtds[it.id] = it.qtd||0; });
+  const efetivo = computarDerivados(qtds);
+  app.catalogo.forEach(it=>{
+    if(!ehDerivado(it)) return;
+    it.qtd = efetivo[it.id]||0;
+    if(patchDom){
+      const span = document.querySelector(`#tbody-catalogo .qtd-calc[data-id="${it.id}"]`);
+      if(span) span.textContent = fmtNumCalc(it.qtd);
+      const totalCell = document.querySelector(`#tbody-catalogo .row-total[data-id="${it.id}"]`);
+      if(totalCell) totalCell.textContent = fmtBRL(it.qtd*(it.custo||0));
+    }
+  });
+  if(patchDom) saveApp();
 }
 
 function renderCatalogoResumo(){
@@ -569,12 +648,21 @@ function renderSetores(){
 
   const materiais = materiaisDoCatalogo();
   const tbody = document.getElementById('tbody-setores');
-  tbody.innerHTML = materiais.map(it=>`
-    <tr data-item="${it.id}">
-      <td class="desc">${esc(it.nome)}</td>
+  tbody.innerHTML = materiais.map(it=>{
+    const derivado = ehDerivado(it);
+    return `
+    <tr data-item="${it.id}" class="${derivado?'derivado':''}">
+      <td class="desc">${esc(it.nome)}${derivado?' <span class="calc-tag">calculado</span>':''}</td>
       <td class="num">${esc(it.unidade)}</td>
-      ${app.setores.map(s=>`<td class="num"><input type="number" class="setor-qty" data-setor="${s.id}" min="0" step="1" value="${s.qtds[it.id]||0}"></td>`).join('')}
-    </tr>`).join('') || `<tr><td colspan="99" style="color:var(--cinza);">Nenhum material no catálogo — adicione itens na aba Catálogo &amp; Preços.</td></tr>`;
+      ${app.setores.map(s=>{
+        if(derivado){
+          const val = qtdEfetivaSetor(s, it.id);
+          return `<td class="num"><span class="qtd-calc" data-setor="${s.id}" data-item="${it.id}">${fmtNumCalc(val)}</span></td>`;
+        }
+        return `<td class="num"><input type="number" class="setor-qty" data-setor="${s.id}" min="0" step="1" value="${s.qtds[it.id]||0}"></td>`;
+      }).join('')}
+    </tr>`;
+  }).join('') || `<tr><td colspan="99" style="color:var(--cinza);">Nenhum material no catálogo — adicione itens na aba Catálogo &amp; Preços.</td></tr>`;
 
   tbody.querySelectorAll('input.setor-qty').forEach(input=>{
     input.addEventListener('input', e=>{
@@ -583,6 +671,7 @@ function renderSetores(){
       const setorId = e.target.dataset.setor;
       const s = app.setores.find(x=>x.id===setorId);
       s.qtds[itemId] = parseFloat(e.target.value)||0;
+      atualizarDerivadosSetor(s);
       renderSetoresTotais();
       saveApp();
     });
@@ -591,12 +680,30 @@ function renderSetores(){
   renderSetoresTotais();
 }
 
+// Quantidade "efetiva" de um item num setor: pra itens derivados
+// (alça/poste/bap/supa) recalcula a partir dos cabos do próprio setor;
+// pros demais, é só o valor digitado.
+function qtdEfetivaSetor(setor, itemId){
+  return computarDerivados(setor.qtds)[itemId] || 0;
+}
+
+// Atualiza na tela (sem re-renderizar a tabela) os spans calculados de
+// UM setor específico, depois que uma quantidade de cabo dele mudou.
+function atualizarDerivadosSetor(setor){
+  const efetivo = computarDerivados(setor.qtds);
+  app.catalogo.forEach(it=>{
+    if(!ehDerivado(it)) return;
+    const span = document.querySelector(`#tbody-setores .qtd-calc[data-setor="${setor.id}"][data-item="${it.id}"]`);
+    if(span) span.textContent = fmtNumCalc(efetivo[it.id]||0);
+  });
+}
+
 function renderSetoresTotais(){
   const materiais = materiaisDoCatalogo();
   const totalRow = document.getElementById('setores-total-row');
   const totais = app.setores.map(s=>{
     let total = 0;
-    materiais.forEach(it=>{ total += (s.qtds[it.id]||0) * (it.custo||0); });
+    materiais.forEach(it=>{ total += qtdEfetivaSetor(s,it.id) * (it.custo||0); });
     return total;
   });
   totalRow.innerHTML = '<td style="font-weight:700;">Total material (R$)</td><td></td>' +
@@ -614,7 +721,7 @@ function addSetor(){
    calculada a partir das quantidades consolidadas de cabo/CTO/CEO.
 ====================================================================== */
 function somaSetores(itemId){
-  return app.setores.reduce((s,setor)=>s+(setor.qtds[itemId]||0), 0);
+  return app.setores.reduce((s,setor)=>s+qtdEfetivaSetor(setor,itemId), 0);
 }
 
 function renderGeral(){
