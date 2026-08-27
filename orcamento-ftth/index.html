@@ -11,7 +11,8 @@
 </script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   const fb = initializeApp({
     apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
     authDomain: "isp-manager-ce.firebaseapp.com",
@@ -21,12 +22,35 @@
     appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
   });
   const auth = getAuth(fb);
+  const fsDb = getFirestore(fb);
   window._doLogout = function(){
     signOut(auth).finally(()=>{
       sessionStorage.clear();
       window.location.href = '../index.html';
     });
   };
+
+  // ---- Sincronização em tempo real com a nuvem (Firestore), mesmo
+  // padrão usado em Expansão Orgânica: last write wins.
+  window._lastKnownUpdated = 0;
+  window._cloudSave = (data) => {
+    if(!window._fbUser) return Promise.resolve();
+    window._lastKnownUpdated = data.updated;
+    return setDoc(doc(fsDb, 'orcamento_ftth_backups', window._fbUser.uid), data);
+  };
+
+  onAuthStateChanged(auth, user => {
+    if(!user) return;
+    window._fbUser = user;
+    onSnapshot(doc(fsDb, 'orcamento_ftth_backups', user.uid), snap => {
+      if(!snap.exists()) return;
+      const data = snap.data();
+      if(!data.catalogo || !data.catalogo.length) return;
+      if((data.updated||0) <= (window._lastKnownUpdated||0)) return;
+      window._lastKnownUpdated = data.updated;
+      if(window._applyRemoteState) window._applyRemoteState(data);
+    }, err => console.error('Falha no listener de sincronização (Orçamento FTTH):', err));
+  });
 </script>
 <title>Orçamento FTTH — Infolink-ISP</title>
 <style>
@@ -55,8 +79,32 @@
   .ghost-btn{background:transparent;border:1px solid var(--borda);color:var(--cinza);padding:7px 13px;border-radius:7px;font-size:12px;cursor:pointer;text-decoration:none;display:inline-block;}
   .ghost-btn:hover{border-color:var(--azul);color:var(--azul);}
   .icon-btn{padding:7px 10px;font-size:14px;line-height:1;}
+  .status-pill{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:20px;border:1px solid var(--borda);font-size:12px;white-space:nowrap;color:var(--cinza);}
+  .status-pill .dot{width:7px;height:7px;border-radius:50%;background:#1f7a44;display:inline-block;}
 
   .wrap{max-width:1200px;margin:0 auto;padding:24px 16px 0;}
+
+  .shell{max-width:1300px;margin:0 auto;display:flex;align-items:flex-start;gap:20px;padding:24px 16px 0;}
+  .sidebar{width:270px;flex-shrink:0;position:sticky;top:66px;}
+  .sidebar-box{background:#fff;border-radius:12px;box-shadow:0 1px 6px rgba(0,0,0,.08);padding:16px;margin-bottom:16px;}
+  .sidebar-box h4{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--cinza);margin:0 0 10px;}
+  .sidebar-btn{display:block;width:100%;padding:10px;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;text-align:center;box-sizing:border-box;}
+  .sidebar-btn.salvar{background:var(--azul);color:#fff;border:none;margin-bottom:8px;}
+  .sidebar-btn.salvar:hover{background:#173e60;}
+  .sidebar-btn.novo{background:#fff;border:1px dashed var(--borda);color:var(--cinza);}
+  .sidebar-btn.novo:hover{border-color:var(--azul);color:var(--azul);}
+  .salvo-card{background:#f7f9fb;border:1px solid var(--borda);border-radius:8px;padding:10px 12px;cursor:pointer;margin-bottom:8px;transition:.15s;}
+  .salvo-card:hover{border-color:var(--azul);}
+  .salvo-card.active{border-color:var(--azul);background:var(--azul-tag);}
+  .salvo-card .snome{font-weight:700;font-size:12.5px;margin-bottom:2px;color:#1f2937;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .salvo-card .sdata{color:var(--cinza);font-size:10.5px;}
+  .salvo-card .svalor{color:var(--azul);font-size:11.5px;font-weight:700;margin-top:3px;}
+  .empty-side{color:var(--cinza);font-size:11.5px;padding:6px 4px;line-height:1.6;}
+  .main-col{flex:1;min-width:0;}
+  @media (max-width:900px){
+    .shell{flex-direction:column;}
+    .sidebar{width:100%;position:static;}
+  }
   header.page-title{
     background:linear-gradient(135deg,var(--azul),#2c6ca3);
     color:#fff;
@@ -271,12 +319,26 @@
   <div class="actions">
     <a href="../home.html" class="ghost-btn">← Voltar</a>
     <button class="ghost-btn icon-btn" id="refreshPageBtn" title="Atualizar a página">🔄</button>
+    <div class="status-pill"><span class="dot"></span>Sincronizado com a equipe</div>
     <button class="ghost-btn" onclick="window._doLogout()">Sair</button>
   </div>
 </div>
 
-<div class="wrap">
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-box">
+      <button class="sidebar-btn salvar" id="salvarBtn" type="button">💾 Salvar orçamento atual</button>
+      <button class="sidebar-btn novo" id="novoBtn" type="button">🆕 Novo orçamento</button>
+    </div>
+    <div class="sidebar-box">
+      <h4>Orçamentos salvos</h4>
+      <div id="salvosList"></div>
+    </div>
+  </aside>
 
+<div class="main-col">
+
+  <div id="viewDraft">
   <header class="page-title">
     <h1>Orçamento FTTH — Infraestrutura Externa</h1>
     <p>Catálogo de materiais (cabo/alça por FO, caixas, splitters, mão de obra) + comparação entre setores + totais consolidados, no mesmo formato da planilha mestra.</p>
@@ -405,12 +467,54 @@
       <div style="height:14px;"></div>
     </section>
   </div>
+  </div><!-- /viewDraft -->
+
+  <!-- =========================== COMPROVANTE (orçamento salvo, só leitura) =========================== -->
+  <div id="viewSalvo" style="display:none;">
+    <header class="page-title">
+      <h1 id="salvo-nome">Orçamento salvo</h1>
+      <p id="salvo-data">Salvo em —</p>
+    </header>
+    <div style="margin:-10px 0 20px;">
+      <a href="#" id="voltarRascunhoLink" class="ghost-btn" style="text-decoration:none;">← Voltar pro orçamento atual</a>
+      <button class="ghost-btn" id="duplicarSalvoBtn" type="button" style="margin-left:8px;">📋 Usar como base de um novo orçamento</button>
+      <button class="ghost-btn" id="excluirSalvoBtn" type="button" style="margin-left:8px;color:#b91c1c;border-color:#f3c6c6;">🗑 Excluir</button>
+    </div>
+
+    <div class="resumo">
+      <div class="card-resumo"><div class="label">Total Material</div><div class="valor" id="salvo-material">R$ 0,00</div></div>
+      <div class="card-resumo mao"><div class="label">Total Mão de Obra</div><div class="valor" id="salvo-mao">R$ 0,00</div></div>
+      <div class="card-resumo total"><div class="label">Total Geral (com mão de obra)</div><div class="valor" id="salvo-total">R$ 0,00</div></div>
+    </div>
+
+    <section class="bloco">
+      <div class="bloco-header">Material</div>
+      <div class="bloco-sub">Congelado no momento em que o orçamento foi salvo — não muda se o catálogo padrão for atualizado depois.</div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Item</th><th class="num">Unid.</th><th class="num">Quantidade</th><th class="money">Vlr. Unit.</th><th class="money">Vlr. Total</th></tr></thead>
+          <tbody id="salvo-tbody-material"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="bloco">
+      <div class="bloco-header sub2">Mão de Obra Terceirizada</div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Item</th><th class="num">Unid.</th><th class="num">Quantidade</th><th class="money">Vlr. Unit.</th><th class="money">Vlr. Total</th></tr></thead>
+          <tbody id="salvo-tbody-mao"></tbody>
+        </table>
+      </div>
+    </section>
+  </div><!-- /viewSalvo -->
 
   <footer>
     Orçamento FTTH — catálogo e cálculo consolidado no mesmo formato da planilha mestra · Expansão Infolink
   </footer>
 
-</div>
+</div><!-- /main-col -->
+</div><!-- /shell -->
 
 <script>
 /* ======================================================================
@@ -533,17 +637,49 @@ function loadApp(){
     const raw = localStorage.getItem(STORAGE_KEY);
     if(raw){
       const parsed = JSON.parse(raw);
-      if(parsed.catalogo && parsed.catalogo.length) return parsed;
+      if(parsed.catalogo && parsed.catalogo.length){
+        parsed.salvos = parsed.salvos || [];
+        return parsed;
+      }
     }
   }catch(e){}
-  return { catalogo: catalogoPadrao(), setores: [blankSetor('Setor 01')] };
+  return { catalogo: catalogoPadrao(), setores: [blankSetor('Setor 01')], salvos: [] };
 }
 function saveApp(){
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }
   catch(e){ /* armazenamento local indisponível — segue só na sessão */ }
+  syncToCloud();
 }
 
+let _cloudSyncTimer = null;
+function syncToCloud(){
+  if(!window._fbUser || !window._cloudSave) return;
+  clearTimeout(_cloudSyncTimer);
+  _cloudSyncTimer = setTimeout(async ()=>{
+    try{
+      await window._cloudSave({ catalogo: app.catalogo, setores: app.setores, salvos: app.salvos, updated: Date.now() });
+    }catch(e){ console.error('Falha ao sincronizar Orçamento FTTH com a nuvem:', e); }
+  }, 1500);
+}
+
+// Aplica atualização recebida em tempo real de outra pessoa logada com a
+// mesma conta (mesmo padrão de Expansão Orgânica) — não troca a tela de
+// quem já está vendo um orçamento salvo específico.
+function applyRemoteState(data){
+  app.catalogo = data.catalogo || app.catalogo;
+  app.setores = data.setores || app.setores;
+  app.salvos = data.salvos || [];
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }catch(e){}
+  renderCatalogo(); renderSetores(); renderGeral(); renderSalvosList();
+  if(visualizandoSalvoId){
+    const s = app.salvos.find(x=>x.id===visualizandoSalvoId);
+    if(s) abrirSalvo(s.id); else fecharSalvo();
+  }
+}
+window._applyRemoteState = applyRemoteState;
+
 let app = loadApp();
+let visualizandoSalvoId = null;
 
 /* ======================================================================
    TABS
@@ -797,9 +933,144 @@ function renderGeral(){
   document.getElementById('geral-total-com').textContent = fmtBRL(totalMaterial+totalMao);
 }
 
+/* ======================================================================
+   ORÇAMENTOS SALVOS — "comprovante" congelado no momento do salvamento
+   (não usa o catálogo/setores atuais do app, e sim a cópia guardada no
+   próprio salvo, pra não mudar se a fórmula ou os preços do catálogo
+   padrão mudarem depois).
+====================================================================== */
+// Um orçamento salvo é o congelamento do Catálogo no momento do "Salvar"
+// — cada item já traz a sua quantidade final (digitada ou calculada por
+// fórmula) guardada em it.qtd, então o comprovante só precisa somar o
+// que já está ali, sem recalcular nada (fica igual ao "Total desta
+// simulação" que a pessoa viu na hora de salvar).
+function resumoOrcamento(catalogoSnap){
+  const materiais = catalogoSnap.filter(it=>it.categoria!=='mao_de_obra' && (it.qtd||0)>0.0001);
+  const maoItens = catalogoSnap.filter(it=>it.categoria==='mao_de_obra');
+  let totalMaterial = 0, totalMao = 0;
+  const linhasMaterial = materiais.map(it=>{
+    const total = (it.qtd||0)*(it.custo||0);
+    totalMaterial += total;
+    return {nome:it.nome, unidade:it.unidade, qtd:it.qtd||0, custo:it.custo||0, total};
+  });
+  const linhasMao = maoItens.map(it=>{
+    const total = (it.qtd||0)*(it.custo||0);
+    totalMao += total;
+    return {nome:it.nome, unidade:it.unidade, qtd:it.qtd||0, custo:it.custo||0, total};
+  });
+  return { linhasMaterial, linhasMao, totalMaterial, totalMao, totalGeral: totalMaterial+totalMao };
+}
+
+function renderSalvosList(){
+  const el = document.getElementById('salvosList');
+  if(!app.salvos.length){
+    el.innerHTML = `<div class="empty-side">Nenhum orçamento salvo ainda. Preencha o Catálogo/Setores e clique em "Salvar orçamento atual".</div>`;
+    return;
+  }
+  const ordenados = [...app.salvos].sort((a,b)=>b.criadoEm-a.criadoEm);
+  el.innerHTML = ordenados.map(s=>{
+    const r = resumoOrcamento(s.catalogo);
+    const data = new Date(s.criadoEm).toLocaleString('pt-BR', {dateStyle:'short', timeStyle:'short'});
+    return `<div class="salvo-card${s.id===visualizandoSalvoId?' active':''}" data-id="${s.id}">
+      <div class="snome">${esc(s.nome)}</div>
+      <div class="sdata">${data}</div>
+      <div class="svalor">${fmtBRL(r.totalGeral)}</div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.salvo-card').forEach(card=>{
+    card.addEventListener('click', ()=> abrirSalvo(card.dataset.id));
+  });
+}
+
+function salvarOrcamentoAtual(){
+  const nome = prompt('Nome desse orçamento (ex: nome do projeto/cidade):', 'Orçamento '+new Date().toLocaleDateString('pt-BR'));
+  if(!nome) return;
+  app.salvos.push({
+    id: novoId('sv'),
+    nome: nome.trim(),
+    criadoEm: Date.now(),
+    catalogo: JSON.parse(JSON.stringify(app.catalogo)),
+    setores: JSON.parse(JSON.stringify(app.setores)),
+  });
+  saveApp();
+  renderSalvosList();
+  alert('Orçamento salvo! Ele fica na lista da barra lateral, sem afetar o que você continuar editando aqui.');
+}
+
+function novoOrcamento(){
+  if(!confirm('Isso limpa o Catálogo e os Setores que você está editando agora (o que já foi salvo continua guardado na lista). Continuar?')) return;
+  app.catalogo = catalogoPadrao();
+  app.setores = [blankSetor('Setor 01')];
+  saveApp();
+  renderCatalogo(); renderSetores(); renderGeral();
+}
+
+function abrirSalvo(id){
+  const s = app.salvos.find(x=>x.id===id);
+  if(!s) return;
+  visualizandoSalvoId = id;
+  document.getElementById('viewDraft').style.display = 'none';
+  document.getElementById('viewSalvo').style.display = '';
+  document.getElementById('salvo-nome').textContent = '📋 '+s.nome;
+  document.getElementById('salvo-data').textContent = 'Salvo em '+new Date(s.criadoEm).toLocaleString('pt-BR', {dateStyle:'long', timeStyle:'short'});
+
+  const r = resumoOrcamento(s.catalogo);
+  document.getElementById('salvo-material').textContent = fmtBRL(r.totalMaterial);
+  document.getElementById('salvo-mao').textContent = fmtBRL(r.totalMao);
+  document.getElementById('salvo-total').textContent = fmtBRL(r.totalGeral);
+
+  document.getElementById('salvo-tbody-material').innerHTML = r.linhasMaterial.map(l=>`
+    <tr>
+      <td class="desc">${esc(l.nome)}</td>
+      <td class="num">${esc(l.unidade)}</td>
+      <td class="num">${fmtNumCalc(l.qtd)}</td>
+      <td class="money">${fmtBRL(l.custo)}</td>
+      <td class="money">${fmtBRL(l.total)}</td>
+    </tr>`).join('') || `<tr><td colspan="5" style="color:var(--cinza);">Nenhum material com quantidade preenchida.</td></tr>`;
+
+  document.getElementById('salvo-tbody-mao').innerHTML = r.linhasMao.map(l=>`
+    <tr>
+      <td class="desc">${esc(l.nome)}</td>
+      <td class="num">${esc(l.unidade)}</td>
+      <td class="num">${fmtNumCalc(l.qtd)}</td>
+      <td class="money">${fmtBRL(l.custo)}</td>
+      <td class="money">${fmtBRL(l.total)}</td>
+    </tr>`).join('');
+
+  document.getElementById('duplicarSalvoBtn').onclick = ()=>{
+    if(!confirm('Isso substitui o Catálogo/Setores que você está editando pelos dados desse orçamento salvo. Continuar?')) return;
+    app.catalogo = JSON.parse(JSON.stringify(s.catalogo));
+    app.setores = JSON.parse(JSON.stringify(s.setores));
+    saveApp();
+    renderCatalogo(); renderSetores(); renderGeral();
+    fecharSalvo();
+  };
+  document.getElementById('excluirSalvoBtn').onclick = ()=>{
+    if(!confirm(`Excluir o orçamento salvo "${s.nome}"? Essa ação não pode ser desfeita.`)) return;
+    app.salvos = app.salvos.filter(x=>x.id!==id);
+    saveApp();
+    fecharSalvo();
+    renderSalvosList();
+  };
+
+  renderSalvosList();
+}
+
+function fecharSalvo(){
+  visualizandoSalvoId = null;
+  document.getElementById('viewSalvo').style.display = 'none';
+  document.getElementById('viewDraft').style.display = '';
+  renderSalvosList();
+}
+
+document.getElementById('salvarBtn').addEventListener('click', salvarOrcamentoAtual);
+document.getElementById('novoBtn').addEventListener('click', novoOrcamento);
+document.getElementById('voltarRascunhoLink').addEventListener('click', e=>{ e.preventDefault(); fecharSalvo(); });
+
 renderCatalogo();
 renderSetores();
 renderGeral();
+renderSalvosList();
 
 document.getElementById('refreshPageBtn').onclick = () => location.reload();
 </script>
