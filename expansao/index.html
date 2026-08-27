@@ -424,26 +424,28 @@ function mainSkeleton(){
     return;
   }
 
-  // Beberibe tem um relatório único e consolidado (igual ao HTML "Orçamento
-  // e Mapa da Rede" recebido da equipe) em vez da grade genérica de bairros —
-  // os bairros continuam cadastrados (dados usados pelo relatório), só não
-  // aparecem mais como cards separados aqui.
-  if((c.nome||'').trim().toLowerCase()==='beberibe'){
+  // Cidades com relatório(s) HTML consolidado(s) próprio(s) — igual aos
+  // documentos "Orçamento e Mapa da Rede" que a equipe manda prontos — usam
+  // uma grade de "projetos" (cada um abre o HTML dele) em vez do fluxo
+  // genérico de bairros/orçamento editável do painel. Ver c.projetos,
+  // preenchido em seedProjetosHtml().
+  if((c.projetos||[]).length){
     main.innerHTML = `
       <div class="page-banner">
         <input class="cname-input" id="in-nome" value="${esc(c.nome)}" placeholder="Nome do município">
-        <p class="page-banner-sub">Relatório consolidado de mapa da rede + orçamento (Campestre, Palmeira, Parajuru, Paripueira + CPD).</p>
+        <p class="page-banner-sub">Relatório(s) consolidado(s) de mapa da rede + orçamento.</p>
       </div>
 
       <div class="bloco">
         <div class="bloco-header">Projetos de ${esc(c.nome)}</div>
-        <div class="bloco-sub">Mapa da rede real (KMZ) e orçamento de infraestrutura externa + CPD dos 4 municípios, já consolidados num único relatório.</div>
+        <div class="bloco-sub">Cada projeto abre o mapa da rede (KMZ) e o orçamento de infraestrutura já consolidados num relatório próprio.</div>
         <div class="bloco-body">
           <div class="bairro-grid">
-            <a href="beberibe-projeto1.html" class="city-card" style="display:block;text-decoration:none;color:inherit;">
-              <div class="cname">📁 Projeto 1</div>
-              <div class="cmeta">Mapa + orçamento consolidado — Campestre, Palmeira, Parajuru, Paripueira e CPD</div>
-            </a>
+            ${c.projetos.map(p=>`
+            <a href="${esc(p.arquivo)}" class="city-card" style="display:block;text-decoration:none;color:inherit;">
+              <div class="cname">📁 ${esc(p.nome)}</div>
+              <div class="cmeta">${esc(p.desc||'Mapa + orçamento consolidado')}</div>
+            </a>`).join('')}
           </div>
         </div>
       </div>
@@ -1078,9 +1080,9 @@ function renderAll(){
   mainSkeleton();
   const c = current();
   if(!c) return;
-  // Beberibe já vem totalmente montado/vinculado dentro do próprio
-  // mainSkeleton() (relatório único "Projeto 1"), sem grade de bairros.
-  if((c.nome||'').trim().toLowerCase()==='beberibe'){ return; }
+  // Cidades com grade de "projetos" (c.projetos) já vêm totalmente
+  // montadas/vinculadas dentro do próprio mainSkeleton().
+  if((c.projetos||[]).length){ return; }
   if(filhosDe(c.id).length){ bindHubView(); }
   else { bindAll(); initMapIfNeeded(); }
 }
@@ -1236,6 +1238,32 @@ let app = loadApp();
   const cpd = app.cidades.find(c=>(c.nome||'').toLowerCase().includes('cpd') && c.id!==beberibe.id);
   if(cpd && !cpd.municipioId) cpd.municipioId = beberibe.id;
   app._hierarquiaV = V;
+  saveApp();
+})();
+
+// Cidades cujo mapa + orçamento já vêm prontos como relatório HTML
+// consolidado (documentos que a equipe manda direto, tipo o "Orçamento e
+// Mapa da Rede") — em vez do fluxo genérico de bairros/materiais editável
+// do painel. Lista fixa vinda do código (estática), roda toda vez pra
+// garantir que a cidade exista e que a grade de projetos dela esteja
+// atualizada, sem depender de versão/migração.
+const PROJETOS_HTML = {
+  'beberibe': [
+    { nome:'Projeto 1', arquivo:'beberibe-projeto1.html', desc:'Mapa + orçamento consolidado — Campestre, Palmeira, Parajuru, Paripueira e CPD' },
+  ],
+  'aquiraz': [
+    { nome:'Projeto 1', arquivo:'aquiraz-projeto1.html', desc:'PATACAS — mapa + orçamento de infraestrutura externa (backbone + rotas 01 e 02)' },
+  ],
+};
+(function seedProjetosHtml(){
+  Object.entries(PROJETOS_HTML).forEach(([nomeChave, projetos])=>{
+    let c = app.cidades.find(x=>(x.nome||'').trim().toLowerCase()===nomeChave);
+    if(!c){
+      c = blankCidade(nomeChave.charAt(0).toUpperCase()+nomeChave.slice(1));
+      app.cidades.push(c);
+    }
+    c.projetos = projetos;
+  });
   saveApp();
 })();
 
