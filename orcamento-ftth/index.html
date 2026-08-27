@@ -54,6 +54,7 @@
   .topbar .actions{margin-left:auto;display:flex;gap:8px;}
   .ghost-btn{background:transparent;border:1px solid var(--borda);color:var(--cinza);padding:7px 13px;border-radius:7px;font-size:12px;cursor:pointer;text-decoration:none;display:inline-block;}
   .ghost-btn:hover{border-color:var(--azul);color:var(--azul);}
+  .icon-btn{padding:7px 10px;font-size:14px;line-height:1;}
 
   .wrap{max-width:1200px;margin:0 auto;padding:24px 16px 0;}
   header.page-title{
@@ -269,6 +270,7 @@
   <a href="../home.html" class="brand">Orçamento FTTH</a>
   <div class="actions">
     <a href="../home.html" class="ghost-btn">← Voltar</a>
+    <button class="ghost-btn icon-btn" id="refreshPageBtn" title="Atualizar a página">🔄</button>
     <button class="ghost-btn" onclick="window._doLogout()">Sair</button>
   </div>
 </div>
@@ -798,6 +800,8 @@ function renderGeral(){
 renderCatalogo();
 renderSetores();
 renderGeral();
+
+document.getElementById('refreshPageBtn').onclick = () => location.reload();
 </script>
 
 </body>
