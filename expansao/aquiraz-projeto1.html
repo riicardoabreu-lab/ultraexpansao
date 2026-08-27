@@ -318,6 +318,14 @@
       <div class="bloco-header">Mapa da Rede — PATACAS</div>
       <div class="bloco-sub">Traçado extraído do arquivo KMZ do projeto: backbone (tronco) ligando as duas rotas de distribuição, com todas as CTOs, CEOs e reservas técnicas.</div>
 
+      <div class="calc-mini">
+        <div class="item"><div class="num">25</div><div class="lbl">Caixas CX / CTO</div></div>
+        <div class="item"><div class="num">2</div><div class="lbl">CEO</div></div>
+        <div class="item"><div class="num" id="mapa-cabo">9.305 m</div><div class="lbl">Cabo 12FO</div></div>
+        <div class="item"><div class="num" id="mapa-portas">400</div><div class="lbl">Portas a atender</div></div>
+        <div class="item"><div class="num" id="mapa-investimento">R$ 0,00</div><div class="lbl">Investimento (infra externa)</div></div>
+      </div>
+
       <div id="map"></div>
       <div id="map-fallback" class="map-fallback" style="display:none;">
         Mapa real (OpenStreetMap/satélite) indisponível neste ambiente — abra o arquivo .html baixado em um navegador para carregá-lo com o traçado real da rede.
@@ -588,6 +596,7 @@ function recalcAll(){
   document.getElementById('card-cabo').textContent = fmtMoney(caboSum);
   document.getElementById('card-caixas').textContent = fmtMoney(caixasSum);
   document.getElementById('card-total').textContent = fmtMoney(sum);
+  document.getElementById('mapa-investimento').textContent = fmtMoney(sum);
 }
 
 function addRow(){
@@ -622,6 +631,7 @@ document.getElementById('pPortasPorCto').addEventListener('change', function(){
 document.getElementById('pPortasAtender').addEventListener('input', function(){
   const portas = parseInt(this.value, 10) || 0;
   document.getElementById('mini-portas').textContent = fmtInt(portas);
+  document.getElementById('mapa-portas').textContent = fmtInt(portas);
   const conTr = document.querySelector('#tbody-infra tr[data-id="conector"]');
   const corTr = document.querySelector('#tbody-infra tr[data-id="cordao"]');
   if (conTr) conTr.querySelector('input.qty-in').value = portas*2;
@@ -635,10 +645,16 @@ document.getElementById('pMargem').addEventListener('input', function(){
   const caboTr = document.querySelector('#tbody-infra tr[data-id="cabo"]');
   if (caboTr) caboTr.querySelector('input.qty-in').value = caboQty;
   document.getElementById('mini-cabo').textContent = fmtInt(caboQty) + ' m';
+  document.getElementById('mapa-cabo').textContent = fmtInt(caboQty) + ' m';
   recalcAll();
 });
 
 buildInitialRows();
+// Sincroniza os números exibidos (cabo/portas) com os valores padrão dos
+// campos (margem 5%, 400 portas) — sem isso ficavam com o texto estático
+// do HTML até o usuário mexer num campo, mesmo já calculando certo por trás.
+document.getElementById('pMargem').dispatchEvent(new Event('input'));
+document.getElementById('pPortasAtender').dispatchEvent(new Event('input'));
 </script>
 
 </body>
