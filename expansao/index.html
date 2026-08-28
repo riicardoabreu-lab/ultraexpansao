@@ -97,6 +97,7 @@
   .topbar-actions{ margin-left:auto; display:flex; align-items:center; gap:8px; }
   .ghost-btn{ background:transparent; border:1px solid var(--border); color:var(--text-dim); padding:7px 13px; border-radius:7px; font-size:12px; cursor:pointer; white-space:nowrap; }
   .ghost-btn:hover{ border-color:var(--accent); color:var(--accent); }
+  .icon-btn{ padding:7px 10px; font-size:14px; line-height:1; }
   .status-pill{ display:flex; align-items:center; gap:8px; padding:6px 12px; border-radius:20px; border:1px solid var(--border); font-size:12px; white-space:nowrap; }
   .status-pill b{ font-weight:600;}
   .dot{width:7px;height:7px;border-radius:50%; background:var(--good);}
@@ -266,6 +267,7 @@
     <a href="../home.html" class="brand" style="text-decoration:none;color:inherit;"><span class="brand-dot"></span>Expansão Orgânica</a>
     <div class="topbar-actions">
       <a href="../home.html" class="ghost-btn" style="text-decoration:none;">← Voltar</a>
+      <button class="ghost-btn icon-btn" id="refreshPageBtn" title="Atualizar a página">🔄</button>
       <div class="status-pill"><span class="dot"></span>Sincronizado com a equipe</div>
       <button class="ghost-btn" onclick="window._doLogout()">Sair</button>
     </div>
@@ -1268,6 +1270,8 @@ const PROJETOS_HTML = {
 })();
 
 renderAll();
+
+document.getElementById('refreshPageBtn').onclick = () => location.reload();
 </script>
 
 </body>
