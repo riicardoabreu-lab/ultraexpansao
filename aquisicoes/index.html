@@ -669,7 +669,10 @@ function calcEmprestimo(p, investTotal){
   const carencia = Math.max(0, Math.round(p.finCarenciaTri||0));
   const parcelasAmort = Math.max(1, Math.round(p.finParcelasTri||1));
   const taxaTri = (p.finSelic||0)/4/100; // Selic a.a. ÷ 4 trimestres — usada na amortização (parcela > carência)
-  const taxaCarenciaTri = (p.finTaxaCarenciaPct||0)/100; // taxa própria da carência (contrato/banco), independente da Selic
+  // taxa própria da carência (contrato/banco), independente da Selic — operações
+  // criadas antes desse campo existir não têm valor salvo; usa o padrão da
+  // planilha mestra (4,6%) em vez de tratar como 0% de juros na carência.
+  const taxaCarenciaTri = (p.finTaxaCarenciaPct ?? 4.6)/100;
   const flatPct = (p.finFlatPct||0)/100;
   const irPct = (p.finIRPct||0)/100;
   const principalPorParcela = valor/parcelasAmort;
@@ -1745,7 +1748,7 @@ function fillFields(){
   set('in-multmrr', p.multMRR);
   set('in-multebitda', p.multEBITDA);
   set('in-fin-selic', p.finSelic);
-  set('in-fin-taxacarencia', p.finTaxaCarenciaPct);
+  set('in-fin-taxacarencia', p.finTaxaCarenciaPct ?? 4.6);
   set('in-fin-carencia', p.finCarenciaTri);
   set('in-fin-parcelas', p.finParcelasTri);
   set('in-fin-flat', p.finFlatPct);
