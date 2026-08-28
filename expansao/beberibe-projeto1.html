@@ -649,6 +649,67 @@ function recalcAll(){
   if(cards[2]) cards[2].textContent = formatMoney(grand);
 }
 
+// ============================================================
+// Persistência local — sem isso, qualquer edição de quantidade/preço
+// se perdia ao sair da página. Guarda o estado das duas tabelas
+// (infra + CPD) no navegador e restaura na próxima visita.
+// ============================================================
+const STORAGE_KEY = 'beberibe-projeto1-v1';
+
+function serializeTbody(tbodyId){
+  return [...document.querySelectorAll('#'+tbodyId+' tr[data-row]')].map(tr=>({
+    cls: tr.className,
+    desc: tr.querySelector('.desc').textContent,
+    unid: tr.querySelector('.num').textContent,
+    qty: tr.querySelector('.qty-in').value,
+    price: tr.querySelector('.price-in').value,
+    fonte: tr.querySelector('.fonte').textContent,
+  }));
+}
+
+function captureState(){
+  return { infra: serializeTbody('tbody-infra'), cpd: serializeTbody('tbody-cpd'), updated: Date.now() };
+}
+
+function rowFromData(r){
+  const tr = document.createElement('tr');
+  tr.className = r.cls||'';
+  tr.setAttribute('data-row','');
+  tr.innerHTML =
+    '<td class="desc" contenteditable="true">'+r.desc+'</td>'+
+    '<td class="num" contenteditable="true">'+r.unid+'</td>'+
+    '<td class="num"><input type="number" class="qty-in" value="'+r.qty+'" step="1"></td>'+
+    '<td class="money"><input type="number" class="price-in" value="'+r.price+'" step="0.01"></td>'+
+    '<td class="money row-total"></td>'+
+    '<td class="fonte" contenteditable="true">'+r.fonte+'</td>'+
+    '<td><button class="del-btn" onclick="delRow(this)">✕</button></td>';
+  return tr;
+}
+
+function applyState(state){
+  if(!state) return;
+  if(state.infra && state.infra.length){
+    const tbody = document.getElementById('tbody-infra');
+    tbody.innerHTML = '';
+    state.infra.forEach(r=>tbody.appendChild(rowFromData(r)));
+  }
+  if(state.cpd && state.cpd.length){
+    const tbody = document.getElementById('tbody-cpd');
+    tbody.innerHTML = '';
+    state.cpd.forEach(r=>tbody.appendChild(rowFromData(r)));
+  }
+  recalcAll();
+}
+
+let _saveTimer = null;
+function scheduleSave(){
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(()=>{
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(captureState())); }
+    catch(e){ /* armazenamento local indisponível — segue só na sessão */ }
+  }, 500);
+}
+
 function addRow(tbodyId){
   const tbody = document.getElementById(tbodyId);
   const isCpd = tbodyId === 'tbody-cpd';
@@ -677,21 +738,29 @@ function addRow(tbodyId){
   }
   tbody.appendChild(tr);
   recalcAll();
+  scheduleSave();
 }
 
 function delRow(btn){
   const tr = btn.closest('tr');
   tr.remove();
   recalcAll();
+  scheduleSave();
 }
 
 document.addEventListener('input', (e)=>{
   if(e.target.classList.contains('qty-in') || e.target.classList.contains('price-in')){
     recalcAll();
   }
+  if(e.target.closest('#tbody-infra') || e.target.closest('#tbody-cpd')){
+    scheduleSave();
+  }
 });
 
-recalcAll();
+let _savedState = null;
+try{ const raw = localStorage.getItem(STORAGE_KEY); if(raw) _savedState = JSON.parse(raw); }catch(e){}
+if(_savedState){ applyState(_savedState); }
+else { recalcAll(); }
 </script>
 
 </body>

@@ -599,21 +599,79 @@ function recalcAll(){
   document.getElementById('mapa-investimento').textContent = fmtMoney(sum);
 }
 
+// ============================================================
+// Persistência local — sem isso, qualquer edição de quantidade/preço
+// ou dos parâmetros (portas/margem) se perdia ao sair da página.
+// ============================================================
+const STORAGE_KEY = 'aquiraz-projeto1-v1';
+
+function captureState(){
+  const rows = [...document.querySelectorAll('#tbody-infra tr')].map(tr=>({
+    cls: tr.className,
+    id: tr.dataset.id||'',
+    item: tr.querySelector('.desc').textContent,
+    unid: tr.querySelector('.num').textContent,
+    qty: tr.querySelector('.qty-in').value,
+    price: tr.querySelector('.price-in').value,
+    fonte: tr.querySelector('.fonte').textContent,
+  }));
+  return {
+    rows,
+    pPortasPorCto: document.getElementById('pPortasPorCto').value,
+    pPortasAtender: document.getElementById('pPortasAtender').value,
+    pMargem: document.getElementById('pMargem').value,
+    updated: Date.now(),
+  };
+}
+
+function applyState(state){
+  if(!state || !state.rows || !state.rows.length) return;
+  if(state.pPortasPorCto) document.getElementById('pPortasPorCto').value = state.pPortasPorCto;
+  if(state.pPortasAtender) document.getElementById('pPortasAtender').value = state.pPortasAtender;
+  if(state.pMargem) document.getElementById('pMargem').value = state.pMargem;
+  const tbody = document.getElementById('tbody-infra');
+  tbody.innerHTML = '';
+  state.rows.forEach(r=>{
+    tbody.appendChild(makeRow({cls:r.cls, id:r.id, item:r.item, unid:r.unid, qty:r.qty, price:r.price, fonte:r.fonte}));
+  });
+  recalcAll();
+  document.getElementById('mini-portas').textContent = fmtInt(parseInt(state.pPortasAtender,10)||0);
+  document.getElementById('mapa-portas').textContent = fmtInt(parseInt(state.pPortasAtender,10)||0);
+  const caboTr = document.querySelector('#tbody-infra tr[data-id="cabo"]');
+  const caboQty = caboTr ? (parseFloat(caboTr.querySelector('.qty-in').value)||0) : 0;
+  document.getElementById('mini-cabo').textContent = fmtInt(caboQty) + ' m';
+  document.getElementById('mapa-cabo').textContent = fmtInt(caboQty) + ' m';
+}
+
+let _saveTimer = null;
+function scheduleSave(){
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(()=>{
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(captureState())); }
+    catch(e){ /* armazenamento local indisponível — segue só na sessão */ }
+  }, 500);
+}
+
 function addRow(){
   const tbody = document.getElementById('tbody-infra');
   tbody.appendChild(makeRow({cls:'', id:'', item:'Novo item', unid:'Unid.', qty:1, price:'0.00', fonte:'Adicionado manualmente'}));
   recalcAll();
+  scheduleSave();
 }
 
 function delRow(btn){
   const tr = btn.closest('tr');
   tr.remove();
   recalcAll();
+  scheduleSave();
 }
 
 document.addEventListener('input', function(e){
   if(e.target.classList.contains('qty-in') || e.target.classList.contains('price-in')){
     recalcAll();
+  }
+  if(e.target.closest('#tbody-infra')){
+    scheduleSave();
   }
 });
 
@@ -626,6 +684,7 @@ document.getElementById('pPortasPorCto').addEventListener('change', function(){
   }
   document.getElementById('pPortasAtender').value = TOTAL_CTOS * ppc;
   document.getElementById('pPortasAtender').dispatchEvent(new Event('input'));
+  scheduleSave();
 });
 
 document.getElementById('pPortasAtender').addEventListener('input', function(){
@@ -637,6 +696,7 @@ document.getElementById('pPortasAtender').addEventListener('input', function(){
   if (conTr) conTr.querySelector('input.qty-in').value = portas*2;
   if (corTr) corTr.querySelector('input.qty-in').value = portas;
   recalcAll();
+  scheduleSave();
 });
 
 document.getElementById('pMargem').addEventListener('input', function(){
@@ -647,14 +707,21 @@ document.getElementById('pMargem').addEventListener('input', function(){
   document.getElementById('mini-cabo').textContent = fmtInt(caboQty) + ' m';
   document.getElementById('mapa-cabo').textContent = fmtInt(caboQty) + ' m';
   recalcAll();
+  scheduleSave();
 });
 
-buildInitialRows();
-// Sincroniza os números exibidos (cabo/portas) com os valores padrão dos
-// campos (margem 5%, 400 portas) — sem isso ficavam com o texto estático
-// do HTML até o usuário mexer num campo, mesmo já calculando certo por trás.
-document.getElementById('pMargem').dispatchEvent(new Event('input'));
-document.getElementById('pPortasAtender').dispatchEvent(new Event('input'));
+let _savedState = null;
+try{ const raw = localStorage.getItem(STORAGE_KEY); if(raw) _savedState = JSON.parse(raw); }catch(e){}
+if(_savedState){
+  applyState(_savedState);
+} else {
+  buildInitialRows();
+  // Sincroniza os números exibidos (cabo/portas) com os valores padrão dos
+  // campos (margem 5%, 400 portas) — sem isso ficavam com o texto estático
+  // do HTML até o usuário mexer num campo, mesmo já calculando certo por trás.
+  document.getElementById('pMargem').dispatchEvent(new Event('input'));
+  document.getElementById('pPortasAtender').dispatchEvent(new Event('input'));
+}
 </script>
 
 </body>
