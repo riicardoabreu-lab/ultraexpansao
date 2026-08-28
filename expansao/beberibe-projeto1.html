@@ -7,6 +7,42 @@
     window.location.href = '../index.html';
   }
 </script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  const fb = initializeApp({
+    apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
+    authDomain: "isp-manager-ce.firebaseapp.com",
+    projectId: "isp-manager-ce",
+    storageBucket: "isp-manager-ce.firebasestorage.app",
+    messagingSenderId: "374725918192",
+    appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
+  });
+  const auth = getAuth(fb);
+  const fsDb = getFirestore(fb);
+
+  // ---- Sincronização em tempo real com a nuvem (Firestore), mesmo
+  // padrão usado em Expansão Orgânica/Orçamento FTTH: last write wins.
+  window._lastKnownUpdated = 0;
+  window._cloudSave = (data) => {
+    if(!window._fbUser) return Promise.resolve();
+    window._lastKnownUpdated = data.updated;
+    return setDoc(doc(fsDb, 'beberibe_projeto1_backups', window._fbUser.uid), data);
+  };
+
+  onAuthStateChanged(auth, user => {
+    if(!user) return;
+    window._fbUser = user;
+    onSnapshot(doc(fsDb, 'beberibe_projeto1_backups', user.uid), snap => {
+      if(!snap.exists()) return;
+      const data = snap.data();
+      if((data.updated||0) <= (window._lastKnownUpdated||0)) return;
+      window._lastKnownUpdated = data.updated;
+      if(window._applyRemoteState) window._applyRemoteState(data);
+    }, err => console.error('Falha no listener de sincronização (Beberibe Projeto 1):', err));
+  });
+</script>
 <meta charset="UTF-8">
 <title>Orçamento e Mapa da Rede — Infraestrutura Externa e CPD</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -705,10 +741,29 @@ let _saveTimer = null;
 function scheduleSave(){
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(()=>{
-    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(captureState())); }
+    const state = captureState();
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
     catch(e){ /* armazenamento local indisponível — segue só na sessão */ }
+    syncToCloud(state);
   }, 500);
 }
+
+let _cloudSyncTimer = null;
+function syncToCloud(state){
+  if(!window._fbUser || !window._cloudSave) return;
+  clearTimeout(_cloudSyncTimer);
+  _cloudSyncTimer = setTimeout(async ()=>{
+    try{ await window._cloudSave(state); }
+    catch(e){ console.error('Falha ao sincronizar Beberibe Projeto 1 com a nuvem:', e); }
+  }, 1000);
+}
+
+// Aplica atualização recebida em tempo real de outra pessoa logada com a
+// mesma conta (mesmo padrão do resto do site).
+window._applyRemoteState = function(data){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }catch(e){}
+  applyState(data);
+};
 
 function addRow(tbodyId){
   const tbody = document.getElementById(tbodyId);
