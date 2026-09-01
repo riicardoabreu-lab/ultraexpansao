@@ -213,6 +213,15 @@
   }
   .del-btn:hover{ border-color:var(--bad); color:var(--bad); }
 
+  input.mat-in{
+    background:#fff; border:1px solid var(--border); color:var(--text);
+    font-size:12.5px; padding:6px 8px; border-radius:6px; width:100%; min-width:80px;
+  }
+  input.mat-nome{ min-width:200px; }
+  input.mat-unid{ min-width:70px; }
+  input.mat-num{ min-width:90px; }
+  input.mat-in:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(31,78,120,.15); }
+
   .kpi-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:14px; }
   .kpi{ background:var(--bg-inset); border:1px solid var(--border-soft); border-radius:var(--radius); padding:15px 17px; }
   .kpi .label{ color:var(--text-faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; margin-bottom:7px; }
@@ -267,10 +276,6 @@
   /* ---------- alerta: itens ainda sem cotação ---------- */
   .alerta-box{ margin-top:16px; padding:14px 16px; background:var(--bad-dim); border-left:4px solid #d9534f; border-radius:6px; font-size:12.5px; color:#7a2b2b; line-height:1.6; }
   .alerta-box strong{ display:block; margin-bottom:4px; color:#a12626; }
-
-  /* ---------- comparativo entre cidades ---------- */
-  .comp-table td, .comp-table th{ text-align:right; }
-  .comp-table td:first-child, .comp-table th:first-child{ text-align:left; }
 
   .map-toolbar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
   .upload-btn{ background:var(--accent); color:#fff; border:none; padding:10px 16px; border-radius:8px; font-size:12.5px; font-weight:700; cursor:pointer; }
@@ -557,11 +562,6 @@ function mainSkeleton(){
         </div>
       </div>
 
-      <div class="bloco">
-        <div class="bloco-header">Comparativo entre cidades</div>
-        <div class="bloco-sub">Visão geral de todas as cidades cadastradas neste painel.</div>
-        <div class="bloco-body" id="comparativoBlock"></div>
-      </div>
     </div>
 
     <div class="ctab-panel" id="ctab-concorrentes">
@@ -587,11 +587,12 @@ function mainSkeleton(){
         <div class="bloco-body">
           <div class="table-scroll">
             <table class="mat-table">
-              <thead><tr><th>Item</th><th>Unid.</th><th>Quantidade</th><th>Vlr. Unit.</th><th>Vlr. Total</th><th>Origem da Quantidade</th></tr></thead>
+              <thead><tr><th>Item</th><th>Unid.</th><th>Quantidade</th><th>Vlr. Unit.</th><th>Vlr. Total</th><th>Origem da Quantidade</th><th></th></tr></thead>
               <tbody id="materiaisBody"></tbody>
-              <tfoot><tr><td colspan="4">TOTAL GERAL</td><td class="computed" id="materiaisTotal">—</td><td></td></tr></tfoot>
+              <tfoot><tr><td colspan="4">TOTAL GERAL</td><td class="computed" id="materiaisTotal">—</td><td colspan="2"></td></tr></tfoot>
             </table>
           </div>
+          <button class="add-row" id="addMaterialBtn" type="button">+ Adicionar item</button>
           <div id="alertaPendentes"></div>
         </div>
       </div>
@@ -603,27 +604,93 @@ function mainSkeleton(){
 
 const ORIGEM_LABEL = { kmz:'Contagem do KMZ', user:'Dado real de campo', pendente:'Aguardando cotação' };
 
+// Preços de referência pra gerar o orçamento sozinho assim que o KMZ é
+// carregado — mesmos valores usados no orçamento consolidado dos 4
+// municípios já levantados (ver seedInfolinkExpansao). Só cria a linha se
+// ainda não existir uma com esse nome (não sobrescreve edição manual nem
+// duplica se o KMZ for reenviado).
+const KMZ_ITEM_PRECOS = {
+  'Cabo de Fibra 12FO': { unidade:'Metro', preco:1.79, qtd: s=>Math.round(s.metragemTotal), origemTexto:'Contagem do KMZ' },
+  'CTO (Caixa CX)': { unidade:'Unid.', preco:59.00, qtd: s=>s.caixas, origemTexto:'Contagem do KMZ' },
+  'CEO 24FO': { unidade:'Unid.', preco:152.90, qtd: s=>s.ceos, origemTexto:'Contagem do KMZ (CEO novos)' },
+  'Splitter 1x8 SC': { unidade:'Unid.', preco:24.40, qtd: s=>s.caixas, origemTexto:'1 por caixa CX (contagem do KMZ)' },
+};
+
+function gerarMateriaisDoKmz(c, stats){
+  if(!stats) return false;
+  if(!Array.isArray(c.materiais)) c.materiais = [];
+  let mudou = false;
+  Object.entries(KMZ_ITEM_PRECOS).forEach(([nome, def])=>{
+    const jaTem = c.materiais.some(r=>(r.nome||'').trim().toLowerCase()===nome.toLowerCase());
+    if(jaTem) return;
+    const qtd = def.qtd(stats);
+    if(!qtd) return;
+    c.materiais.push({
+      id: novoId('m'), nome, unidade: def.unidade, qtd, custo: def.preco,
+      origemTipo: 'kmz', origemTexto: def.origemTexto,
+    });
+    mudou = true;
+  });
+  if(mudou) saveApp();
+  return mudou;
+}
+
 function buildMateriaisTable(){
   const c = current(); if(!c) return;
   const tbody = document.getElementById('materiaisBody');
   if(!tbody) return;
+  if(!Array.isArray(c.materiais)) c.materiais = [];
   tbody.innerHTML = c.materiais.map(r=>{
     const origemTipo = r.origemTipo || 'user';
     const origem = r.origemTexto || ORIGEM_LABEL[origemTipo] || origemTipo;
     return `
-    <tr class="origem-${origemTipo}">
-      <td>${esc(r.nome)||'—'}</td>
-      <td>${esc(r.unidade)||'—'}</td>
-      <td class="qtd-cell">${fmtNum(r.qtd||0)}</td>
-      <td>${fmtBRL(r.custo||0)}</td>
+    <tr class="origem-${origemTipo}" data-id="${r.id}">
+      <td><input type="text" class="mat-in mat-nome" value="${esc(r.nome)}" placeholder="Nome do item"></td>
+      <td><input type="text" class="mat-in mat-unid" value="${esc(r.unidade)}" placeholder="Unid."></td>
+      <td class="qtd-cell"><input type="number" class="mat-in mat-num" data-field="qtd" value="${r.qtd||0}" min="0" step="any"></td>
+      <td><input type="number" class="mat-in mat-num" data-field="custo" value="${r.custo||0}" min="0" step="0.01"></td>
       <td class="computed">${fmtBRL((r.qtd||0)*(r.custo||0))}</td>
       <td class="fonte">${esc(origem)}</td>
+      <td><button class="del-btn" type="button" title="Excluir item">✕</button></td>
     </tr>`;
-  }).join('') || `<tr><td colspan="6" style="color:var(--text-dim);">Nenhum item cadastrado ainda.</td></tr>`;
+  }).join('') || `<tr><td colspan="7" style="color:var(--text-dim);">Nenhum item cadastrado ainda — envie o KMZ (aba Mapa da Rede) ou adicione um item à mão.</td></tr>`;
 
+  tbody.querySelectorAll('tr[data-id]').forEach(tr=>{
+    const row = c.materiais.find(r=>r.id===tr.dataset.id);
+    if(!row) return;
+    tr.querySelector('.mat-nome').addEventListener('input', e=>{ row.nome = e.target.value; saveApp(); });
+    tr.querySelector('.mat-unid').addEventListener('input', e=>{ row.unidade = e.target.value; saveApp(); });
+    tr.querySelectorAll('.mat-num').forEach(inp=>{
+      inp.addEventListener('input', e=>{
+        row[inp.dataset.field] = parseFloat(e.target.value)||0;
+        saveApp();
+        tr.querySelector('.computed').textContent = fmtBRL((row.qtd||0)*(row.custo||0));
+        atualizarTotaisMateriais(c);
+      });
+    });
+    tr.querySelector('.del-btn').addEventListener('click', ()=>{
+      c.materiais = c.materiais.filter(r=>r.id!==tr.dataset.id);
+      saveApp();
+      buildMateriaisTable();
+    });
+  });
+  const addBtn = document.getElementById('addMaterialBtn');
+  if(addBtn) addBtn.onclick = ()=>{
+    c.materiais.push({ id: novoId('m'), nome:'', unidade:'Unid.', qtd:0, custo:0, origemTipo:'user', origemTexto:'Dado real de campo' });
+    saveApp();
+    buildMateriaisTable();
+    const inputs = tbody.querySelectorAll('.mat-nome');
+    if(inputs.length) inputs[inputs.length-1].focus();
+  };
+
+  atualizarTotaisMateriais(c);
+}
+
+function atualizarTotaisMateriais(c){
   const total = c.materiais.reduce((s,r)=>s+(r.qtd||0)*(r.custo||0),0);
   setText('materiaisTotal', fmtBRL(total));
   renderAlertaPendentes();
+  renderResumoCards();
 }
 
 function renderAlertaPendentes(){
@@ -652,34 +719,6 @@ function renderResumoCards(){
   `;
 }
 
-/* ======================================================================
-   COMPARATIVO ENTRE CIDADES
-====================================================================== */
-function renderComparativo(){
-  const el = document.getElementById('comparativoBlock');
-  if(!el) return;
-  // Municípios que só agrupam bairros (sem orçamento próprio) não entram na comparação —
-  // os bairros deles já aparecem individualmente na lista.
-  const listaveis = app.cidades.filter(c=>!filhosDe(c.id).length);
-  if(!listaveis.length){ el.innerHTML = ''; return; }
-  const rows = listaveis.map(c=>{
-    const total = (c.materiais||[]).reduce((s,r)=>s+(r.qtd||0)*(r.custo||0),0);
-    const isCurrent = c.id === app.currentId;
-    return `<tr${isCurrent?' style="color:var(--accent);"':''}>
-      <td>${esc(c.nome)}</td>
-      <td>${fmtNum(c.casasRegiao)}</td>
-      <td>${fmtNum(c.clientesAtender)}</td>
-      <td>${fmtNum(c.provedoresRegiao)}</td>
-      <td>${fmtBRL(total)}</td>
-    </tr>`;
-  }).join('');
-  const totalGeral = listaveis.reduce((s,c)=>s+(c.materiais||[]).reduce((s2,r)=>s2+(r.qtd||0)*(r.custo||0),0), 0);
-  el.innerHTML = `<div class="table-scroll"><table class="comp-table">
-    <thead><tr><th>Cidade</th><th>Casas</th><th>Clientes a atender</th><th>Provedores</th><th>Orçamento</th></tr></thead>
-    <tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="4">Total geral</td><td class="computed">${fmtBRL(totalGeral)}</td></tr></tfoot>
-  </table></div>`;
-}
 
 /* ======================================================================
    CONCORRÊNCIA NO BAIRRO — busca nos dados já importados do CFO
@@ -906,21 +945,20 @@ function bindAll(){
       document.querySelectorAll('.ctab-panel').forEach(p=>p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('ctab-'+btn.dataset.tab).classList.add('active');
-      if(btn.dataset.tab==='mapa'){ initMapIfNeeded(); renderComparativo(); }
+      if(btn.dataset.tab==='mapa'){ initMapIfNeeded(); }
     };
   });
 
-  document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); renderComparativo(); scheduleConcorrencia(); };
+  document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); scheduleConcorrencia(); };
   [['in-provedores','provedoresRegiao'],['in-clientes','clientesAtender'],['in-casas','casasRegiao']].forEach(([id,field])=>{
     const el = document.getElementById(id);
     el.value = c[field] || '';
-    el.oninput = e=>{ c[field] = parseFloat(e.target.value)||0; saveApp(); renderSidebar(); renderComparativo(); };
+    el.oninput = e=>{ c[field] = parseFloat(e.target.value)||0; saveApp(); renderSidebar(); };
   });
 
   buildMateriaisTable();
   renderResumoCards();
   renderAlertaPendentes();
-  renderComparativo();
   updateConcorrencia();
 
   bindKmzControls();
@@ -1145,6 +1183,9 @@ async function loadKmlIntoMap(c){
     document.getElementById('mapMeta').innerHTML = `<span>Arquivo: <b style="color:var(--text)">${esc(stored.name)}</b></span><span>Elementos: <b style="color:var(--text)">${count}</b></span>`;
     currentKmzStats = stats;
     renderKmzStatsPanel();
+    if(gerarMateriaisDoKmz(c, stats)){
+      buildMateriaisTable();
+    }
   }catch(err){
     document.getElementById('mapMeta').innerHTML = `<span style="color:var(--bad)">Erro ao ler o arquivo: ${esc(err.message)}</span>`;
     currentKmzStats = null; renderKmzStatsPanel();
