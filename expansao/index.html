@@ -189,6 +189,12 @@
   .field input:focus, .field select:focus, table input:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(31,78,120,.15); }
   .field-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; }
 
+  textarea.planos-in{
+    background:#fff; border:1px solid var(--border); color:var(--text); font-family:inherit;
+    font-size:12.5px; padding:6px 8px; border-radius:6px; width:100%; min-width:180px; resize:vertical;
+  }
+  textarea.planos-in:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(31,78,120,.15); }
+
   .kpi-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:14px; }
   .kpi{ background:var(--bg-inset); border:1px solid var(--border-soft); border-radius:var(--radius); padding:15px 17px; }
   .kpi .label{ color:var(--text-faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; margin-bottom:7px; }
@@ -302,6 +308,7 @@ function blankCidade(nome, municipioId){
     materiais: [],
     kmz: null, // {name} — o arquivo em si fica no IndexedDB deste navegador
     municipioId: municipioId || null, // se preenchido, essa cidade é um bairro dentro de outra (o município)
+    concorrentesPlanos: {}, // {nomeDoProvedor: "texto livre com os planos/preços"} — digitado à mão, sem fonte automática
   };
 }
 
@@ -325,7 +332,7 @@ function current(){ return app.cidades.find(c=>c.id===app.currentId) || null; }
 // Aplica atualização recebida em tempo real de outra pessoa logada com a
 // mesma conta, sem tirar quem está vendo da cidade atual.
 function applyRemoteState(remoteCidades){
-  app.cidades = remoteCidades.map(rc => ({ ...rc, kmz: rc.kmz || null, materiais: rc.materiais || [] }));
+  app.cidades = remoteCidades.map(rc => ({ ...rc, kmz: rc.kmz || null, materiais: rc.materiais || [], concorrentesPlanos: rc.concorrentesPlanos || {} }));
   if(!app.cidades.find(c=>c.id===app.currentId)){
     app.currentId = app.cidades[0]?.id || null;
   }
@@ -487,6 +494,7 @@ function mainSkeleton(){
 
     <div class="ctabs">
       <button class="ctab-btn active" data-tab="mapa">🗺️ Mapa da Rede</button>
+      <button class="ctab-btn" data-tab="concorrentes">🥊 Concorrentes</button>
       <button class="ctab-btn" data-tab="orcamento">💰 Orçamento</button>
     </div>
 
@@ -500,12 +508,6 @@ function mainSkeleton(){
             <div class="field"><label>Casas na região</label><input id="in-casas" type="number" min="0" step="1"></div>
           </div>
         </div>
-      </div>
-
-      <div class="bloco">
-        <div class="bloco-header">Concorrência no bairro (CFO)</div>
-        <div class="bloco-sub">Busca automática pelo nome acima ("${esc(c.nome)}") nos dados já importados do Map Marker no painel CFO — sem precisar digitar manualmente.</div>
-        <div class="bloco-body" id="concorrenciaBlock"></div>
       </div>
 
       <div class="bloco">
@@ -533,6 +535,14 @@ function mainSkeleton(){
         <div class="bloco-header">Comparativo entre cidades</div>
         <div class="bloco-sub">Visão geral de todas as cidades cadastradas neste painel.</div>
         <div class="bloco-body" id="comparativoBlock"></div>
+      </div>
+    </div>
+
+    <div class="ctab-panel" id="ctab-concorrentes">
+      <div class="bloco">
+        <div class="bloco-header">Concorrência no bairro (CFO)</div>
+        <div class="bloco-sub">Busca automática pelo nome acima ("${esc(c.nome)}") nos dados já importados do Map Marker no painel CFO — sem precisar digitar manualmente. O campo "Planos" é digitado à mão (não vem de nenhuma fonte automática) e fica salvo por concorrente, sincronizado com a equipe.</div>
+        <div class="bloco-body" id="concorrenciaBlock"></div>
       </div>
     </div>
 
@@ -726,10 +736,15 @@ async function updateConcorrencia(){
     if(inProv) inProv.value = totalProv;
     saveApp(); renderSidebar();
   }
+  if(!c.concorrentesPlanos) c.concorrentesPlanos = {};
   block.innerHTML = matches.map((m,i)=>{
-    const linhas = Object.entries(m.providers).sort((a,b)=>(b[1].cx||0)-(a[1].cx||0)).map(([nome,d])=>`
-      <tr${contaComoProvedor(nome)?'':' style="color:var(--text-faint);"'}><td>${esc(nome)}</td><td>${fmtNum(d.cx)}</td><td>${fmtNum(d.clientes)}</td></tr>
-    `).join('');
+    const linhas = Object.entries(m.providers).sort((a,b)=>(b[1].cx||0)-(a[1].cx||0)).map(([nome,d])=>{
+      const ehProvedor = contaComoProvedor(nome);
+      const planosCell = ehProvedor
+        ? `<textarea class="planos-in" data-provedor="${esc(nome)}" rows="2" placeholder="Ex: 300MB R$79,90 / 600MB R$99,90">${esc(c.concorrentesPlanos[nome]||'')}</textarea>`
+        : '—';
+      return `<tr${ehProvedor?'':' style="color:var(--text-faint);"'}><td>${esc(nome)}</td><td>${fmtNum(d.cx)}</td><td>${fmtNum(d.clientes)}</td><td>${planosCell}</td></tr>`;
+    }).join('');
     const totalProv = contarProvedores(m.providers);
     const acao = matches.length === 1
       ? `<span style="color:var(--good);font-size:11.5px;font-family:var(--mono);">✓ ${totalProv} provedores aplicado acima</span>`
@@ -740,15 +755,21 @@ async function updateConcorrencia(){
         ${acao}
       </div>
       <div class="table-scroll"><table>
-        <thead><tr><th>Provedor</th><th>Caixas</th><th>Clientes</th></tr></thead>
+        <thead><tr><th>Provedor</th><th>Caixas</th><th>Clientes</th><th>Planos</th></tr></thead>
         <tbody>${linhas}</tbody>
       </table></div>
-      <p class="hint" style="margin:8px 0 0;">Caixas sem identificação (em cinza) não entram na contagem de provedores.</p>
+      <p class="hint" style="margin:8px 0 0;">Caixas sem identificação (em cinza) não entram na contagem de provedores. Planos digitados à mão, salvos por provedor.</p>
     </div>`;
   }).join('');
   if(matches.length > 1){
     block.insertAdjacentHTML('afterbegin', `<p class="hint">Encontrei "${esc(c.nome)}" em mais de um município — escolha qual usar abaixo.</p>`);
   }
+  block.querySelectorAll('.planos-in').forEach(ta=>{
+    ta.addEventListener('input', ()=>{
+      c.concorrentesPlanos[ta.dataset.provedor] = ta.value;
+      saveApp();
+    });
+  });
   block.querySelectorAll('[data-idx]').forEach(btn=>{
     btn.onclick = ()=>{
       const m = matches[Number(btn.dataset.idx)];
