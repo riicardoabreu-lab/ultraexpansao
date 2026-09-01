@@ -458,8 +458,14 @@ function mainSkeleton(){
           </div>
         </div>
       </div>
+
+      <div class="bloco">
+        <div class="bloco-header">Concorrência em ${esc(c.nome)} (CFO)</div>
+        <div class="bloco-sub">Busca automática pelo nome acima ("${esc(c.nome)}") nos dados já importados do Map Marker no painel CFO. O campo "Planos" é digitado à mão, salvo por concorrente, sincronizado com a equipe.</div>
+        <div class="bloco-body" id="concorrenciaBlock"></div>
+      </div>
     `;
-    document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); };
+    document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); scheduleConcorrencia(); };
     return;
   }
 
@@ -1103,9 +1109,9 @@ function renderAll(){
   mainSkeleton();
   const c = current();
   if(!c) return;
-  // Cidades com grade de "projetos" (c.projetos) já vêm totalmente
-  // montadas/vinculadas dentro do próprio mainSkeleton().
-  if((c.projetos||[]).length){ return; }
+  // Cidades com grade de "projetos" (c.projetos) já vêm montadas/vinculadas
+  // dentro do próprio mainSkeleton() — só falta buscar a concorrência.
+  if((c.projetos||[]).length){ updateConcorrencia(); return; }
   if(filhosDe(c.id).length){ bindHubView(); }
   else { bindAll(); initMapIfNeeded(); }
 }
