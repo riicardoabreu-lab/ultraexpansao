@@ -484,12 +484,20 @@ function mainSkeleton(){
       </div>
 
       <div class="bloco">
+        <div class="bloco-header">Bairros de ${esc(c.nome)}</div>
+        <div class="bloco-sub">Bairros novos cadastrados aqui já ganham mapa (KMZ), orçamento gerado sozinho e link de relatório automático — sem precisar de um projeto feito à mão como os acima.</div>
+        <div class="bloco-body">
+          <div class="bairro-grid" id="bairroGrid"></div>
+          <button class="add-row" id="addBairroBtn">+ Novo bairro</button>
+        </div>
+      </div>
+
+      <div class="bloco">
         <div class="bloco-header">Concorrência em ${esc(c.nome)} (CFO)</div>
         <div class="bloco-sub">Busca automática pelo nome acima ("${esc(c.nome)}") nos dados já importados do Map Marker no painel CFO. O campo "Planos" é digitado à mão, salvo por concorrente, sincronizado com a equipe.</div>
         <div class="bloco-body" id="concorrenciaBlock"></div>
       </div>
     `;
-    document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); scheduleConcorrencia(); };
     return;
   }
 
@@ -1250,16 +1258,17 @@ function renderAll(){
   mainSkeleton();
   const c = current();
   if(!c) return;
-  // Cidades com grade de "projetos" (c.projetos) já vêm montadas/vinculadas
-  // dentro do próprio mainSkeleton() — só falta buscar a concorrência.
-  if((c.projetos||[]).length){ updateConcorrencia(); return; }
+  // Cidades com grade de "projetos" (c.projetos) já vêm montadas dentro do
+  // próprio mainSkeleton() — mas também podem ter bairros novos cadastrados
+  // pelo fluxo genérico (ver bloco "Bairros de..."), daí o bindHubView() aqui.
+  if((c.projetos||[]).length){ bindHubView(); updateConcorrencia(); return; }
   if(filhosDe(c.id).length){ bindHubView(); }
   else { bindAll(); initMapIfNeeded(); }
 }
 
 function bindHubView(){
   const c = current(); if(!c) return;
-  document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); };
+  document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); scheduleConcorrencia(); };
 
   const grid = document.getElementById('bairroGrid');
   const filhos = filhosDe(c.id);
