@@ -143,6 +143,12 @@
   .main{ flex:1; min-width:0; padding:26px 28px 90px; }
   .empty-main{ color:var(--text-faint); font-size:13.5px; padding:40px 6px; line-height:1.7; }
 
+  /* ---------- modo relatório (?relatorio=<id>) — link somente daquela cidade,
+     sem a barra lateral com as outras, pra compartilhar/imprimir ---------- */
+  body.modo-relatorio .sidebar{ display:none; }
+  body.modo-relatorio .main{ max-width:1040px; margin:0 auto; }
+  .relatorio-link-btn{ margin-top:12px; }
+
   .phead-row{ display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap; margin-bottom:22px; }
   input.cname-input{
     background:transparent; border:none; border-bottom:2px solid transparent; color:var(--text);
@@ -505,10 +511,11 @@ function mainSkeleton(){
   const municipio = c.municipioId ? app.cidades.find(x=>x.id===c.municipioId) : null;
 
   main.innerHTML = `
-    ${municipio ? `<a href="#" id="voltarMunicipio" class="breadcrumb-link">← Voltar para ${esc(municipio.nome)}</a>` : ''}
+    ${(municipio && !RELATORIO_ID) ? `<a href="#" id="voltarMunicipio" class="breadcrumb-link">← Voltar para ${esc(municipio.nome)}</a>` : ''}
     <div class="page-banner">
       <input class="cname-input" id="in-nome" value="${esc(c.nome)}" placeholder="Nome da cidade">
       <p class="page-banner-sub">Mapa da rede real (KMZ) + orçamento cruzando contagem geoespacial, dados de campo e cotações reais</p>
+      ${!RELATORIO_ID ? `<a class="ghost-btn relatorio-link-btn" href="?relatorio=${esc(c.id)}" target="_blank" style="display:inline-block;text-decoration:none;background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.4);color:#fff;">🔗 Relatório desta cidade</a>` : ''}
     </div>
 
     <div class="ctabs">
@@ -1197,6 +1204,7 @@ function bindKmzControls(){
    INIT
 ====================================================================== */
 function renderAll(){
+  if(RELATORIO_ID && app.cidades.some(x=>x.id===RELATORIO_ID)) app.currentId = RELATORIO_ID;
   renderSidebar();
   mainSkeleton();
   const c = current();
@@ -1245,6 +1253,13 @@ document.getElementById('newCityBtn').onclick = () => {
   saveApp();
   renderAll();
 };
+
+// Link de relatório: expansao/index.html?relatorio=<idDaCidade> abre direto
+// naquela cidade, sem a barra lateral com as outras — pra compartilhar ou
+// imprimir só aquele mapa+orçamento+concorrência, sem precisar de um HTML
+// separado feito à mão pra cada projeto novo.
+const RELATORIO_ID = new URLSearchParams(location.search).get('relatorio') || null;
+if(RELATORIO_ID) document.body.classList.add('modo-relatorio');
 
 let app = loadApp();
 
