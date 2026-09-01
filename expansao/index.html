@@ -33,7 +33,18 @@
   // ---- Sincronização em tempo real com a nuvem (Firestore), mesmo padrão
   // usado em Aquisições: last write wins, KMZ à parte pra não inflar o
   // documento principal.
-  window._lastKnownUpdated = 0;
+  // Semeia com o "updated" já salvo localmente (não com 0) — senão, se a
+  // gravação na nuvem de uma edição recente (ex.: subir um KMZ) ainda não
+  // tiver terminado quando a página é recarregada, o snapshot antigo que
+  // chega da nuvem logo em seguida passa no filtro de "desatualizado" e
+  // sobrescreve o que acabou de ser salvo no navegador.
+  window._lastKnownUpdated = (function(){
+    try{
+      const raw = localStorage.getItem('expansao-v1');
+      if(raw) return JSON.parse(raw).updated || 0;
+    }catch(e){}
+    return 0;
+  })();
   window._cloudSave = (data) => {
     if(!window._fbUser) return Promise.resolve();
     window._lastKnownUpdated = data.updated;
@@ -60,7 +71,7 @@
       if(!data.cidades || !data.cidades.length) return;
       if((data.updated||0) <= (window._lastKnownUpdated||0)) return;
       window._lastKnownUpdated = data.updated;
-      if(window._applyRemoteState) window._applyRemoteState(data.cidades);
+      if(window._applyRemoteState) window._applyRemoteState(data.cidades, data.updated);
     }, err => console.error('Falha no listener de sincronização (Expansão):', err));
   });
 </script>
@@ -347,15 +358,30 @@ function loadApp(){
   return { cidades:[], currentId:null };
 }
 function saveApp(){
+  app.updated = Date.now();
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }
   catch(e){ alert('Não foi possível salvar (armazenamento local cheio).'); }
   syncToCloud();
 }
 function current(){ return app.cidades.find(c=>c.id===app.currentId) || null; }
 
-// Aplica atualização recebida em tempo real de outra pessoa logada com a
-// mesma conta, sem tirar quem está vendo da cidade atual.
-function applyRemoteState(remoteCidades){
+// Se uma atualização remota chegar enquanto uma gravação local ainda está
+// pendente (não confirmada na nuvem), não aplica na hora — senão ela
+// sobrescreveria a edição que a pessoa acabou de fazer (ex.: subir um KMZ)
+// com o estado antigo vindo da nuvem. Fica na fila e só aplica (ou
+// descarta, se ficou desatualizada) depois que a gravação local terminar.
+let _pendingRemoteState = null;
+function applyRemoteState(remoteCidades, updated){
+  if(_localSyncPending){ _pendingRemoteState = { cidades: remoteCidades, updated }; return; }
+  applyRemoteStateNow(remoteCidades);
+}
+function flushPendingRemoteState(){
+  if(!_pendingRemoteState || _localSyncPending) return;
+  const d = _pendingRemoteState; _pendingRemoteState = null;
+  if((d.updated||0) <= (window._lastKnownUpdated||0)) return; // desatualizou enquanto esperava
+  applyRemoteStateNow(d.cidades);
+}
+function applyRemoteStateNow(remoteCidades){
   app.cidades = remoteCidades.map(rc => ({ ...rc, kmz: rc.kmz || null, materiais: rc.materiais || [], concorrentes: rc.concorrentes || null }));
   if(!app.cidades.find(c=>c.id===app.currentId)){
     app.currentId = app.cidades[0]?.id || null;
@@ -366,13 +392,21 @@ function applyRemoteState(remoteCidades){
 window._applyRemoteState = applyRemoteState;
 
 let _cloudSyncTimer = null;
+// true enquanto uma gravação local está agendada mas ainda não chegou na
+// nuvem — usado pra NÃO deixar uma atualização remota chegando nesse
+// meio-tempo sobrescrever uma edição local que ainda nem foi enviada.
+let _localSyncPending = false;
 function syncToCloud(){
   if(!window._fbUser || !window._cloudSave) return;
   clearTimeout(_cloudSyncTimer);
+  _localSyncPending = true;
   _cloudSyncTimer = setTimeout(async ()=>{
     try{
-      await window._cloudSave({ cidades: app.cidades, currentId: app.currentId, updated: Date.now() });
+      const updated = Date.now();
+      window._lastKnownUpdated = updated; // ignora o eco dessa mesma gravação no listener
+      await window._cloudSave({ cidades: app.cidades, currentId: app.currentId, updated });
     }catch(e){ console.error('Falha ao sincronizar Expansão com a nuvem:', e); }
+    finally{ _localSyncPending = false; flushPendingRemoteState(); }
   }, 1500);
 }
 
