@@ -477,12 +477,6 @@ function mainSkeleton(){
           <button class="add-row" id="addBairroBtn">+ Novo bairro</button>
         </div>
       </div>
-
-      <div class="bloco">
-        <div class="bloco-header">Concorrência em ${esc(c.nome)} (CFO)</div>
-        <div class="bloco-sub">Busca automática pelo nome acima ("${esc(c.nome)}") nos dados já importados do Map Marker no painel CFO. O campo "Planos" é digitado à mão, salvo por concorrente, sincronizado com a equipe.</div>
-        <div class="bloco-body" id="concorrenciaBlock"></div>
-      </div>
     `;
     return;
   }
@@ -1247,7 +1241,7 @@ function renderAll(){
   // Cidades com grade de "projetos" (c.projetos) já vêm montadas dentro do
   // próprio mainSkeleton() — mas também podem ter bairros novos cadastrados
   // pelo fluxo genérico (ver bloco "Bairros de..."), daí o bindHubView() aqui.
-  if((c.projetos||[]).length){ bindHubView(); updateConcorrencia(); return; }
+  if((c.projetos||[]).length){ bindHubView(); return; }
   if(filhosDe(c.id).length){ bindHubView(); }
   else { bindAll(); initMapIfNeeded(); }
 }
