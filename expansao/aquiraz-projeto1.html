@@ -299,6 +299,12 @@
     border-color:var(--azul);
     box-shadow:0 0 0 2px rgba(31,78,120,.15);
   }
+  textarea.planos-in{
+    background:#fff; border:1px solid var(--borda); color:#1f2937; font-family:Arial, Helvetica, sans-serif;
+    font-size:12.5px; padding:6px 8px; border-radius:6px; width:100%; min-width:180px; resize:vertical;
+  }
+  textarea.planos-in:focus{ outline:none; border-color:var(--azul); box-shadow:0 0 0 2px rgba(31,78,120,.15); }
+  .concorrente-panel{ background:#f7f9fb; border:1px solid var(--borda); border-radius:8px; padding:14px 16px; margin-bottom:12px; }
   .del-btn{
     background:none;
     border:none;
@@ -345,6 +351,7 @@
 
   <div class="tabs">
     <button class="tab-btn active" onclick="showTab('mapa')" type="button">🗺️ Mapa da Rede</button>
+    <button class="tab-btn" onclick="showTab('concorrentes')" type="button">🥊 Concorrentes</button>
     <button class="tab-btn" onclick="showTab('orcamento')" type="button">💰 Orçamento</button>
   </div>
 
@@ -395,6 +402,15 @@
         • Metragem de cabo calculada a partir das coordenadas reais das polilinhas do KMZ (distância geodésica), sem margem técnica.<br>
         • Reservas técnicas (2 pontos) não pertencem a uma rota específica — ficam entre o backbone e as rotas.
       </div>
+    </section>
+  </div>
+
+  <!-- =========================== ABA CONCORRENTES =========================== -->
+  <div id="tab-concorrentes" class="tab-panel">
+    <section class="bloco">
+      <div class="bloco-header">Concorrência em PATACAS (CFO)</div>
+      <div class="bloco-sub">Busca automática por "PATACAS" nos dados já importados do Map Marker no painel CFO. O campo "Planos" é digitado à mão (não vem de nenhuma fonte automática), salvo por concorrente.</div>
+      <div id="concorrenciaBlock" style="margin:0 22px 22px;"></div>
     </section>
   </div>
 
@@ -641,6 +657,90 @@ function recalcAll(){
 // ============================================================
 const STORAGE_KEY = 'aquiraz-projeto1-v1';
 
+// ============================================================
+// Concorrência (CFO) — mesma busca por nome usada no painel Expansão
+// Orgânica, aqui fixa em "PATACAS" (identidade do projeto). Planos são
+// digitados à mão (sem fonte automática) e guardados em concorrentesPlanos.
+// ============================================================
+let concorrentesPlanos = {};
+let cfoDataPromise = null;
+
+function normBairro(s){
+  return (s||'').normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), '').trim().toUpperCase();
+}
+
+function buildBairroIndex(D){
+  const idx = new Map();
+  const add = (municipio, bairroNome, dados) => {
+    const key = normBairro(bairroNome);
+    if(!key) return;
+    if(!idx.has(key)) idx.set(key, []);
+    idx.get(key).push({ municipio, bairro: bairroNome, providers: dados.providers||{}, cx: dados.cx||0, clientes: dados.clientes||0 });
+  };
+  if(D.fortaleza && D.fortaleza.bairros){
+    Object.entries(D.fortaleza.bairros).forEach(([nome, dados])=> add('Fortaleza', nome, dados));
+  }
+  if(D.cidades){
+    Object.values(D.cidades).forEach(cidade=>{
+      if(!cidade.bairros) return;
+      Object.entries(cidade.bairros).forEach(([nome, dados])=> add(cidade.display_name || '—', nome, dados));
+    });
+  }
+  return idx;
+}
+
+function loadCfoIndex(){
+  if(cfoDataPromise) return cfoDataPromise;
+  cfoDataPromise = fetch('../cfo/dashboard.html')
+    .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+    .then(text=>{
+      const m = text.match(/let D = (\{[\s\S]*?\});\n/);
+      if(!m) throw new Error('Dados não encontrados no CFO.');
+      return buildBairroIndex(JSON.parse(m[1]));
+    })
+    .catch(err=>{ cfoDataPromise = null; throw err; });
+  return cfoDataPromise;
+}
+
+async function updateConcorrencia(){
+  const block = document.getElementById('concorrenciaBlock');
+  if(!block) return;
+  const chave = normBairro('PATACAS');
+  block.innerHTML = '<p style="color:var(--cinza);font-size:12.5px;">Buscando "PATACAS" nos dados do CFO...</p>';
+  let idx;
+  try{ idx = await loadCfoIndex(); }
+  catch(err){
+    block.innerHTML = '<p style="color:#b91c1c;font-size:12.5px;">Não foi possível carregar os dados do CFO (' + err.message + ').</p>';
+    return;
+  }
+  const matches = idx.get(chave) || [];
+  if(!matches.length){
+    block.innerHTML = '<p style="color:var(--cinza);font-size:12.5px;">Nenhum dado de concorrência encontrado no CFO para "PATACAS".</p>';
+    return;
+  }
+  const contaComoProvedor = nome => !/SEM\s*ID/i.test(nome);
+  block.innerHTML = matches.map(m=>{
+    const linhas = Object.entries(m.providers).sort((a,b)=>(b[1].cx||0)-(a[1].cx||0)).map(([nome,d])=>{
+      const ehProvedor = contaComoProvedor(nome);
+      const planosCell = ehProvedor
+        ? '<textarea class="planos-in" data-provedor="'+nome+'" rows="2" placeholder="Ex: 300MB R$79,90 / 600MB R$99,90">'+(concorrentesPlanos[nome]||'')+'</textarea>'
+        : '—';
+      return '<tr'+(ehProvedor?'':' style="color:var(--cinza);"')+'><td class="desc">'+nome+'</td><td class="num">'+d.cx.toLocaleString('pt-BR')+'</td><td class="num">'+d.clientes.toLocaleString('pt-BR')+'</td><td>'+planosCell+'</td></tr>';
+    }).join('');
+    return '<div class="concorrente-panel">'
+      + '<div style="margin-bottom:10px;"><b>'+m.bairro+'</b> — '+m.municipio+' <span style="color:var(--cinza);font-size:11.5px;">(fonte: CFO / Map Marker)</span></div>'
+      + '<table><thead><tr><th>Provedor</th><th class="num">Caixas</th><th class="num">Clientes</th><th>Planos</th></tr></thead><tbody>'+linhas+'</tbody></table>'
+      + '<p style="margin:8px 0 0;font-size:11.5px;color:var(--cinza);font-style:italic;">Caixas sem identificação (em cinza) não entram na lista de planos.</p>'
+      + '</div>';
+  }).join('');
+  block.querySelectorAll('.planos-in').forEach(ta=>{
+    ta.addEventListener('input', ()=>{
+      concorrentesPlanos[ta.dataset.provedor] = ta.value;
+      scheduleSave();
+    });
+  });
+}
+
 function captureState(){
   const rows = [...document.querySelectorAll('#tbody-infra tr')].map(tr=>({
     cls: tr.className,
@@ -656,12 +756,15 @@ function captureState(){
     pPortasPorCto: document.getElementById('pPortasPorCto').value,
     pPortasAtender: document.getElementById('pPortasAtender').value,
     pMargem: document.getElementById('pMargem').value,
+    concorrentesPlanos,
     updated: Date.now(),
   };
 }
 
 function applyState(state){
-  if(!state || !state.rows || !state.rows.length) return;
+  if(!state) return;
+  if(state.concorrentesPlanos) concorrentesPlanos = state.concorrentesPlanos;
+  if(!state.rows || !state.rows.length) return;
   if(state.pPortasPorCto) document.getElementById('pPortasPorCto').value = state.pPortasPorCto;
   if(state.pPortasAtender) document.getElementById('pPortasAtender').value = state.pPortasAtender;
   if(state.pMargem) document.getElementById('pMargem').value = state.pMargem;
@@ -777,6 +880,7 @@ if(_savedState){
   document.getElementById('pMargem').dispatchEvent(new Event('input'));
   document.getElementById('pPortasAtender').dispatchEvent(new Event('input'));
 }
+updateConcorrencia();
 </script>
 
 </body>
