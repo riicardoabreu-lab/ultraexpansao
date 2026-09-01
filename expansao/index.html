@@ -470,22 +470,8 @@ function mainSkeleton(){
       </div>
 
       <div class="bloco">
-        <div class="bloco-header">Projetos de ${esc(c.nome)}</div>
-        <div class="bloco-sub">Cada projeto abre o mapa da rede (KMZ) e o orçamento de infraestrutura já consolidados num relatório próprio.</div>
-        <div class="bloco-body">
-          <div class="bairro-grid">
-            ${c.projetos.map(p=>`
-            <a href="${esc(p.arquivo)}" class="city-card" style="display:block;text-decoration:none;color:inherit;">
-              <div class="cname">📁 ${esc(p.nome)}</div>
-              <div class="cmeta">${esc(p.desc||'Mapa + orçamento consolidado')}</div>
-            </a>`).join('')}
-          </div>
-        </div>
-      </div>
-
-      <div class="bloco">
         <div class="bloco-header">Bairros de ${esc(c.nome)}</div>
-        <div class="bloco-sub">Bairros novos cadastrados aqui já ganham mapa (KMZ), orçamento gerado sozinho e link de relatório automático — sem precisar de um projeto feito à mão como os acima.</div>
+        <div class="bloco-sub">Cada bairro abre o mapa da rede (KMZ) e o orçamento de infraestrutura já consolidados num relatório próprio.</div>
         <div class="bloco-body">
           <div class="bairro-grid" id="bairroGrid"></div>
           <button class="add-row" id="addBairroBtn">+ Novo bairro</button>
@@ -1272,13 +1258,19 @@ function bindHubView(){
 
   const grid = document.getElementById('bairroGrid');
   const filhos = filhosDe(c.id);
-  grid.innerHTML = filhos.map(f=>{
+  const projetosHtml = (c.projetos||[]).map(p=>`
+    <a href="${esc(p.arquivo)}" class="city-card" style="display:block;text-decoration:none;color:inherit;">
+      <div class="cname">📁 ${esc(p.nome)}</div>
+      <div class="cmeta">${esc(p.desc||'Mapa + orçamento consolidado')}</div>
+    </a>`).join('');
+  const bairrosHtml = filhos.map(f=>{
     const total = (f.materiais||[]).reduce((s,r)=>s+(r.qtd||0)*(r.custo||0),0);
     return `<div class="city-card bairro-card" data-id="${f.id}">
       <div class="cname">${esc(f.nome)||'(sem nome)'}</div>
       <div class="cmeta">${fmtNum(f.casasRegiao)} casas · ${fmtBRL(total)}</div>
     </div>`;
-  }).join('') || `<div class="empty-side">Nenhum bairro cadastrado ainda. Clique em <b>+ Novo bairro</b> para começar.</div>`;
+  }).join('');
+  grid.innerHTML = (projetosHtml + bairrosHtml) || `<div class="empty-side">Nenhum bairro cadastrado ainda. Clique em <b>+ Novo bairro</b> para começar.</div>`;
   grid.querySelectorAll('.bairro-card').forEach(card=>{
     card.onclick = ()=>{ app.currentId = card.dataset.id; saveApp(); renderAll(); };
   });
