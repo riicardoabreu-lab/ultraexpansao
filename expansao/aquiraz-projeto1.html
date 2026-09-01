@@ -305,6 +305,13 @@
   }
   textarea.planos-in:focus{ outline:none; border-color:var(--azul); box-shadow:0 0 0 2px rgba(31,78,120,.15); }
   .concorrente-panel{ background:#f7f9fb; border:1px solid var(--borda); border-radius:8px; padding:14px 16px; margin-bottom:12px; }
+  input.conc-in{
+    background:#fff; border:1px solid var(--borda); color:#1f2937; font-family:Arial, Helvetica, sans-serif;
+    font-size:12.5px; padding:6px 8px; border-radius:6px; width:100%; min-width:110px;
+  }
+  input.conc-in:focus{ outline:none; border-color:var(--azul); box-shadow:0 0 0 2px rgba(31,78,120,.15); }
+  input.conc-nome{ min-width:160px; }
+  input.conc-num{ min-width:70px; }
   .del-btn{
     background:none;
     border:none;
@@ -662,8 +669,12 @@ const STORAGE_KEY = 'aquiraz-projeto1-v1';
 // Orgânica, aqui fixa em "PATACAS" (identidade do projeto). Planos são
 // digitados à mão (sem fonte automática) e guardados em concorrentesPlanos.
 // ============================================================
-let concorrentesPlanos = {};
+let concorrentes = []; // [{id,nome,caixas,clientes,planos}] — lista editável (adicionar/editar/excluir)
 let cfoDataPromise = null;
+
+function novoConcorrenteId(){
+  return 'cc' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+}
 
 function normBairro(s){
   return (s||'').normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), '').trim().toUpperCase();
@@ -702,43 +713,107 @@ function loadCfoIndex(){
   return cfoDataPromise;
 }
 
-async function updateConcorrencia(){
-  const block = document.getElementById('concorrenciaBlock');
-  if(!block) return;
+function renderConcorrentesTabela(){
+  const linhas = concorrentes.map(row => '<tr data-id="'+row.id+'">'
+    + '<td><input type="text" class="conc-in conc-nome" value="'+(row.nome||'')+'" placeholder="Nome do provedor"></td>'
+    + '<td><input type="number" class="conc-in conc-num" data-field="caixas" value="'+(row.caixas||0)+'" min="0"></td>'
+    + '<td><input type="number" class="conc-in conc-num" data-field="clientes" value="'+(row.clientes||0)+'" min="0"></td>'
+    + '<td><textarea class="planos-in" rows="2" placeholder="Ex: 300MB R$79,90 / 600MB R$99,90">'+(row.planos||'')+'</textarea></td>'
+    + '<td><button class="del-btn" type="button" title="Excluir concorrente">✕</button></td>'
+    + '</tr>').join('');
+  return '<div class="concorrente-panel">'
+    + '<table><thead><tr><th>Provedor</th><th class="num">Caixas</th><th class="num">Clientes</th><th>Planos</th><th></th></tr></thead>'
+    + '<tbody>' + (linhas || '<tr><td colspan="5" style="color:var(--cinza);padding:14px;">Nenhum concorrente cadastrado ainda — adicione à mão ou importe do CFO abaixo.</td></tr>') + '</tbody></table>'
+    + '<button class="add-btn" id="addConcorrenteBtn" type="button" style="margin:10px 0 0;">+ Adicionar concorrente</button>'
+    + '</div>';
+}
+
+function renderConcorrentesEditor(){
+  const editor = document.getElementById('concorrentesEditor');
+  if(!editor) return;
+  editor.innerHTML = renderConcorrentesTabela();
+  editor.querySelectorAll('tr[data-id]').forEach(tr=>{
+    const row = concorrentes.find(r=>r.id===tr.dataset.id);
+    if(!row) return;
+    tr.querySelector('.conc-nome').addEventListener('input', e=>{ row.nome = e.target.value; scheduleSave(); });
+    tr.querySelectorAll('.conc-num').forEach(inp=>{
+      inp.addEventListener('input', e=>{ row[inp.dataset.field] = parseInt(e.target.value,10)||0; scheduleSave(); });
+    });
+    tr.querySelector('.planos-in').addEventListener('input', e=>{ row.planos = e.target.value; scheduleSave(); });
+    tr.querySelector('.del-btn').addEventListener('click', ()=>{
+      concorrentes = concorrentes.filter(r=>r.id!==tr.dataset.id);
+      scheduleSave();
+      renderConcorrentesEditor();
+    });
+  });
+  const addBtn = editor.querySelector('#addConcorrenteBtn');
+  if(addBtn) addBtn.onclick = ()=>{
+    concorrentes.push({ id: novoConcorrenteId(), nome:'', caixas:0, clientes:0, planos:'' });
+    scheduleSave();
+    renderConcorrentesEditor();
+    const inputs = editor.querySelectorAll('.conc-nome');
+    if(inputs.length) inputs[inputs.length-1].focus();
+  };
+}
+
+function importarConcorrentesDoCfo(providers, contaComoProvedor){
+  const existentes = new Set(concorrentes.map(r=>normBairro(r.nome)));
+  Object.entries(providers).forEach(([nome,d])=>{
+    if(!contaComoProvedor(nome)) return;
+    const chave = normBairro(nome);
+    if(existentes.has(chave)) return;
+    concorrentes.push({ id: novoConcorrenteId(), nome, caixas: d.cx||0, clientes: d.clientes||0, planos:'' });
+    existentes.add(chave);
+  });
+  scheduleSave();
+}
+
+async function updateConcorrenciaCfo(){
+  const cfoBlock = document.getElementById('concorrenciaCfo');
+  if(!cfoBlock) return;
   const chave = normBairro('PATACAS');
-  block.innerHTML = '<p style="color:var(--cinza);font-size:12.5px;">Buscando "PATACAS" nos dados do CFO...</p>';
+  cfoBlock.innerHTML = '<p style="color:var(--cinza);font-size:12.5px;">Buscando "PATACAS" nos dados do CFO...</p>';
   let idx;
   try{ idx = await loadCfoIndex(); }
   catch(err){
-    block.innerHTML = '<p style="color:#b91c1c;font-size:12.5px;">Não foi possível carregar os dados do CFO (' + err.message + ').</p>';
+    cfoBlock.innerHTML = '<p style="color:#b91c1c;font-size:12.5px;">Não foi possível carregar os dados do CFO (' + err.message + ').</p>';
     return;
   }
   const matches = idx.get(chave) || [];
   if(!matches.length){
-    block.innerHTML = '<p style="color:var(--cinza);font-size:12.5px;">Nenhum dado de concorrência encontrado no CFO para "PATACAS".</p>';
+    cfoBlock.innerHTML = '<p style="color:var(--cinza);font-size:12.5px;">Nenhum dado de concorrência encontrado no CFO para "PATACAS". Adicione concorrentes manualmente acima.</p>';
     return;
   }
   const contaComoProvedor = nome => !/SEM\s*ID/i.test(nome);
-  block.innerHTML = matches.map(m=>{
+  cfoBlock.innerHTML = matches.map((m,i)=>{
     const linhas = Object.entries(m.providers).sort((a,b)=>(b[1].cx||0)-(a[1].cx||0)).map(([nome,d])=>{
       const ehProvedor = contaComoProvedor(nome);
-      const planosCell = ehProvedor
-        ? '<textarea class="planos-in" data-provedor="'+nome+'" rows="2" placeholder="Ex: 300MB R$79,90 / 600MB R$99,90">'+(concorrentesPlanos[nome]||'')+'</textarea>'
-        : '—';
-      return '<tr'+(ehProvedor?'':' style="color:var(--cinza);"')+'><td class="desc">'+nome+'</td><td class="num">'+d.cx.toLocaleString('pt-BR')+'</td><td class="num">'+d.clientes.toLocaleString('pt-BR')+'</td><td>'+planosCell+'</td></tr>';
+      return '<tr'+(ehProvedor?'':' style="color:var(--cinza);"')+'><td class="desc">'+nome+'</td><td class="num">'+d.cx.toLocaleString('pt-BR')+'</td><td class="num">'+d.clientes.toLocaleString('pt-BR')+'</td></tr>';
     }).join('');
     return '<div class="concorrente-panel">'
-      + '<div style="margin-bottom:10px;"><b>'+m.bairro+'</b> — '+m.municipio+' <span style="color:var(--cinza);font-size:11.5px;">(fonte: CFO / Map Marker)</span></div>'
-      + '<table><thead><tr><th>Provedor</th><th class="num">Caixas</th><th class="num">Clientes</th><th>Planos</th></tr></thead><tbody>'+linhas+'</tbody></table>'
-      + '<p style="margin:8px 0 0;font-size:11.5px;color:var(--cinza);font-style:italic;">Caixas sem identificação (em cinza) não entram na lista de planos.</p>'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">'
+      + '<div><b>'+m.bairro+'</b> — '+m.municipio+' <span style="color:var(--cinza);font-size:11.5px;">(fonte: CFO / Map Marker)</span></div>'
+      + '<button class="add-btn" data-idx-import="'+i+'" style="display:inline-block;margin:0;">⬇ Importar provedores pra lista acima</button>'
+      + '</div>'
+      + '<table><thead><tr><th>Provedor</th><th class="num">Caixas</th><th class="num">Clientes</th></tr></thead><tbody>'+linhas+'</tbody></table>'
+      + '<p style="margin:8px 0 0;font-size:11.5px;color:var(--cinza);font-style:italic;">Caixas sem identificação (em cinza) não entram na importação.</p>'
       + '</div>';
   }).join('');
-  block.querySelectorAll('.planos-in').forEach(ta=>{
-    ta.addEventListener('input', ()=>{
-      concorrentesPlanos[ta.dataset.provedor] = ta.value;
-      scheduleSave();
-    });
+  cfoBlock.querySelectorAll('[data-idx-import]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const m = matches[Number(btn.dataset.idxImport)];
+      importarConcorrentesDoCfo(m.providers, contaComoProvedor);
+      renderConcorrentesEditor();
+    };
   });
+}
+
+async function updateConcorrencia(){
+  const block = document.getElementById('concorrenciaBlock');
+  if(!block) return;
+  block.innerHTML = '<div id="concorrentesEditor"></div><div id="concorrenciaCfo" style="margin-top:18px;"></div>';
+  renderConcorrentesEditor();
+  await updateConcorrenciaCfo();
 }
 
 function captureState(){
@@ -756,14 +831,17 @@ function captureState(){
     pPortasPorCto: document.getElementById('pPortasPorCto').value,
     pPortasAtender: document.getElementById('pPortasAtender').value,
     pMargem: document.getElementById('pMargem').value,
-    concorrentesPlanos,
+    concorrentes,
     updated: Date.now(),
   };
 }
 
 function applyState(state){
   if(!state) return;
-  if(state.concorrentesPlanos) concorrentesPlanos = state.concorrentesPlanos;
+  if(Array.isArray(state.concorrentes)) concorrentes = state.concorrentes;
+  else if(state.concorrentesPlanos) concorrentes = Object.entries(state.concorrentesPlanos).map(([nome,planos])=>(
+    { id: novoConcorrenteId(), nome, caixas:0, clientes:0, planos }
+  ));
   if(!state.rows || !state.rows.length) return;
   if(state.pPortasPorCto) document.getElementById('pPortasPorCto').value = state.pPortasPorCto;
   if(state.pPortasAtender) document.getElementById('pPortasAtender').value = state.pPortasAtender;

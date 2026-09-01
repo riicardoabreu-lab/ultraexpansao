@@ -195,6 +195,18 @@
   }
   textarea.planos-in:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(31,78,120,.15); }
 
+  input.conc-in{
+    background:#fff; border:1px solid var(--border); color:var(--text);
+    font-size:12.5px; padding:6px 8px; border-radius:6px; width:100%; min-width:110px;
+  }
+  input.conc-nome{ min-width:160px; }
+  input.conc-num{ min-width:70px; }
+  .del-btn{
+    background:transparent; border:1px solid var(--border); color:var(--text-faint);
+    width:28px; height:28px; border-radius:6px; cursor:pointer; font-size:13px; line-height:1;
+  }
+  .del-btn:hover{ border-color:var(--bad); color:var(--bad); }
+
   .kpi-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:14px; }
   .kpi{ background:var(--bg-inset); border:1px solid var(--border-soft); border-radius:var(--radius); padding:15px 17px; }
   .kpi .label{ color:var(--text-faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; margin-bottom:7px; }
@@ -308,7 +320,8 @@ function blankCidade(nome, municipioId){
     materiais: [],
     kmz: null, // {name} — o arquivo em si fica no IndexedDB deste navegador
     municipioId: municipioId || null, // se preenchido, essa cidade é um bairro dentro de outra (o município)
-    concorrentesPlanos: {}, // {nomeDoProvedor: "texto livre com os planos/preços"} — digitado à mão, sem fonte automática
+    concorrentes: [], // [{id,nome,caixas,clientes,planos}] — lista editável (adicionar/editar/excluir),
+                       // pode ser semeada a partir do CFO, mas depois de importada é independente dele
   };
 }
 
@@ -332,7 +345,7 @@ function current(){ return app.cidades.find(c=>c.id===app.currentId) || null; }
 // Aplica atualização recebida em tempo real de outra pessoa logada com a
 // mesma conta, sem tirar quem está vendo da cidade atual.
 function applyRemoteState(remoteCidades){
-  app.cidades = remoteCidades.map(rc => ({ ...rc, kmz: rc.kmz || null, materiais: rc.materiais || [], concorrentesPlanos: rc.concorrentesPlanos || {} }));
+  app.cidades = remoteCidades.map(rc => ({ ...rc, kmz: rc.kmz || null, materiais: rc.materiais || [], concorrentes: rc.concorrentes || null }));
   if(!app.cidades.find(c=>c.id===app.currentId)){
     app.currentId = app.cidades[0]?.id || null;
   }
@@ -705,31 +718,103 @@ function loadCfoIndex(){
   return cfoDataPromise;
 }
 
+function novoConcorrenteId(){
+  return 'cc' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+}
+
+// Cidades salvas antes dessa lista existir tinham só o campo "Planos" livre
+// (concorrentesPlanos: {nome: texto}), sem caixas/clientes. Converte pra
+// lista editável uma única vez, sem perder o que já tinha sido digitado.
+function migrarConcorrentes(c){
+  if(Array.isArray(c.concorrentes)) return;
+  c.concorrentes = Object.entries(c.concorrentesPlanos||{}).map(([nome,planos])=>(
+    { id: novoConcorrenteId(), nome, caixas:0, clientes:0, planos }
+  ));
+}
+
+function renderConcorrentesTabela(c){
+  const linhas = c.concorrentes.map(row => `
+    <tr data-id="${row.id}">
+      <td><input type="text" class="conc-in conc-nome" value="${esc(row.nome)}" placeholder="Nome do provedor"></td>
+      <td><input type="number" class="conc-in conc-num" data-field="caixas" value="${row.caixas||0}" min="0"></td>
+      <td><input type="number" class="conc-in conc-num" data-field="clientes" value="${row.clientes||0}" min="0"></td>
+      <td><textarea class="planos-in" rows="2" placeholder="Ex: 300MB R$79,90 / 600MB R$99,90">${esc(row.planos||'')}</textarea></td>
+      <td><button class="del-btn" type="button" title="Excluir concorrente">✕</button></td>
+    </tr>`).join('');
+  return `<div class="table-scroll"><table>
+      <thead><tr><th>Provedor</th><th>Caixas</th><th>Clientes</th><th>Planos</th><th></th></tr></thead>
+      <tbody>${linhas || `<tr><td colspan="5" class="hint" style="padding:14px;">Nenhum concorrente cadastrado ainda — adicione à mão ou importe do CFO abaixo.</td></tr>`}</tbody>
+    </table></div>
+    <button class="ghost-btn" id="addConcorrenteBtn" type="button" style="margin-top:10px;">+ Adicionar concorrente</button>`;
+}
+
+function renderConcorrentesEditor(){
+  const c = current(); if(!c) return;
+  migrarConcorrentes(c);
+  const editor = document.getElementById('concorrentesEditor');
+  if(!editor) return;
+  editor.innerHTML = renderConcorrentesTabela(c);
+  editor.querySelectorAll('tr[data-id]').forEach(tr=>{
+    const row = c.concorrentes.find(r=>r.id===tr.dataset.id);
+    if(!row) return;
+    tr.querySelector('.conc-nome').addEventListener('input', e=>{ row.nome = e.target.value; saveApp(); });
+    tr.querySelectorAll('.conc-num').forEach(inp=>{
+      inp.addEventListener('input', e=>{ row[inp.dataset.field] = parseInt(e.target.value,10)||0; saveApp(); });
+    });
+    tr.querySelector('.planos-in').addEventListener('input', e=>{ row.planos = e.target.value; saveApp(); });
+    tr.querySelector('.del-btn').addEventListener('click', ()=>{
+      c.concorrentes = c.concorrentes.filter(r=>r.id!==tr.dataset.id);
+      saveApp();
+      renderConcorrentesEditor();
+    });
+  });
+  const addBtn = editor.querySelector('#addConcorrenteBtn');
+  if(addBtn) addBtn.onclick = ()=>{
+    c.concorrentes.push({ id: novoConcorrenteId(), nome:'', caixas:0, clientes:0, planos:'' });
+    saveApp();
+    renderConcorrentesEditor();
+    const inputs = editor.querySelectorAll('.conc-nome');
+    if(inputs.length) inputs[inputs.length-1].focus();
+  };
+}
+
+function importarConcorrentesDoCfo(c, providers, contaComoProvedor){
+  const existentes = new Set(c.concorrentes.map(r=>normBairro(r.nome)));
+  Object.entries(providers).forEach(([nome,d])=>{
+    if(!contaComoProvedor(nome)) return;
+    const chave = normBairro(nome);
+    if(existentes.has(chave)) return;
+    c.concorrentes.push({ id: novoConcorrenteId(), nome, caixas: d.cx||0, clientes: d.clientes||0, planos:'' });
+    existentes.add(chave);
+  });
+  saveApp();
+}
+
 let _concorrenciaSeq = 0;
-async function updateConcorrencia(){
+async function updateConcorrenciaCfo(){
   const c = current(); if(!c) return;
   const seq = ++_concorrenciaSeq;
-  const block = document.getElementById('concorrenciaBlock');
-  if(!block) return;
+  const cfoBlock = document.getElementById('concorrenciaCfo');
+  if(!cfoBlock) return;
   const chave = normBairro(c.nome);
-  if(!chave){ block.innerHTML = ''; return; }
-  block.innerHTML = `<p class="hint">Buscando "${esc(c.nome)}" nos dados do CFO...</p>`;
+  if(!chave){ cfoBlock.innerHTML = ''; return; }
+  cfoBlock.innerHTML = `<p class="hint">Buscando "${esc(c.nome)}" nos dados do CFO...</p>`;
   let idx;
   try{ idx = await loadCfoIndex(); }
   catch(err){
     if(seq !== _concorrenciaSeq) return;
-    block.innerHTML = `<p class="hint" style="color:var(--bad);">Não foi possível carregar os dados do CFO (${esc(err.message)}).</p>`;
+    cfoBlock.innerHTML = `<p class="hint" style="color:var(--bad);">Não foi possível carregar os dados do CFO (${esc(err.message)}).</p>`;
     return;
   }
   if(seq !== _concorrenciaSeq) return;
   const matches = idx.get(chave) || [];
   if(!matches.length){
-    block.innerHTML = `<p class="hint">Nenhum dado de concorrência encontrado no CFO para "${esc(c.nome)}". Preencha "Provedores concorrentes" manualmente, ou ajuste o nome pra bater com o bairro cadastrado lá.</p>`;
+    cfoBlock.innerHTML = `<p class="hint">Nenhum dado de concorrência encontrado no CFO para "${esc(c.nome)}". Adicione concorrentes manualmente acima, ou ajuste o nome pra bater com o bairro cadastrado lá.</p>`;
     return;
   }
   // "Caixa sem ID" / "Pacpon sem ID" não são provedores de verdade — são
   // caixas sem identificação achada em campo. Ficam na lista, mas não
-  // contam na quantidade de provedores concorrentes.
+  // contam na quantidade de provedores concorrentes nem entram na importação.
   const contaComoProvedor = nome => !/SEM\s*ID/i.test(nome);
   const contarProvedores = providers => Object.keys(providers).filter(contaComoProvedor).length;
 
@@ -742,49 +827,56 @@ async function updateConcorrencia(){
     if(inProv) inProv.value = totalProv;
     saveApp(); renderSidebar();
   }
-  if(!c.concorrentesPlanos) c.concorrentesPlanos = {};
-  block.innerHTML = matches.map((m,i)=>{
+  cfoBlock.innerHTML = (matches.length > 1 ? `<p class="hint">Encontrei "${esc(c.nome)}" em mais de um município — escolha qual usar abaixo.</p>` : '') + matches.map((m,i)=>{
     const linhas = Object.entries(m.providers).sort((a,b)=>(b[1].cx||0)-(a[1].cx||0)).map(([nome,d])=>{
       const ehProvedor = contaComoProvedor(nome);
-      const planosCell = ehProvedor
-        ? `<textarea class="planos-in" data-provedor="${esc(nome)}" rows="2" placeholder="Ex: 300MB R$79,90 / 600MB R$99,90">${esc(c.concorrentesPlanos[nome]||'')}</textarea>`
-        : '—';
-      return `<tr${ehProvedor?'':' style="color:var(--text-faint);"'}><td>${esc(nome)}</td><td>${fmtNum(d.cx)}</td><td>${fmtNum(d.clientes)}</td><td>${planosCell}</td></tr>`;
+      return `<tr${ehProvedor?'':' style="color:var(--text-faint);"'}><td>${esc(nome)}</td><td>${fmtNum(d.cx)}</td><td>${fmtNum(d.clientes)}</td></tr>`;
     }).join('');
     const totalProv = contarProvedores(m.providers);
-    const acao = matches.length === 1
+    const acaoProv = matches.length === 1
       ? `<span style="color:var(--good);font-size:11.5px;font-family:var(--mono);">✓ ${totalProv} provedores aplicado acima</span>`
-      : `<button class="ghost-btn" data-idx="${i}">Usar ${totalProv} provedores</button>`;
+      : `<button class="ghost-btn" data-idx-prov="${i}">Usar ${totalProv} provedores</button>`;
     return `<div class="panel" style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
         <div><b>${esc(m.bairro)}</b> — ${esc(m.municipio)} <span style="color:var(--text-faint);font-size:11.5px;">(fonte: CFO / Map Marker)</span></div>
-        ${acao}
+        ${acaoProv}
       </div>
       <div class="table-scroll"><table>
-        <thead><tr><th>Provedor</th><th>Caixas</th><th>Clientes</th><th>Planos</th></tr></thead>
+        <thead><tr><th>Provedor</th><th>Caixas</th><th>Clientes</th></tr></thead>
         <tbody>${linhas}</tbody>
       </table></div>
-      <p class="hint" style="margin:8px 0 0;">Caixas sem identificação (em cinza) não entram na contagem de provedores. Planos digitados à mão, salvos por provedor.</p>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px;">
+        <p class="hint" style="margin:0;">Caixas sem identificação (em cinza) não entram na contagem.</p>
+        <button class="ghost-btn" data-idx-import="${i}">⬇ Importar provedores pra lista acima</button>
+      </div>
     </div>`;
   }).join('');
-  if(matches.length > 1){
-    block.insertAdjacentHTML('afterbegin', `<p class="hint">Encontrei "${esc(c.nome)}" em mais de um município — escolha qual usar abaixo.</p>`);
-  }
-  block.querySelectorAll('.planos-in').forEach(ta=>{
-    ta.addEventListener('input', ()=>{
-      c.concorrentesPlanos[ta.dataset.provedor] = ta.value;
-      saveApp();
-    });
-  });
-  block.querySelectorAll('[data-idx]').forEach(btn=>{
+  cfoBlock.querySelectorAll('[data-idx-prov]').forEach(btn=>{
     btn.onclick = ()=>{
-      const m = matches[Number(btn.dataset.idx)];
+      const m = matches[Number(btn.dataset.idxProv)];
       c.provedoresRegiao = contarProvedores(m.providers);
       const el = document.getElementById('in-provedores');
       if(el) el.value = c.provedoresRegiao;
       saveApp(); renderSidebar();
     };
   });
+  cfoBlock.querySelectorAll('[data-idx-import]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const m = matches[Number(btn.dataset.idxImport)];
+      importarConcorrentesDoCfo(c, m.providers, contaComoProvedor);
+      renderConcorrentesEditor();
+    };
+  });
+}
+
+async function updateConcorrencia(){
+  const c = current(); if(!c) return;
+  migrarConcorrentes(c);
+  const block = document.getElementById('concorrenciaBlock');
+  if(!block) return;
+  block.innerHTML = `<div id="concorrentesEditor"></div><div id="concorrenciaCfo" style="margin-top:18px;"></div>`;
+  renderConcorrentesEditor();
+  await updateConcorrenciaCfo();
 }
 
 let _concorrenciaTimer = null;
