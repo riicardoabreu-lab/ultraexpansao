@@ -606,14 +606,26 @@ document.getElementById('btnCopyRepetidos').addEventListener('click', ()=>{
 document.getElementById('btnSyncNow').addEventListener('click', async ()=>{
   const btn = document.getElementById('btnSyncNow');
   btn.disabled = true;
-  btn.textContent = '🔄 Sincronizando...';
+  let totalGravados = 0;
   try{
-    const resp = await fetch('/api/geogrid-sync-now', { method:'POST' });
-    const data = await resp.json().catch(()=>({}));
-    if(resp.ok && data.ok){
-      btn.textContent = `✓ ${data.totalGravados ?? 0} CTO(s) sincronizada(s)`;
-    } else {
-      btn.textContent = '✕ ' + (data.erro || 'falha ao sincronizar');
+    // Pagina página por página (a conta já tem ~13700 terminais = 28
+    // páginas) - uma chamada só por tudo estourava o tempo de execução da
+    // função na Vercel, sem gravar nada. Cada chamada aqui é curta.
+    let pagina = 1;
+    for (;;) {
+      btn.textContent = `🔄 Sincronizando (página ${pagina})...`;
+      const resp = await fetch(`/api/geogrid-sync-now?pagina=${pagina}`, { method:'POST' });
+      const data = await resp.json().catch(()=>({}));
+      if (!resp.ok || !data.ok) {
+        btn.textContent = '✕ ' + (data.erro || `falha ao sincronizar (HTTP ${resp.status})`);
+        break;
+      }
+      totalGravados += data.gravados || 0;
+      if (!data.temMais) {
+        btn.textContent = `✓ ${totalGravados.toLocaleString('pt-BR')} CTO(s) sincronizada(s)`;
+        break;
+      }
+      pagina++;
     }
   } catch(e){
     btn.textContent = '✕ erro de rede';
