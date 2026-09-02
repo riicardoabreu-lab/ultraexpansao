@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+  // Bloqueia acesso direto a esta página sem passar pelo login do portal.
+  if (sessionStorage.getItem('infolink_hub_auth') !== 'ok') {
+    window.location.href = '../index.html';
+  }
+</script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  const fb = initializeApp({
+    apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
+    authDomain: "isp-manager-ce.firebaseapp.com",
+    projectId: "isp-manager-ce",
+    storageBucket: "isp-manager-ce.firebasestorage.app",
+    messagingSenderId: "374725918192",
+    appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
+  });
+  const auth = getAuth(fb);
+  const fsDb = getFirestore(fb);
+  window._doLogout = function(){
+    signOut(auth).finally(()=>{
+      sessionStorage.clear();
+      window.location.href = '../index.html';
+    });
+  };
+
+  // ---- Sincronização em tempo real com a nuvem (Firestore), mesmo
+  // padrão usado em Expansão Orgânica: last write wins.
+  window._lastKnownUpdated = 0;
+  window._cloudSave = (data) => {
+    if(!window._fbUser) return Promise.resolve();
+    window._lastKnownUpdated = data.updated;
+    return setDoc(doc(fsDb, 'orcamento_ftth_backups', window._fbUser.uid), data);
+  };
+
+  onAuthStateChanged(auth, user => {
+    if(!user) return;
+    window._fbUser = user;
+    onSnapshot(doc(fsDb, 'orcamento_ftth_backups', user.uid), snap => {
+      if(!snap.exists()) return;
+      const data = snap.data();
+      if(!data.catalogo || !data.catalogo.length) return;
+      if((data.updated||0) <= (window._lastKnownUpdated||0)) return;
+      window._lastKnownUpdated = data.updated;
+      if(window._applyRemoteState) window._applyRemoteState(data);
+    }, err => console.error('Falha no listener de sincronização (Orçamento FTTH):', err));
+  });
+</script>
+<title>Orçamento FTTH — Infolink-ISP</title>
+<style>
+  :root{
+    --azul:#1F4E78;
+    --azul-claro:#D9E1F2;
+    --amarelo:#FFF6B0;
+    --amarelo-borda:#E6C200;
+    --alerta:#FDE2E4;
+    --cinza:#6b7280;
+    --borda:#dfe3e8;
+    --azul-tag:#E8F0FA;
+    --verde-tag:#E2EFDA;
+  }
+  *{box-sizing:border-box;}
+  body{
+    font-family:Arial, Helvetica, sans-serif;
+    background:#f4f6f8;
+    margin:0;
+    padding:0 0 64px;
+    color:#1f2937;
+  }
+  .topbar{background:#fff;border-bottom:1px solid var(--borda);padding:12px 22px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:50;}
+  .topbar .brand{font-weight:700;color:var(--azul);text-decoration:none;font-size:14.5px;}
+  .topbar .actions{margin-left:auto;display:flex;gap:8px;}
+  .ghost-btn{background:transparent;border:1px solid var(--borda);color:var(--cinza);padding:7px 13px;border-radius:7px;font-size:12px;cursor:pointer;text-decoration:none;display:inline-block;}
+  .ghost-btn:hover{border-color:var(--azul);color:var(--azul);}
+  .icon-btn{padding:7px 10px;font-size:14px;line-height:1;}
+  .status-pill{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:20px;border:1px solid var(--borda);font-size:12px;white-space:nowrap;color:var(--cinza);}
+  .status-pill .dot{width:7px;height:7px;border-radius:50%;background:#1f7a44;display:inline-block;}
+
+  .wrap{max-width:1200px;margin:0 auto;padding:24px 16px 0;}
+
+  .shell{max-width:1300px;margin:0 auto;display:flex;align-items:flex-start;gap:20px;padding:24px 16px 0;}
+  .sidebar{width:270px;flex-shrink:0;position:sticky;top:66px;}
+  .sidebar-box{background:#fff;border-radius:12px;box-shadow:0 1px 6px rgba(0,0,0,.08);padding:16px;margin-bottom:16px;}
+  .sidebar-box h4{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--cinza);margin:0 0 10px;}
+  .sidebar-btn{display:block;width:100%;padding:10px;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;text-align:center;box-sizing:border-box;}
+  .sidebar-btn.salvar{background:var(--azul);color:#fff;border:none;margin-bottom:8px;}
+  .sidebar-btn.salvar:hover{background:#173e60;}
+  .sidebar-btn.novo{background:#fff;border:1px dashed var(--borda);color:var(--cinza);}
+  .sidebar-btn.novo:hover{border-color:var(--azul);color:var(--azul);}
+  .salvo-card{background:#f7f9fb;border:1px solid var(--borda);border-radius:8px;padding:10px 12px;cursor:pointer;margin-bottom:8px;transition:.15s;}
+  .salvo-card:hover{border-color:var(--azul);}
+  .salvo-card.active{border-color:var(--azul);background:var(--azul-tag);}
+  .salvo-card .snome{font-weight:700;font-size:12.5px;margin-bottom:2px;color:#1f2937;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .salvo-card .sdata{color:var(--cinza);font-size:10.5px;}
+  .salvo-card .svalor{color:var(--azul);font-size:11.5px;font-weight:700;margin-top:3px;}
+  .empty-side{color:var(--cinza);font-size:11.5px;padding:6px 4px;line-height:1.6;}
+  .main-col{flex:1;min-width:0;}
+  @media (max-width:900px){
+    .shell{flex-direction:column;}
+    .sidebar{width:100%;position:static;}
+  }
+  header.page-title{
+    background:linear-gradient(135deg,var(--azul),#2c6ca3);
+    color:#fff;
+    border-radius:12px;
+    padding:28px 32px;
+    margin-bottom:24px;
+    box-shadow:0 4px 14px rgba(31,78,120,.25);
+  }
+  header.page-title h1{margin:0 0 6px;font-size:24px;}
+  header.page-title p{margin:0;font-size:13px;opacity:.9;}
+
+  .tabs{
+    display:flex;
+    gap:6px;
+    margin-bottom:20px;
+    background:#fff;
+    padding:6px;
+    border-radius:10px;
+    box-shadow:0 1px 4px rgba(0,0,0,.08);
+  }
+  .tab-btn{
+    flex:1;
+    border:none;
+    background:transparent;
+    padding:10px 14px;
+    font-size:13px;
+    font-weight:700;
+    color:var(--cinza);
+    border-radius:7px;
+    cursor:pointer;
+    transition:all .15s;
+  }
+  .tab-btn.active{background:var(--azul);color:#fff;}
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block;}
+
+  .resumo{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:16px;
+    margin-bottom:24px;
+  }
+  .card-resumo{
+    background:#fff;
+    border-radius:10px;
+    padding:18px 20px;
+    box-shadow:0 1px 4px rgba(0,0,0,.08);
+    border-left:5px solid var(--azul);
+  }
+  .card-resumo.total{border-left-color:#E8A400;background:#fff9ec;}
+  .card-resumo.mao{border-left-color:#0e7c86;}
+  .card-resumo .label{font-size:12px;color:var(--cinza);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;}
+  .card-resumo .valor{font-size:22px;font-weight:700;color:var(--azul);}
+  .card-resumo.total .valor{color:#B8860B;}
+  .card-resumo.mao .valor{color:#0e7c86;}
+
+  section.bloco{
+    background:#fff;
+    border-radius:12px;
+    box-shadow:0 1px 6px rgba(0,0,0,.08);
+    margin-bottom:28px;
+    overflow:hidden;
+  }
+  .bloco-header{
+    background:var(--azul);
+    color:#fff;
+    padding:14px 22px;
+    font-size:16px;
+    font-weight:700;
+  }
+  .bloco-header.sub2{background:#173e60;}
+  .bloco-sub{
+    padding:10px 22px 0;
+    font-size:12.5px;
+    color:var(--cinza);
+    font-style:italic;
+    line-height:1.5;
+  }
+  .table-scroll{overflow-x:auto;}
+  table{
+    width:100%;
+    border-collapse:collapse;
+    margin-top:12px;
+    font-size:13px;
+  }
+  thead th{
+    background:var(--azul-claro);
+    color:#17324d;
+    text-align:left;
+    padding:10px 12px;
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.02em;
+    border-bottom:2px solid var(--azul);
+    white-space:nowrap;
+  }
+  th.num, td.num{text-align:center;}
+  th.money, td.money{text-align:right;}
+  tbody td{
+    padding:8px 12px;
+    border-bottom:1px solid var(--borda);
+    vertical-align:middle;
+  }
+  tbody tr:hover{background:#fafbfc;}
+  td.fonte{color:var(--cinza);font-size:11.5px;font-style:italic;}
+  tr.mao-de-obra td.qtd{background:#e3f2f3;font-weight:600;color:#0e7c86;}
+  tr.derivado td.qtd, tr.derivado td.num{background:#f0f4f8;}
+  tr.mao-de-obra.derivado td.qtd{background:#e3f2f3;}
+  .qtd-calc{color:#475569;font-style:italic;}
+  .calc-tag{font-size:9.5px;color:#0e7c86;background:#e3f2f3;padding:1px 6px;border-radius:8px;margin-left:5px;font-style:normal;font-weight:600;text-transform:uppercase;letter-spacing:.03em;vertical-align:middle;}
+  tfoot td, tr.total-row td{
+    padding:12px;
+    font-weight:700;
+    background:#FFC000;
+    border-top:2px solid #d99e00;
+  }
+  tr.total-sem td{
+    padding:12px;
+    font-weight:700;
+    background:var(--azul-claro);
+    border-top:2px solid var(--azul);
+    color:#17324d;
+  }
+  .obs-box{
+    margin:0 22px 20px;
+    padding:14px 16px;
+    background:#f7f9fb;
+    border-left:4px solid var(--azul);
+    border-radius:6px;
+    font-size:12.5px;
+    color:#334155;
+    line-height:1.6;
+  }
+  .obs-box strong{color:var(--azul);}
+  input.qty-in, input.price-in{
+    width:90px;
+    padding:5px 7px;
+    border:1px solid var(--borda);
+    border-radius:5px;
+    font-size:12.5px;
+    font-family:Arial, Helvetica, sans-serif;
+    text-align:right;
+  }
+  input.setor-qty{width:78px;}
+  input.qty-in:focus, input.price-in:focus, input.setor-qty:focus{
+    outline:none;
+    border-color:var(--azul);
+    box-shadow:0 0 0 2px rgba(31,78,120,.15);
+  }
+  input.setor-nome{
+    font-weight:700;
+    font-size:13px;
+    border:1px solid var(--borda);
+    border-radius:5px;
+    padding:6px 8px;
+    width:120px;
+    font-family:Arial, Helvetica, sans-serif;
+  }
+  .del-btn{
+    background:none;
+    border:none;
+    color:#b91c1c;
+    font-size:14px;
+    cursor:pointer;
+    padding:2px 6px;
+    border-radius:4px;
+  }
+  .del-btn:hover{background:#fde2e4;}
+  .add-btn{
+    display:inline-block;
+    margin:4px 22px 20px;
+    padding:9px 16px;
+    background:var(--azul);
+    color:#fff;
+    border:none;
+    border-radius:7px;
+    font-size:12.5px;
+    font-weight:700;
+    cursor:pointer;
+  }
+  .add-btn:hover{background:#173e60;}
+  td[contenteditable]{outline:none;}
+  td[contenteditable]:focus{background:#fffbe6;}
+  .legenda{
+    display:flex;
+    gap:18px;
+    align-items:center;
+    flex-wrap:wrap;
+    font-size:12px;
+    color:var(--cinza);
+    margin:0 0 4px;
+    padding:0 22px 18px;
+  }
+  .legenda .sw{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:6px;vertical-align:middle;}
+  footer{
+    text-align:center;
+    font-size:11.5px;
+    color:#9aa4b2;
+    margin-top:32px;
+  }
+  @media (max-width:720px){
+    .resumo{grid-template-columns:1fr;}
+    table{font-size:11.5px;}
+    thead th, tbody td{padding:7px 8px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="../home.html" class="brand">Orçamento FTTH</a>
+  <div class="actions">
+    <a href="../home.html" class="ghost-btn">← Voltar</a>
+    <button class="ghost-btn icon-btn" id="refreshPageBtn" title="Atualizar a página">🔄</button>
+    <div class="status-pill"><span class="dot"></span>Sincronizado com a equipe</div>
+    <button class="ghost-btn" onclick="window._doLogout()">Sair</button>
+  </div>
+</div>
+
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-box">
+      <button class="sidebar-btn salvar" id="salvarBtn" type="button">💾 Salvar orçamento atual</button>
+      <button class="sidebar-btn novo" id="novoBtn" type="button">🆕 Novo orçamento</button>
+    </div>
+    <div class="sidebar-box">
+      <h4>Orçamentos salvos</h4>
+      <div id="salvosList"></div>
+    </div>
+  </aside>
+
+<div class="main-col">
+
+  <div id="viewDraft">
+  <header class="page-title">
+    <h1>Orçamento FTTH — Infraestrutura Externa</h1>
+    <p>Catálogo de materiais (cabo/alça por FO, caixas, splitters, mão de obra) + comparação entre setores + totais consolidados, no mesmo formato da planilha mestra.</p>
+  </header>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="catalogo" type="button">📦 Catálogo &amp; Preços</button>
+    <button class="tab-btn" data-tab="setores" type="button">🧮 Setores</button>
+    <button class="tab-btn" data-tab="geral" type="button">📊 Geral</button>
+  </div>
+
+  <!-- =========================== ABA CATÁLOGO =========================== -->
+  <div id="tab-catalogo" class="tab-panel active">
+    <div class="resumo">
+      <div class="card-resumo"><div class="label">Material</div><div class="valor" id="cat-material">R$ 0,00</div></div>
+      <div class="card-resumo mao"><div class="label">Mão de Obra</div><div class="valor" id="cat-mao">R$ 0,00</div></div>
+      <div class="card-resumo total"><div class="label">Total desta simulação</div><div class="valor" id="cat-total">R$ 0,00</div></div>
+    </div>
+
+    <div class="legenda">
+      <span><span class="sw" style="background:var(--azul-tag);border:1px solid #b9cbe6;"></span>Material</span>
+      <span><span class="sw" style="background:#e3f2f3;border:1px solid #b7e0e2;"></span>Mão de obra</span>
+    </div>
+
+    <section class="bloco">
+      <div class="bloco-header">Catálogo de Materiais e Preços</div>
+      <div class="bloco-sub">Preencha a quantidade de cada item pra uma simulação rápida — os preços aqui são os mesmos usados na aba Setores/Geral. Item, unidade e preço são editáveis; use "+ Adicionar item" pra itens fora do catálogo padrão.</div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th class="num">Unid.</th>
+              <th class="num">Quantidade</th>
+              <th class="money">Vlr. Unit.</th>
+              <th class="money">Vlr. Total</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tbody-catalogo"></tbody>
+        </table>
+      </div>
+      <button class="add-btn" type="button" onclick="addCatalogoItem()">+ Adicionar item</button>
+      <div class="obs-box">
+        <strong>Observações</strong><br>
+        • Preços iniciais vêm da planilha mestra de orçamento FTTH — ajuste aqui se mudar o fornecedor/cotação.<br>
+        • Os preços editados aqui valem pra toda a ferramenta (Setores e Geral usam o mesmo preço unitário do Catálogo).<br>
+        • <b>Alça, Poste, Bap e Supa</b> (itens com a tag "calculado") não são digitados — vêm automático da quantidade de cabo, pelas mesmas fórmulas da planilha mestra: Alça = cabo ÷ 20; Poste = cabo ÷ 45 (06/12/24/48FO) ou ÷ 40 (36/72/144FO); Bap = mesmo valor do Poste; Supa = Bap × 1,5.<br>
+        • <b>Mão de obra terceirizada</b> também é calculada: Lançamento = soma de todos os cabos (06FO a 144FO); CTO = quantidade de CTO; Cx Emenda/CEO = CEO 24FO + CEO 144FO.<br>
+        • A quantidade desta aba é só pra uma simulação avulsa — não entra no total da aba Geral (que soma os Setores).
+      </div>
+    </section>
+  </div>
+
+  <!-- =========================== ABA SETORES =========================== -->
+  <div id="tab-setores" class="tab-panel">
+    <section class="bloco">
+      <div class="bloco-header">Comparação entre Setores</div>
+      <div class="bloco-sub">Cada coluna é um setor/trecho da obra — preencha a quantidade de cada material por setor, igual à planilha (SETOR 01, 02, 03...). A aba Geral soma tudo automaticamente.</div>
+      <div class="table-scroll">
+        <table id="tabela-setores">
+          <thead>
+            <tr id="setores-head-row"><th>Material</th><th class="num">Unid.</th></tr>
+          </thead>
+          <tbody id="tbody-setores"></tbody>
+          <tfoot>
+            <tr id="setores-total-row"><td style="font-weight:700;">Total material (R$)</td><td></td></tr>
+          </tfoot>
+        </table>
+      </div>
+      <button class="add-btn" type="button" onclick="addSetor()">+ Adicionar setor</button>
+      <div class="obs-box">
+        <strong>Observações</strong><br>
+        • As linhas vêm do Catálogo (só os itens de material — mão de obra é calculada à parte, na aba Geral).<br>
+        • Pode remover um setor pelo "✕" no cabeçalho da coluna dele.
+      </div>
+    </section>
+  </div>
+
+  <!-- =========================== ABA GERAL =========================== -->
+  <div id="tab-geral" class="tab-panel">
+    <div class="resumo">
+      <div class="card-resumo"><div class="label">Total Material (todos os setores)</div><div class="valor" id="geral-material">R$ 0,00</div></div>
+      <div class="card-resumo mao"><div class="label">Total Mão de Obra</div><div class="valor" id="geral-mao">R$ 0,00</div></div>
+      <div class="card-resumo total"><div class="label">Total Geral (com mão de obra)</div><div class="valor" id="geral-com-mao">R$ 0,00</div></div>
+    </div>
+
+    <section class="bloco">
+      <div class="bloco-header">Material — Consolidado de Todos os Setores</div>
+      <div class="bloco-sub">Quantidade = soma de todos os setores cadastrados. Valor unitário vem do Catálogo &amp; Preços.</div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Item</th><th class="num">Unid.</th><th class="num">Quantidade</th><th class="money">Vlr. Unit.</th><th class="money">Vlr. Total</th></tr>
+          </thead>
+          <tbody id="tbody-geral-material"></tbody>
+        </table>
+      </div>
+      <div class="obs-box" style="margin-top:0;">
+        <strong>Total sem mão de obra</strong><br>
+        <span id="geral-sem-mao-texto">R$ 0,00</span>
+      </div>
+    </section>
+
+    <section class="bloco">
+      <div class="bloco-header sub2">Mão de Obra Terceirizada</div>
+      <div class="bloco-sub">Lançamento = soma dos metros de cabo (todos os tamanhos) de todos os setores. CTO e Cx Emenda/CEO = soma das respectivas quantidades. Taxas editáveis no Catálogo.</div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Item</th><th class="num">Unid.</th><th class="num">Quantidade</th><th class="money">Vlr. Unit.</th><th class="money">Vlr. Total</th></tr>
+          </thead>
+          <tbody id="tbody-geral-mao"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="bloco">
+      <div class="bloco-header">Totais</div>
+      <table style="margin:0;">
+        <tbody>
+          <tr class="total-sem"><td>TOTAL SEM MÃO DE OBRA</td><td class="money" id="geral-total-sem">R$ 0,00</td></tr>
+          <tr class="total-row"><td>TOTAL COM MÃO DE OBRA</td><td class="money" id="geral-total-com">R$ 0,00</td></tr>
+        </tbody>
+      </table>
+      <div style="height:14px;"></div>
+    </section>
+  </div>
+  </div><!-- /viewDraft -->
+
+  <!-- =========================== COMPROVANTE (orçamento salvo, só leitura) =========================== -->
+  <div id="viewSalvo" style="display:none;">
+    <header class="page-title">
+      <h1 id="salvo-nome">Orçamento salvo</h1>
+      <p id="salvo-data">Salvo em —</p>
+    </header>
+    <div style="margin:-10px 0 20px;">
+      <a href="#" id="voltarRascunhoLink" class="ghost-btn" style="text-decoration:none;">← Voltar pro orçamento atual</a>
+      <button class="ghost-btn" id="duplicarSalvoBtn" type="button" style="margin-left:8px;">📋 Usar como base de um novo orçamento</button>
+      <button class="ghost-btn" id="excluirSalvoBtn" type="button" style="margin-left:8px;color:#b91c1c;border-color:#f3c6c6;">🗑 Excluir</button>
+    </div>
+
+    <div class="resumo">
+      <div class="card-resumo"><div class="label">Total Material</div><div class="valor" id="salvo-material">R$ 0,00</div></div>
+      <div class="card-resumo mao"><div class="label">Total Mão de Obra</div><div class="valor" id="salvo-mao">R$ 0,00</div></div>
+      <div class="card-resumo total"><div class="label">Total Geral (com mão de obra)</div><div class="valor" id="salvo-total">R$ 0,00</div></div>
+    </div>
+
+    <section class="bloco">
+      <div class="bloco-header">Material</div>
+      <div class="bloco-sub">Congelado no momento em que o orçamento foi salvo — não muda se o catálogo padrão for atualizado depois.</div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Item</th><th class="num">Unid.</th><th class="num">Quantidade</th><th class="money">Vlr. Unit.</th><th class="money">Vlr. Total</th></tr></thead>
+          <tbody id="salvo-tbody-material"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="bloco">
+      <div class="bloco-header sub2">Mão de Obra Terceirizada</div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Item</th><th class="num">Unid.</th><th class="num">Quantidade</th><th class="money">Vlr. Unit.</th><th class="money">Vlr. Total</th></tr></thead>
+          <tbody id="salvo-tbody-mao"></tbody>
+        </table>
+      </div>
+    </section>
+  </div><!-- /viewSalvo -->
+
+  <footer>
+    Orçamento FTTH — catálogo e cálculo consolidado no mesmo formato da planilha mestra · Expansão Infolink
+  </footer>
+
+</div><!-- /main-col -->
+</div><!-- /shell -->
+
+<script>
+/* ======================================================================
+   CATÁLOGO PADRÃO — mesmos itens/preços da planilha mestra de orçamento
+   FTTH (cabo/alça por contagem de fibras, caixas, splitters, mão de obra).
+   categoria 'material' entra na aba Setores; 'mao_de_obra' só é calculada
+   na aba Geral (a partir das quantidades consolidadas de cabo/CTO/CEO).
+====================================================================== */
+function catalogoPadrao(){
+  return [
+    {nome:'Cabo de Fibra 06FO', unidade:'Metro', custo:1.44, categoria:'material'},
+    {nome:'Cabo de Fibra 12FO', unidade:'Metro', custo:1.79, categoria:'material'},
+    {nome:'Cabo de Fibra 24FO', unidade:'Metro', custo:4.38, categoria:'material'},
+    {nome:'Cabo de Fibra 36FO', unidade:'Metro', custo:5.15, categoria:'material'},
+    {nome:'Cabo de Fibra 48FO', unidade:'Metro', custo:5.79, categoria:'material'},
+    {nome:'Cabo de Fibra 72FO', unidade:'Metro', custo:9.68, categoria:'material'},
+    {nome:'Cabo de Fibra 144FO', unidade:'Metro', custo:10.82, categoria:'material'},
+    {nome:'Alça 06FO', unidade:'Unid.', custo:0, categoria:'material'},
+    {nome:'Alça 12FO', unidade:'Unid.', custo:1.87, categoria:'material'},
+    {nome:'Alça 24FO', unidade:'Unid.', custo:3.86, categoria:'material'},
+    {nome:'Alça 36FO', unidade:'Unid.', custo:5.46, categoria:'material'},
+    {nome:'Alça 48FO', unidade:'Unid.', custo:5.36, categoria:'material'},
+    {nome:'Alça 72FO', unidade:'Unid.', custo:14.31, categoria:'material'},
+    {nome:'Alça 144FO', unidade:'Unid.', custo:0, categoria:'material'},
+    {nome:'Bap', unidade:'Unid.', custo:7.49, categoria:'material'},
+    {nome:'Supa', unidade:'Unid.', custo:2.89, categoria:'material'},
+    {nome:'Poste', unidade:'Unid.', custo:0, categoria:'material'},
+    {nome:'CTO', unidade:'Unid.', custo:59.00, categoria:'material'},
+    {nome:'CEO 24FO', unidade:'Unid.', custo:152.90, categoria:'material'},
+    {nome:'CEO 144FO', unidade:'Unid.', custo:373.90, categoria:'material'},
+    {nome:'Splitter 1x8 SC', unidade:'Unid.', custo:24.40, categoria:'material'},
+    {nome:'Splitter 1x2 SC', unidade:'Unid.', custo:19.10, categoria:'material'},
+    {nome:'Splitter 1x16 CC', unidade:'Unid.', custo:39.91, categoria:'material'},
+    {nome:'Acoplador', unidade:'Unid.', custo:0.64, categoria:'material'},
+    {nome:'Arame Espinar', unidade:'Rolo', custo:23.80, categoria:'material'},
+    {nome:'Tubete', unidade:'Unid.', custo:0.19, categoria:'material'},
+    {nome:'Raquete CEO', unidade:'Unid.', custo:27.84, categoria:'material'},
+    {nome:'Cordão Óptico APC/UPC (1,5m)', unidade:'Unid.', custo:15.00, categoria:'material'},
+    {nome:'Placa GC8', unidade:'Unid.', custo:5900.00, categoria:'material'},
+    {nome:'Mão de Obra Terceirizada (Cx Emenda/CEO)', unidade:'Unid.', custo:30.00, categoria:'mao_de_obra'},
+    {nome:'Mão de Obra Terceirizada (CTO)', unidade:'Unid.', custo:40.00, categoria:'mao_de_obra'},
+    {nome:'Mão de Obra Terceirizada (Lançamento)', unidade:'Metro', custo:0.80, categoria:'mao_de_obra'},
+  ].map(it=>({id: novoId('m'), qtd:0, ...it}));
+}
+
+const STORAGE_KEY = 'orcamento-ftth-v1';
+const novoId = prefix => prefix+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const fmtBRL = n => (isFinite(n)?n:0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:2});
+const fmtNumCalc = n => (isFinite(n)?n:0).toLocaleString('pt-BR',{maximumFractionDigits:2});
+const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;').replace(/</g,'&lt;');
+
+/* ======================================================================
+   FÓRMULAS DA PLANILHA MESTRA — Alça, Poste, Bap, Supa e a mão de obra
+   terceirizada não são digitadas, vêm de outras quantidades já
+   preenchidas (mesma lógica das abas 06FO–144FO da planilha original):
+     Alça(FO)              = Cabo(FO) ÷ 20
+     Poste                 = Σ [Cabo(FO) ÷ divisor(FO)] — divisor varia por FO
+     Bap                   = Poste (mesmo valor)
+     Supa                  = Bap × 1,5
+     Mão de Obra Lançamento = Σ de TODOS os cabos (06FO a 144FO)
+     Mão de Obra CTO        = quantidade de CTO
+     Mão de Obra Cx Emenda/CEO = CEO 24FO + CEO 144FO
+====================================================================== */
+const CABO_POSTE_DIVISOR = { '06':45, '12':45, '24':45, '36':40, '48':45, '72':40, '144':40 };
+
+function ehDerivado(item){
+  if(!item) return false;
+  if(/^Alça \d+FO$/.test(item.nome)) return true;
+  if(['Poste','Bap','Supa'].includes(item.nome)) return true;
+  if(item.categoria==='mao_de_obra') return true;
+  return false;
+}
+
+// Recebe um mapa {itemId: quantidade} com pelo menos cabos/CTO/CEO
+// preenchidos e devolve um novo mapa com alça/poste/bap/supa/mão de
+// obra já calculados por cima.
+function computarDerivados(qtds){
+  const out = {...qtds};
+  let postesTotal = 0;
+  let caboGeralTotal = 0;
+  app.catalogo.forEach(it=>{
+    const m = it.nome.match(/^Cabo de Fibra (\d+)FO$/);
+    if(!m) return;
+    const fo = m[1];
+    const caboQtd = qtds[it.id]||0;
+    caboGeralTotal += caboQtd;
+    const alcaItem = app.catalogo.find(x=>x.nome===`Alça ${fo}FO`);
+    if(alcaItem) out[alcaItem.id] = caboQtd/20;
+    postesTotal += caboQtd/(CABO_POSTE_DIVISOR[fo]||45);
+  });
+  const posteItem = app.catalogo.find(it=>it.nome==='Poste');
+  const bapItem = app.catalogo.find(it=>it.nome==='Bap');
+  const supaItem = app.catalogo.find(it=>it.nome==='Supa');
+  if(posteItem) out[posteItem.id] = postesTotal;
+  if(bapItem) out[bapItem.id] = postesTotal;
+  if(supaItem) out[supaItem.id] = postesTotal*1.5;
+
+  const ctoItem = app.catalogo.find(it=>it.categoria==='material' && it.nome==='CTO');
+  const ceo24Item = app.catalogo.find(it=>it.nome==='CEO 24FO');
+  const ceo144Item = app.catalogo.find(it=>it.nome==='CEO 144FO');
+  const totalCTO = ctoItem ? (qtds[ctoItem.id]||0) : 0;
+  const totalCEO = (ceo24Item?(qtds[ceo24Item.id]||0):0) + (ceo144Item?(qtds[ceo144Item.id]||0):0);
+
+  const lancamentoItem = app.catalogo.find(it=>it.nome==='Mão de Obra Terceirizada (Lançamento)');
+  const ctoMaoItem = app.catalogo.find(it=>it.nome==='Mão de Obra Terceirizada (CTO)');
+  const ceoMaoItem = app.catalogo.find(it=>it.nome==='Mão de Obra Terceirizada (Cx Emenda/CEO)');
+  if(lancamentoItem) out[lancamentoItem.id] = caboGeralTotal;
+  if(ctoMaoItem) out[ctoMaoItem.id] = totalCTO;
+  if(ceoMaoItem) out[ceoMaoItem.id] = totalCEO;
+
+  return out;
+}
+
+function blankSetor(nome){
+  return { id: novoId('s'), nome: nome||'Novo setor', qtds:{} };
+}
+
+function loadApp(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){
+      const parsed = JSON.parse(raw);
+      if(parsed.catalogo && parsed.catalogo.length){
+        parsed.salvos = parsed.salvos || [];
+        return parsed;
+      }
+    }
+  }catch(e){}
+  return { catalogo: catalogoPadrao(), setores: [blankSetor('Setor 01')], salvos: [] };
+}
+function saveApp(){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }
+  catch(e){ /* armazenamento local indisponível — segue só na sessão */ }
+  syncToCloud();
+}
+
+let _cloudSyncTimer = null;
+function syncToCloud(){
+  if(!window._fbUser || !window._cloudSave) return;
+  clearTimeout(_cloudSyncTimer);
+  _cloudSyncTimer = setTimeout(async ()=>{
+    try{
+      await window._cloudSave({ catalogo: app.catalogo, setores: app.setores, salvos: app.salvos, updated: Date.now() });
+    }catch(e){ console.error('Falha ao sincronizar Orçamento FTTH com a nuvem:', e); }
+  }, 1500);
+}
+
+// Aplica atualização recebida em tempo real de outra pessoa logada com a
+// mesma conta (mesmo padrão de Expansão Orgânica) — não troca a tela de
+// quem já está vendo um orçamento salvo específico.
+function applyRemoteState(data){
+  app.catalogo = data.catalogo || app.catalogo;
+  app.setores = data.setores || app.setores;
+  app.salvos = data.salvos || [];
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }catch(e){}
+  renderCatalogo(); renderSetores(); renderGeral(); renderSalvosList();
+  if(visualizandoSalvoId){
+    const s = app.salvos.find(x=>x.id===visualizandoSalvoId);
+    if(s) abrirSalvo(s.id); else fecharSalvo();
+  }
+}
+window._applyRemoteState = applyRemoteState;
+
+let app = loadApp();
+let visualizandoSalvoId = null;
+
+/* ======================================================================
+   TABS
+====================================================================== */
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
+    if(btn.dataset.tab==='setores') renderSetores();
+    if(btn.dataset.tab==='geral') renderGeral();
+  });
+});
+
+/* ======================================================================
+   ABA CATÁLOGO
+====================================================================== */
+function renderCatalogo(){
+  atualizarDerivadosCatalogo(false);
+  const tbody = document.getElementById('tbody-catalogo');
+  tbody.innerHTML = app.catalogo.map(it=>{
+    const derivado = ehDerivado(it);
+    const qtyCell = derivado
+      ? `<span class="qtd-calc" data-id="${it.id}">${fmtNumCalc(it.qtd)}</span>`
+      : `<input type="number" class="qty-in" value="${it.qtd||0}" min="0" step="1">`;
+    return `
+    <tr data-id="${it.id}" class="${it.categoria==='mao_de_obra'?'mao-de-obra':''}${derivado?' derivado':''}">
+      <td class="desc" contenteditable="${derivado?'false':'true'}">${esc(it.nome)}${derivado?' <span class="calc-tag">calculado</span>':''}</td>
+      <td class="num" contenteditable="true">${esc(it.unidade)}</td>
+      <td class="num qtd">${qtyCell}</td>
+      <td class="money"><input type="number" class="price-in" value="${it.custo||0}" min="0" step="0.01"></td>
+      <td class="money row-total" data-id="${it.id}">${fmtBRL((it.qtd||0)*(it.custo||0))}</td>
+      <td>${derivado?'':'<button class="del-btn" type="button" title="Remover">✕</button>'}</td>
+    </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('tr[data-id]').forEach(row=>{
+    const id = row.dataset.id;
+    const item = app.catalogo.find(i=>i.id===id);
+    const derivado = ehDerivado(item);
+    if(!derivado){
+      row.querySelector('.desc').addEventListener('input', e=>{ item.nome = e.target.textContent.trim(); saveApp(); });
+    }
+    row.querySelectorAll('.num[contenteditable]').forEach(td=>{
+      td.addEventListener('input', e=>{ item.unidade = e.target.textContent.trim(); saveApp(); });
+    });
+    if(!derivado){
+      row.querySelector('.qty-in').addEventListener('input', e=>{
+        item.qtd = parseFloat(e.target.value)||0;
+        row.querySelector('.row-total').textContent = fmtBRL(item.qtd*(item.custo||0));
+        atualizarDerivadosCatalogo(true);
+        renderCatalogoResumo(); saveApp();
+      });
+    }
+    row.querySelector('.price-in').addEventListener('input', e=>{
+      item.custo = parseFloat(e.target.value)||0;
+      row.querySelector('.row-total').textContent = fmtBRL((item.qtd||0)*item.custo);
+      renderCatalogoResumo(); saveApp();
+    });
+    if(!derivado){
+      row.querySelector('.del-btn').addEventListener('click', ()=>{
+        app.catalogo = app.catalogo.filter(i=>i.id!==id);
+        renderCatalogo(); renderCatalogoResumo(); saveApp();
+      });
+    }
+  });
+  renderCatalogoResumo();
+}
+
+// Recalcula alça/poste/bap/supa a partir dos cabos do Catálogo. Com
+// patchDom=true, atualiza só os spans/totais na tela (sem re-renderizar
+// a tabela toda, pra não perder o foco de quem está digitando).
+function atualizarDerivadosCatalogo(patchDom){
+  const qtds = {};
+  app.catalogo.forEach(it=>{ qtds[it.id] = it.qtd||0; });
+  const efetivo = computarDerivados(qtds);
+  app.catalogo.forEach(it=>{
+    if(!ehDerivado(it)) return;
+    it.qtd = efetivo[it.id]||0;
+    if(patchDom){
+      const span = document.querySelector(`#tbody-catalogo .qtd-calc[data-id="${it.id}"]`);
+      if(span) span.textContent = fmtNumCalc(it.qtd);
+      const totalCell = document.querySelector(`#tbody-catalogo .row-total[data-id="${it.id}"]`);
+      if(totalCell) totalCell.textContent = fmtBRL(it.qtd*(it.custo||0));
+    }
+  });
+  if(patchDom) saveApp();
+}
+
+function renderCatalogoResumo(){
+  let material = 0, mao = 0;
+  app.catalogo.forEach(it=>{
+    const total = (it.qtd||0)*(it.custo||0);
+    if(it.categoria==='mao_de_obra') mao += total; else material += total;
+  });
+  document.getElementById('cat-material').textContent = fmtBRL(material);
+  document.getElementById('cat-mao').textContent = fmtBRL(mao);
+  document.getElementById('cat-total').textContent = fmtBRL(material+mao);
+}
+
+function addCatalogoItem(){
+  app.catalogo.push({ id: novoId('m'), nome:'Novo item', unidade:'Unid.', qtd:0, custo:0, categoria:'material' });
+  renderCatalogo(); saveApp();
+}
+
+/* ======================================================================
+   ABA SETORES — linhas = materiais do catálogo, colunas = setores
+====================================================================== */
+function materiaisDoCatalogo(){
+  return app.catalogo.filter(it=>it.categoria!=='mao_de_obra');
+}
+
+function renderSetores(){
+  const headRow = document.getElementById('setores-head-row');
+  headRow.innerHTML = '<th>Material</th><th class="num">Unid.</th>' +
+    app.setores.map(s=>`<th class="num setor-col" data-setor="${s.id}"></th>`).join('');
+  headRow.querySelectorAll('.setor-col').forEach(th=>{
+    const s = app.setores.find(x=>x.id===th.dataset.setor);
+    th.innerHTML = `<input class="setor-nome" value="${esc(s.nome)}">` +
+      (app.setores.length>1 ? `<button class="del-btn" type="button" title="Remover setor" style="display:block;margin:4px auto 0;">✕</button>` : '');
+    th.querySelector('.setor-nome').addEventListener('input', e=>{ s.nome = e.target.value; saveApp(); });
+    const delBtn = th.querySelector('.del-btn');
+    if(delBtn) delBtn.addEventListener('click', ()=>{
+      app.setores = app.setores.filter(x=>x.id!==s.id);
+      renderSetores(); saveApp();
+    });
+  });
+
+  const materiais = materiaisDoCatalogo();
+  const tbody = document.getElementById('tbody-setores');
+  tbody.innerHTML = materiais.map(it=>{
+    const derivado = ehDerivado(it);
+    return `
+    <tr data-item="${it.id}" class="${derivado?'derivado':''}">
+      <td class="desc">${esc(it.nome)}${derivado?' <span class="calc-tag">calculado</span>':''}</td>
+      <td class="num">${esc(it.unidade)}</td>
+      ${app.setores.map(s=>{
+        if(derivado){
+          const val = qtdEfetivaSetor(s, it.id);
+          return `<td class="num"><span class="qtd-calc" data-setor="${s.id}" data-item="${it.id}">${fmtNumCalc(val)}</span></td>`;
+        }
+        return `<td class="num"><input type="number" class="setor-qty" data-setor="${s.id}" min="0" step="1" value="${s.qtds[it.id]||0}"></td>`;
+      }).join('')}
+    </tr>`;
+  }).join('') || `<tr><td colspan="99" style="color:var(--cinza);">Nenhum material no catálogo — adicione itens na aba Catálogo &amp; Preços.</td></tr>`;
+
+  tbody.querySelectorAll('input.setor-qty').forEach(input=>{
+    input.addEventListener('input', e=>{
+      const tr = e.target.closest('tr');
+      const itemId = tr.dataset.item;
+      const setorId = e.target.dataset.setor;
+      const s = app.setores.find(x=>x.id===setorId);
+      s.qtds[itemId] = parseFloat(e.target.value)||0;
+      atualizarDerivadosSetor(s);
+      renderSetoresTotais();
+      saveApp();
+    });
+  });
+
+  renderSetoresTotais();
+}
+
+// Quantidade "efetiva" de um item num setor: pra itens derivados
+// (alça/poste/bap/supa) recalcula a partir dos cabos do próprio setor;
+// pros demais, é só o valor digitado.
+function qtdEfetivaSetor(setor, itemId){
+  return computarDerivados(setor.qtds)[itemId] || 0;
+}
+
+// Atualiza na tela (sem re-renderizar a tabela) os spans calculados de
+// UM setor específico, depois que uma quantidade de cabo dele mudou.
+function atualizarDerivadosSetor(setor){
+  const efetivo = computarDerivados(setor.qtds);
+  app.catalogo.forEach(it=>{
+    if(!ehDerivado(it)) return;
+    const span = document.querySelector(`#tbody-setores .qtd-calc[data-setor="${setor.id}"][data-item="${it.id}"]`);
+    if(span) span.textContent = fmtNumCalc(efetivo[it.id]||0);
+  });
+}
+
+function renderSetoresTotais(){
+  const materiais = materiaisDoCatalogo();
+  const totalRow = document.getElementById('setores-total-row');
+  const totais = app.setores.map(s=>{
+    let total = 0;
+    materiais.forEach(it=>{ total += qtdEfetivaSetor(s,it.id) * (it.custo||0); });
+    return total;
+  });
+  totalRow.innerHTML = '<td style="font-weight:700;">Total material (R$)</td><td></td>' +
+    totais.map(t=>`<td class="num" style="font-weight:700;">${fmtBRL(t)}</td>`).join('');
+}
+
+function addSetor(){
+  const n = app.setores.length+1;
+  app.setores.push(blankSetor('Setor '+String(n).padStart(2,'0')));
+  renderSetores(); saveApp();
+}
+
+/* ======================================================================
+   ABA GERAL — soma de todos os setores × preço do catálogo, mão de obra
+   calculada a partir das quantidades consolidadas de cabo/CTO/CEO.
+====================================================================== */
+function somaSetores(itemId){
+  return app.setores.reduce((s,setor)=>s+qtdEfetivaSetor(setor,itemId), 0);
+}
+
+function renderGeral(){
+  const materiais = materiaisDoCatalogo();
+  const tbodyMat = document.getElementById('tbody-geral-material');
+  let totalMaterial = 0;
+  tbodyMat.innerHTML = materiais.map(it=>{
+    const qtd = somaSetores(it.id);
+    const total = qtd*(it.custo||0);
+    totalMaterial += total;
+    return `<tr${qtd?'':' style="color:#b3b9c2;"'}>
+      <td class="desc">${esc(it.nome)}</td>
+      <td class="num">${esc(it.unidade)}</td>
+      <td class="num">${qtd.toLocaleString('pt-BR')}</td>
+      <td class="money">${fmtBRL(it.custo||0)}</td>
+      <td class="money">${fmtBRL(total)}</td>
+    </tr>`;
+  }).join('');
+
+  // Mão de obra: computarDerivados() já calcula lançamento (soma de
+  // todos os cabos), CTO e Cx Emenda/CEO a partir das quantidades de
+  // cada setor — soma-se isso entre os setores igual a qualquer material.
+  const maoItens = app.catalogo.filter(it=>it.categoria==='mao_de_obra');
+  const maoLinhas = maoItens.map(it=>({
+    nome: it.nome, unidade: it.unidade, qtd: somaSetores(it.id), custo: it.custo||0,
+  }));
+  let totalMao = 0;
+  const tbodyMao = document.getElementById('tbody-geral-mao');
+  tbodyMao.innerHTML = maoLinhas.map(l=>{
+    const total = l.qtd*l.custo;
+    totalMao += total;
+    return `<tr>
+      <td class="desc">${esc(l.nome)}</td>
+      <td class="num">${esc(l.unidade)}</td>
+      <td class="num">${l.qtd.toLocaleString('pt-BR')}</td>
+      <td class="money">${fmtBRL(l.custo)}</td>
+      <td class="money">${fmtBRL(total)}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('geral-material').textContent = fmtBRL(totalMaterial);
+  document.getElementById('geral-mao').textContent = fmtBRL(totalMao);
+  document.getElementById('geral-com-mao').textContent = fmtBRL(totalMaterial+totalMao);
+  document.getElementById('geral-sem-mao-texto').textContent = fmtBRL(totalMaterial);
+  document.getElementById('geral-total-sem').textContent = fmtBRL(totalMaterial);
+  document.getElementById('geral-total-com').textContent = fmtBRL(totalMaterial+totalMao);
+}
+
+/* ======================================================================
+   ORÇAMENTOS SALVOS — "comprovante" congelado no momento do salvamento
+   (não usa o catálogo/setores atuais do app, e sim a cópia guardada no
+   próprio salvo, pra não mudar se a fórmula ou os preços do catálogo
+   padrão mudarem depois).
+====================================================================== */
+// Um orçamento salvo é o congelamento do Catálogo no momento do "Salvar"
+// — cada item já traz a sua quantidade final (digitada ou calculada por
+// fórmula) guardada em it.qtd, então o comprovante só precisa somar o
+// que já está ali, sem recalcular nada (fica igual ao "Total desta
+// simulação" que a pessoa viu na hora de salvar).
+function resumoOrcamento(catalogoSnap){
+  const materiais = catalogoSnap.filter(it=>it.categoria!=='mao_de_obra' && (it.qtd||0)>0.0001);
+  const maoItens = catalogoSnap.filter(it=>it.categoria==='mao_de_obra');
+  let totalMaterial = 0, totalMao = 0;
+  const linhasMaterial = materiais.map(it=>{
+    const total = (it.qtd||0)*(it.custo||0);
+    totalMaterial += total;
+    return {nome:it.nome, unidade:it.unidade, qtd:it.qtd||0, custo:it.custo||0, total};
+  });
+  const linhasMao = maoItens.map(it=>{
+    const total = (it.qtd||0)*(it.custo||0);
+    totalMao += total;
+    return {nome:it.nome, unidade:it.unidade, qtd:it.qtd||0, custo:it.custo||0, total};
+  });
+  return { linhasMaterial, linhasMao, totalMaterial, totalMao, totalGeral: totalMaterial+totalMao };
+}
+
+function renderSalvosList(){
+  const el = document.getElementById('salvosList');
+  if(!app.salvos.length){
+    el.innerHTML = `<div class="empty-side">Nenhum orçamento salvo ainda. Preencha o Catálogo/Setores e clique em "Salvar orçamento atual".</div>`;
+    return;
+  }
+  const ordenados = [...app.salvos].sort((a,b)=>b.criadoEm-a.criadoEm);
+  el.innerHTML = ordenados.map(s=>{
+    const r = resumoOrcamento(s.catalogo);
+    const data = new Date(s.criadoEm).toLocaleString('pt-BR', {dateStyle:'short', timeStyle:'short'});
+    return `<div class="salvo-card${s.id===visualizandoSalvoId?' active':''}" data-id="${s.id}">
+      <div class="snome">${esc(s.nome)}</div>
+      <div class="sdata">${data}</div>
+      <div class="svalor">${fmtBRL(r.totalGeral)}</div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.salvo-card').forEach(card=>{
+    card.addEventListener('click', ()=> abrirSalvo(card.dataset.id));
+  });
+}
+
+function salvarOrcamentoAtual(){
+  const nome = prompt('Nome desse orçamento (ex: nome do projeto/cidade):', 'Orçamento '+new Date().toLocaleDateString('pt-BR'));
+  if(!nome) return;
+  app.salvos.push({
+    id: novoId('sv'),
+    nome: nome.trim(),
+    criadoEm: Date.now(),
+    catalogo: JSON.parse(JSON.stringify(app.catalogo)),
+    setores: JSON.parse(JSON.stringify(app.setores)),
+  });
+  saveApp();
+  renderSalvosList();
+  alert('Orçamento salvo! Ele fica na lista da barra lateral, sem afetar o que você continuar editando aqui.');
+}
+
+function novoOrcamento(){
+  if(!confirm('Isso limpa o Catálogo e os Setores que você está editando agora (o que já foi salvo continua guardado na lista). Continuar?')) return;
+  app.catalogo = catalogoPadrao();
+  app.setores = [blankSetor('Setor 01')];
+  saveApp();
+  renderCatalogo(); renderSetores(); renderGeral();
+}
+
+function abrirSalvo(id){
+  const s = app.salvos.find(x=>x.id===id);
+  if(!s) return;
+  visualizandoSalvoId = id;
+  document.getElementById('viewDraft').style.display = 'none';
+  document.getElementById('viewSalvo').style.display = '';
+  document.getElementById('salvo-nome').textContent = '📋 '+s.nome;
+  document.getElementById('salvo-data').textContent = 'Salvo em '+new Date(s.criadoEm).toLocaleString('pt-BR', {dateStyle:'long', timeStyle:'short'});
+
+  const r = resumoOrcamento(s.catalogo);
+  document.getElementById('salvo-material').textContent = fmtBRL(r.totalMaterial);
+  document.getElementById('salvo-mao').textContent = fmtBRL(r.totalMao);
+  document.getElementById('salvo-total').textContent = fmtBRL(r.totalGeral);
+
+  document.getElementById('salvo-tbody-material').innerHTML = r.linhasMaterial.map(l=>`
+    <tr>
+      <td class="desc">${esc(l.nome)}</td>
+      <td class="num">${esc(l.unidade)}</td>
+      <td class="num">${fmtNumCalc(l.qtd)}</td>
+      <td class="money">${fmtBRL(l.custo)}</td>
+      <td class="money">${fmtBRL(l.total)}</td>
+    </tr>`).join('') || `<tr><td colspan="5" style="color:var(--cinza);">Nenhum material com quantidade preenchida.</td></tr>`;
+
+  document.getElementById('salvo-tbody-mao').innerHTML = r.linhasMao.map(l=>`
+    <tr>
+      <td class="desc">${esc(l.nome)}</td>
+      <td class="num">${esc(l.unidade)}</td>
+      <td class="num">${fmtNumCalc(l.qtd)}</td>
+      <td class="money">${fmtBRL(l.custo)}</td>
+      <td class="money">${fmtBRL(l.total)}</td>
+    </tr>`).join('');
+
+  document.getElementById('duplicarSalvoBtn').onclick = ()=>{
+    if(!confirm('Isso substitui o Catálogo/Setores que você está editando pelos dados desse orçamento salvo. Continuar?')) return;
+    app.catalogo = JSON.parse(JSON.stringify(s.catalogo));
+    app.setores = JSON.parse(JSON.stringify(s.setores));
+    saveApp();
+    renderCatalogo(); renderSetores(); renderGeral();
+    fecharSalvo();
+  };
+  document.getElementById('excluirSalvoBtn').onclick = ()=>{
+    if(!confirm(`Excluir o orçamento salvo "${s.nome}"? Essa ação não pode ser desfeita.`)) return;
+    app.salvos = app.salvos.filter(x=>x.id!==id);
+    saveApp();
+    fecharSalvo();
+    renderSalvosList();
+  };
+
+  renderSalvosList();
+}
+
+function fecharSalvo(){
+  visualizandoSalvoId = null;
+  document.getElementById('viewSalvo').style.display = 'none';
+  document.getElementById('viewDraft').style.display = '';
+  renderSalvosList();
+}
+
+document.getElementById('salvarBtn').addEventListener('click', salvarOrcamentoAtual);
+document.getElementById('novoBtn').addEventListener('click', novoOrcamento);
+document.getElementById('voltarRascunhoLink').addEventListener('click', e=>{ e.preventDefault(); fecharSalvo(); });
+
+renderCatalogo();
+renderSetores();
+renderGeral();
+renderSalvosList();
+
+document.getElementById('refreshPageBtn').onclick = () => location.reload();
+</script>
+
+</body>
+</html>

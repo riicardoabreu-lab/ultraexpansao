@@ -44,6 +44,15 @@ deploy específico: `npx vercel ls`, `npx vercel inspect <url>`).
 ├── controle-km/index.html   → controle de quilometragem
 ├── avaliacao-provedor/      → calculadora de avaliação de provedor
 ├── numeracao-ctos/          → numeração de CTOs
+├── orcamento-ftth/          → catálogo de materiais FTTH (cabo/alça por FO,
+│                              caixas, splitters, mão de obra, com Alça/
+│                              Poste/Bap/Supa/mão de obra calculados
+│                              automaticamente a partir do cabo/CTO/CEO,
+│                              igual às fórmulas da planilha mestra) +
+│                              comparação entre setores + totais com/sem
+│                              mão de obra + orçamentos salvos ("comprovante"
+│                              congelado, na barra lateral) sincronizados
+│                              com a equipe via Firestore (orcamento_ftth_backups)
 └── aquisicoes/               → plataforma de aquisições ISP
 ```
 

@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<script>
+  // Bloqueia acesso direto a esta página sem passar pelo login do portal.
+  if (sessionStorage.getItem('infolink_hub_auth') !== 'ok') {
+    window.location.href = '../index.html';
+  }
+</script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  const fb = initializeApp({
+    apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
+    authDomain: "isp-manager-ce.firebaseapp.com",
+    projectId: "isp-manager-ce",
+    storageBucket: "isp-manager-ce.firebasestorage.app",
+    messagingSenderId: "374725918192",
+    appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
+  });
+  const auth = getAuth(fb);
+  const fsDb = getFirestore(fb);
+
+  // ---- Sincronização em tempo real com a nuvem (Firestore), mesmo
+  // padrão usado em Expansão Orgânica/Orçamento FTTH: last write wins.
+  window._lastKnownUpdated = 0;
+  window._cloudSave = (data) => {
+    if(!window._fbUser) return Promise.resolve();
+    window._lastKnownUpdated = data.updated;
+    return setDoc(doc(fsDb, 'beberibe_projeto1_backups', window._fbUser.uid), data);
+  };
+
+  onAuthStateChanged(auth, user => {
+    if(!user) return;
+    window._fbUser = user;
+    onSnapshot(doc(fsDb, 'beberibe_projeto1_backups', user.uid), snap => {
+      if(!snap.exists()) return;
+      const data = snap.data();
+      if((data.updated||0) <= (window._lastKnownUpdated||0)) return;
+      window._lastKnownUpdated = data.updated;
+      if(window._applyRemoteState) window._applyRemoteState(data);
+    }, err => console.error('Falha no listener de sincronização (Beberibe Projeto 1):', err));
+  });
+</script>
+<meta charset="UTF-8">
+<title>Orçamento e Mapa da Rede — Infraestrutura Externa e CPD</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root{
+    --azul:#1F4E78;
+    --azul-claro:#D9E1F2;
+    --amarelo:#FFF6B0;
+    --amarelo-borda:#E6C200;
+    --alerta:#FDE2E4;
+    --cinza:#6b7280;
+    --borda:#dfe3e8;
+    --azul-tag:#E8F0FA;
+    --verde-tag:#E2EFDA;
+  }
+  *{box-sizing:border-box;}
+  body{
+    font-family:Arial, Helvetica, sans-serif;
+    background:#f4f6f8;
+    margin:0;
+    padding:32px 16px 64px;
+    color:#1f2937;
+  }
+  .wrap{max-width:1150px;margin:0 auto;}
+  header.page-title{
+    background:linear-gradient(135deg,var(--azul),#2c6ca3);
+    color:#fff;
+    border-radius:12px;
+    padding:28px 32px;
+    margin-bottom:24px;
+    box-shadow:0 4px 14px rgba(31,78,120,.25);
+  }
+  header.page-title h1{margin:0 0 6px;font-size:24px;}
+  header.page-title p{margin:0;font-size:13px;opacity:.9;}
+
+  .tabs{
+    display:flex;
+    gap:6px;
+    margin-bottom:20px;
+    background:#fff;
+    padding:6px;
+    border-radius:10px;
+    box-shadow:0 1px 4px rgba(0,0,0,.08);
+  }
+  .tab-btn{
+    flex:1;
+    border:none;
+    background:transparent;
+    padding:10px 14px;
+    font-size:13px;
+    font-weight:700;
+    color:var(--cinza);
+    border-radius:7px;
+    cursor:pointer;
+    transition:all .15s;
+  }
+  .tab-btn.active{background:var(--azul);color:#fff;}
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block;}
+
+  .resumo{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:16px;
+    margin-bottom:28px;
+  }
+  .card-resumo{
+    background:#fff;
+    border-radius:10px;
+    padding:18px 20px;
+    box-shadow:0 1px 4px rgba(0,0,0,.08);
+    border-left:5px solid var(--azul);
+  }
+  .card-resumo.total{border-left-color:#E8A400;background:#fff9ec;}
+  .card-resumo .label{font-size:12px;color:var(--cinza);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;}
+  .card-resumo .valor{font-size:22px;font-weight:700;color:var(--azul);}
+  .card-resumo.total .valor{color:#B8860B;}
+
+  section.bloco{
+    background:#fff;
+    border-radius:12px;
+    box-shadow:0 1px 6px rgba(0,0,0,.08);
+    margin-bottom:28px;
+    overflow:hidden;
+  }
+  .bloco-header{
+    background:var(--azul);
+    color:#fff;
+    padding:14px 22px;
+    font-size:16px;
+    font-weight:700;
+  }
+  .bloco-sub{
+    padding:10px 22px 0;
+    font-size:12.5px;
+    color:var(--cinza);
+    font-style:italic;
+    line-height:1.5;
+  }
+  table{
+    width:100%;
+    border-collapse:collapse;
+    margin-top:12px;
+    font-size:13px;
+  }
+  thead th{
+    background:var(--azul-claro);
+    color:#17324d;
+    text-align:left;
+    padding:10px 12px;
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.02em;
+    border-bottom:2px solid var(--azul);
+  }
+  th.num, td.num{text-align:center;}
+  th.money, td.money{text-align:right;}
+  tbody td{
+    padding:9px 12px;
+    border-bottom:1px solid var(--borda);
+    vertical-align:top;
+  }
+  tbody tr:hover{background:#fafbfc;}
+  td.fonte{color:var(--cinza);font-size:11.5px;font-style:italic;}
+  tr.zero td{color:#b3b9c2;}
+  tr.kmz td.qtd{background:var(--azul-tag);font-weight:600;color:#1F4E78;}
+  tr.pendente td{background:var(--amarelo);}
+  tr.pendente td.desc::after{
+    content:" ⚠ aguardando cotação";
+    color:#8a6d00;
+    font-size:11px;
+    font-style:italic;
+    font-weight:normal;
+  }
+  tr.user td.qtd{background:var(--verde-tag);font-weight:600;color:#1f7a44;}
+  tfoot td{
+    padding:12px;
+    font-weight:700;
+    background:#FFC000;
+    border-top:2px solid #d99e00;
+  }
+  .obs-box{
+    margin:0 22px 20px;
+    padding:14px 16px;
+    background:#f7f9fb;
+    border-left:4px solid var(--azul);
+    border-radius:6px;
+    font-size:12.5px;
+    color:#334155;
+    line-height:1.6;
+  }
+  .obs-box strong{color:var(--azul);}
+  .alerta-box{
+    margin:0 22px 20px;
+    padding:14px 16px;
+    background:var(--alerta);
+    border-left:4px solid #d9534f;
+    border-radius:6px;
+    font-size:12.5px;
+    color:#7a2b2b;
+    line-height:1.6;
+  }
+  .alerta-box strong{display:block;margin-bottom:4px;color:#a12626;}
+  .legenda{
+    display:flex;
+    gap:18px;
+    align-items:center;
+    flex-wrap:wrap;
+    font-size:12px;
+    color:var(--cinza);
+    margin:0 0 24px;
+  }
+  .legenda .sw{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:6px;vertical-align:middle;}
+  .calc-mini{
+    margin:14px 22px 20px;
+    padding:16px 18px;
+    background:#f7f9fb;
+    border-radius:8px;
+    display:grid;
+    grid-template-columns:repeat(5,1fr);
+    gap:12px;
+    text-align:center;
+  }
+  .calc-mini .item .num{font-size:18px;font-weight:700;color:var(--azul);}
+  .calc-mini .item .lbl{font-size:11px;color:var(--cinza);margin-top:2px;}
+
+  .mun-tabs{
+    display:flex;
+    gap:6px;
+    padding:14px 22px 0;
+    flex-wrap:wrap;
+  }
+  .mun-btn{
+    border:1px solid var(--borda);
+    background:#fff;
+    padding:8px 16px;
+    font-size:12.5px;
+    font-weight:700;
+    color:var(--azul);
+    border-radius:20px;
+    cursor:pointer;
+  }
+  .mun-btn.active{background:var(--azul);color:#fff;border-color:var(--azul);}
+  .mun-stats{
+    display:grid;
+    grid-template-columns:repeat(5,1fr);
+    gap:12px;
+    padding:14px 22px 0;
+  }
+  .mun-stats .stat{
+    background:#f7f9fb;
+    border-radius:8px;
+    padding:10px 14px;
+    text-align:center;
+  }
+  .mun-stats .stat .num{font-size:16px;font-weight:700;color:var(--azul);}
+  .mun-stats .stat .lbl{font-size:10.5px;color:var(--cinza);}
+  #map{
+    height:520px;
+    margin:16px 22px 22px;
+    border-radius:8px;
+    border:1px solid var(--borda);
+  }
+  .map-legend{
+    display:flex;
+    gap:16px;
+    padding:0 22px 20px;
+    font-size:12px;
+    color:var(--cinza);
+    flex-wrap:wrap;
+  }
+  .map-legend .dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:middle;}
+  .map-legend .line{display:inline-block;width:16px;height:3px;margin-right:5px;vertical-align:middle;}
+
+  footer{
+    text-align:center;
+    font-size:11.5px;
+    color:#9aa4b2;
+    margin-top:32px;
+  }
+  input.qty-in, input.price-in{
+    width:90px;
+    padding:5px 7px;
+    border:1px solid var(--borda);
+    border-radius:5px;
+    font-size:12.5px;
+    font-family:Arial, Helvetica, sans-serif;
+    text-align:right;
+  }
+  input.qty-in:focus, input.price-in:focus{
+    outline:none;
+    border-color:var(--azul);
+    box-shadow:0 0 0 2px rgba(31,78,120,.15);
+  }
+  .del-btn{
+    background:none;
+    border:none;
+    color:#b91c1c;
+    font-size:14px;
+    cursor:pointer;
+    padding:2px 6px;
+    border-radius:4px;
+  }
+  .del-btn:hover{background:#fde2e4;}
+  .add-btn{
+    display:block;
+    margin:4px 22px 20px;
+    padding:9px 16px;
+    background:var(--azul);
+    color:#fff;
+    border:none;
+    border-radius:7px;
+    font-size:12.5px;
+    font-weight:700;
+    cursor:pointer;
+  }
+  .add-btn:hover{background:#173e60;}
+  td[contenteditable]{outline:none;}
+  td[contenteditable]:focus{background:#fffbe6;}
+  @media (max-width:720px){
+    .resumo{grid-template-columns:1fr;}
+    .calc-mini{grid-template-columns:repeat(2,1fr);}
+    .mun-stats{grid-template-columns:repeat(2,1fr);}
+    table{font-size:11.5px;}
+    thead th, tbody td{padding:7px 8px;}
+    #map{height:380px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <a href="index.html" style="display:inline-block;margin-bottom:16px;color:#1F4E78;font-size:13px;text-decoration:none;font-family:Arial, Helvetica, sans-serif;">← Voltar para Expansão Orgânica</a>
+
+  <header class="page-title">
+    <h1>Rede FTTH — Mapa, Orçamento de Infraestrutura Externa e CPD</h1>
+    <p>4 municípios (Campestre, Palmeira, Parajuru, Paripueira) · Mapa da rede real (KMZ) + orçamento cruzando contagem geoespacial, dados de campo e cotações reais</p>
+  </header>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="showTab('mapa')">🗺️ Mapa da Rede</button>
+    <button class="tab-btn" onclick="showTab('orcamento')">💰 Orçamento</button>
+  </div>
+
+  <!-- =========================== ABA MAPA =========================== -->
+  <div id="tab-mapa" class="tab-panel active">
+    <section class="bloco">
+      <div class="bloco-header">Mapa da Rede — separado por município</div>
+      <div class="bloco-sub">Os arquivos KMZ enviados são organizados por município (não há divisão por bairro dentro dos arquivos) — cada aba abaixo é um município completo, com todas as caixas, CEO e trechos de cabo.</div>
+
+      <div class="mun-tabs" id="mun-tabs"></div>
+      <div class="mun-stats" id="mun-stats"></div>
+      <div id="map"></div>
+      <div class="map-legend">
+        <span><span class="dot" style="background:#FFFFFF;border:2px solid #1F2937;"></span>Caixa CX (CTO 1x8)</span>
+        <span><span class="dot" style="background:#C62828;"></span>CEO</span>
+        <span><span class="line" style="background:#FFD700;"></span>Cabo óptico 12FO</span>
+      </div>
+
+      <div class="bloco-sub" style="padding-top:0;margin-top:-4px;">Comparativo entre os 4 municípios</div>
+      <table style="margin:8px 22px 22px;width:calc(100% - 44px);">
+        <thead>
+          <tr>
+            <th>Município</th>
+            <th class="num">Caixas CX</th>
+            <th class="num">CEO</th>
+            <th class="num">Cabo 12FO</th>
+            <th class="num">Portas a atender</th>
+            <th class="money">Investimento (infra externa)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="desc" contenteditable="true">Campestre</td><td class="num">111</td><td class="num">8</td><td class="num">29.910 m</td><td class="num">888</td><td class="money">R$ 76.429,99</td></tr>
+          <tr><td class="desc" contenteditable="true">Palmeira</td><td class="num">20</td><td class="num">2</td><td class="num">9.448 m</td><td class="num">160</td><td class="money">R$ 22.633,03</td></tr>
+          <tr><td class="desc" contenteditable="true">Parajuru</td><td class="num">65</td><td class="num">5</td><td class="num">23.221 m</td><td class="num">520</td><td class="money">R$ 57.356,89</td></tr>
+          <tr><td class="desc" contenteditable="true">Paripueira</td><td class="num">45</td><td class="num">4</td><td class="num">15.911 m</td><td class="num">360</td><td class="money">R$ 39.440,32</td></tr>
+        </tbody>
+        <tfoot>
+          <tr><td>TOTAL</td><td class="num">241</td><td class="num">19</td><td class="num">78.490 m</td><td class="num">1.928</td><td class="money">R$ 195.860,23</td></tr>
+        </tfoot>
+      </table>
+      <div class="obs-box" style="margin:0 22px 22px;">
+        <strong>Observações</strong><br>
+        • Portas a atender = caixas CX × 8 (padrão 1x8).<br>
+        • Investimento por município cobre infraestrutura externa (cabo, CTO, CEO, splitters, poste, BAP, SUPA, alça, acoplador, arame, tubete, raquete CEO). O CPD (R$42.533,90) é investimento único do POP central, não dividido por município.<br>
+        • Poste, BAP, SUPA, alça, arame e tubete foram informados só em total do projeto — distribuídos proporcionalmente ao comprimento de cabo de cada município, com arredondamento ajustado para bater exatamente com o total geral.
+      </div>
+    </section>
+  </div>
+
+  <!-- =========================== ABA ORÇAMENTO =========================== -->
+  <div id="tab-orcamento" class="tab-panel">
+
+    <div class="resumo">
+      <div class="card-resumo">
+        <div class="label">Infraestrutura Externa (Investimento Consolidado)</div>
+        <div class="valor">R$ 195.860,23</div>
+      </div>
+      <div class="card-resumo">
+        <div class="label">CPD</div>
+        <div class="valor">R$ 49.953,90</div>
+      </div>
+      <div class="card-resumo total">
+        <div class="label">Total Geral (itens já cotados/levantados)</div>
+        <div class="valor">R$ 245.814,13</div>
+      </div>
+    </div>
+
+    <div class="legenda">
+      <span><span class="sw" style="background:var(--azul-tag);border:1px solid #b9cbe6;"></span>Quantidade da contagem do KMZ</span>
+      <span><span class="sw" style="background:var(--verde-tag);border:1px solid #b7e3c6;"></span>Dado real de campo (planilha do usuário)</span>
+      <span><span class="sw" style="background:var(--amarelo);border:1px solid var(--amarelo-borda);"></span>Aguardando cotação / quantidade</span>
+    </div>
+
+    <!-- INVESTIMENTO CONSOLIDADO -->
+    <section class="bloco">
+      <div class="bloco-header">Infraestrutura Externa — Investimento Consolidado</div>
+      <div class="bloco-sub">Cabo, alça, BAP, SUPA, poste, acoplador, arame, tubete, raquete CEO (dados reais de campo) + CTO, CEO, splitters (contagem do KMZ) — preços da planilha mestra. Quantidade e valor unitário são editáveis; use "+ Adicionar item" para novas linhas.</div>
+
+      <div class="calc-mini">
+        <div class="item"><div class="num">78.490 m</div><div class="lbl">Cabo 12FO</div></div>
+        <div class="item"><div class="num">1.744</div><div class="lbl">Postes</div></div>
+        <div class="item"><div class="num">241</div><div class="lbl">Caixas CX / CTO</div></div>
+        <div class="item"><div class="num">19</div><div class="lbl">CEO novos</div></div>
+        <div class="item"><div class="num">~45 m</div><div class="lbl">Espaçamento real/poste</div></div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th class="num">Unid.</th>
+            <th class="num">Quantidade</th>
+            <th class="money">Vlr. Unit.</th>
+            <th class="money">Vlr. Total</th>
+            <th>Origem da Quantidade</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody-infra">
+          <tr class="kmz" data-row><td class="desc" contenteditable="true">Cabo de Fibra 12FO</td><td class="num">Metro</td><td class="num"><input type="number" class="qty-in" value="78490" step="1"></td><td class="money"><input type="number" class="price-in" value="1.79" step="0.01"></td><td class="money row-total"></td><td class="fonte">Contagem consolidada do KMZ</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr class="user" data-row><td class="desc" contenteditable="true">Alça 12 FO</td><td class="num">Unid.</td><td class="num"><input type="number" class="qty-in" value="3925" step="1"></td><td class="money"><input type="number" class="price-in" value="1.87" step="0.01"></td><td class="money row-total"></td><td class="fonte">Dado real de campo (planilha do usuário)</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr class="user" data-row><td class="desc" contenteditable="true">Bap</td><td class="num">Unid.</td><td class="num"><input type="number" class="qty-in" value="1744" step="1"></td><td class="money"><input type="number" class="price-in" value="7.49" step="0.01"></td><td class="money row-total"></td><td class="fonte">Dado real de campo (planilha do usuário)</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr class="user" data-row><td class="desc" contenteditable="true">Supa</td><td class="num">Unid.</td><td class="num"><input type="number" class="qty-in" value="2616" step="1"></td><td class="money"><input type="number" class="price-in" value="2.89" step="0.01"></td><td class="money row-total"></td><td class="fonte">Dado real de campo (planilha do usuário)</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr class="user" data-row><td class="desc" contenteditable="true">Poste</td><td class="num">Unid.</td><td class="num"><input type="number" class="qty-in" value="1744" step="1"></td><td class="money"><input type="number" class="price-in" value="0" step="0.01"></td><td class="money row-total"></td><td class="fonte">Dado real de campo — informativo, sem preço unitário</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr class="kmz" data-row><td class="desc" contenteditable="true">CTO</td><td class="num">Unid.</td><td class="num"><input type="number" class="qty-in" value="241" step="1"></td><td class="money"><input type="number" class="price-in" value="59.00" step="0.01"></td><td class="money row-total"></td><td class="fonte">Contagem consolidada do KMZ (total de caixas CX)</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr class="kmz" data-row><td class="desc" contenteditable="true">CEO 24 FO</td><td class="num">Unid.</td><td class="num"><input type="number" class="qty-in" value="19" step="1"></td><td class="money"><input type="number" class="price-in" value="152.90" step="0.01"></td><td class="money row-total"></td><td class="fonte">Contagem consolidada do KMZ (total de CEO novos)</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr class="kmz" data-row><td class="desc" contenteditable="true">Spliter 1x8 SC</td><td class="num">Unid.</td><td class="num"><input type="number" class="qty-in" value="241" step="1"></td><td class="money"><input type="number" class="price-in" value="24.40" step="0.01"></td><td class="money row-total"></td><td class="fonte">Contagem do KMZ (1 por caixa CX)</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr class="kmz" data-row><td class="desc" contenteditable="true">Spliter 1x2 SC</td><td class="num">Unid.</td><td class="num"><input type="number" class="qty-in" value="100" step="1"></td><td class="money"><input type="number" class="price-in" value="19.10" step="0.01"></td><td class="money row-total"></td><td class="fonte">Detalhamento por Rota (splitters em cascata)</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr class="user" data-row><td class="desc" contenteditable="true">Acoplador</td><td class="num">Unid.</td><td class="num"><input type="number" class="qty-in" value="1928" step="1"></td><td class="money"><input type="number" class="price-in" value="0.64" step="0.01"></td><td class="money row-total"></td><td class="fonte">Informado pelo usuário (1 por porta)</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr class="user" data-row><td class="desc" contenteditable="true">Arrame Espinar</td><td class="num">Rolo</td><td class="num"><input type="number" class="qty-in" value="24" step="1"></td><td class="money"><input type="number" class="price-in" value="23.80" step="0.01"></td><td class="money row-total"></td><td class="fonte">Informado pelo usuário</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr class="user" data-row><td class="desc" contenteditable="true">Tubete</td><td class="num">Unid.</td><td class="num"><input type="number" class="qty-in" value="800" step="1"></td><td class="money"><input type="number" class="price-in" value="0.19" step="0.01"></td><td class="money row-total"></td><td class="fonte">Informado pelo usuário</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr class="user" data-row><td class="desc" contenteditable="true">Raquete Ceo</td><td class="num">Unid.</td><td class="num"><input type="number" class="qty-in" value="19" step="1"></td><td class="money"><input type="number" class="price-in" value="27.84" step="0.01"></td><td class="money row-total"></td><td class="fonte">Informado pelo usuário (1 por CEO)</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+        </tbody>
+        <tfoot>
+          <tr><td colspan="4" style="text-align:right;">TOTAL GERAL — INFRAESTRUTURA (INVESTIMENTO CONSOLIDADO)</td><td class="money" id="total-infra">R$ 0,00</td><td colspan="2"></td></tr>
+        </tfoot>
+      </table>
+      <button class="add-btn" onclick="addRow('tbody-infra')">+ Adicionar item</button>
+
+      <div class="obs-box">
+        <strong>Observações</strong><br>
+        • Itens sem uso previsto (quantidade zero) foram ocultados desta tabela — para reativar um deles, use "+ Adicionar item".<br>
+        • Espaçamento real de postes: 78.490m ÷ 1.744 postes ≈ 45m/poste.<br>
+        • CEO 24FO usa o preço da planilha mestra (R$152,90); uma cotação anterior trazia R$159,90 — priorizado o valor mais recente/oficial.<br>
+        • Quantidade e valor unitário são editáveis diretamente na tabela — os totais recalculam automaticamente.
+      </div>
+    </section>
+
+    <!-- CPD -->
+    <section class="bloco">
+      <div class="bloco-header">CPD (Central de Processamento de Dados / POP)</div>
+      <div class="bloco-sub">Rack, energia (nobreak/baterias), OLT Fiberhome, transceivers e acessórios. Quantidade e valor unitário são editáveis; use "+ Adicionar item" para novas linhas.</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Descrição</th>
+            <th class="num">Marca</th>
+            <th class="num">Qtd.</th>
+            <th class="money">Vlr. Unit.</th>
+            <th class="money">Vlr. Total</th>
+            <th>Fornecedor / Orçamento</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody-cpd">
+          <tr data-row><td class="desc" contenteditable="true">Frente Falsa Fechada 2U para Rack 19" — Preto</td><td class="num">Fibracem</td><td class="num"><input type="number" class="qty-in" value="2" step="1"></td><td class="money"><input type="number" class="price-in" value="23.88" step="0.01"></td><td class="money row-total"></td><td class="fonte">Supri Nordeste — Orç. 362355 (04/08/26)</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">Bateria Estacionária Nobreak 12V 150AH (12MN2500)</td><td class="num">Moura</td><td class="num"><input type="number" class="qty-in" value="4" step="1"></td><td class="money"><input type="number" class="price-in" value="1426.00" step="0.01"></td><td class="money row-total"></td><td class="fonte">Supri Nordeste — Orç. 362355 (04/08/26)</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">Bateria Estacionária 12V 115AH (12EV105)</td><td class="num">Everon</td><td class="num"><input type="number" class="qty-in" value="4" step="1"></td><td class="money"><input type="number" class="price-in" value="894.00" step="0.01"></td><td class="money row-total"></td><td class="fonte">Supri Nordeste — Orç. 362355 (04/08/26)</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">Fonte Retificadora Nobreak 48V 30A c/ 2 módulos R4815N 15A c/ monitor SMU01B (ETP4830-A1)</td><td class="num">Huawei</td><td class="num"><input type="number" class="qty-in" value="1" step="1"></td><td class="money"><input type="number" class="price-in" value="3790.00" step="0.01"></td><td class="money row-total"></td><td class="fonte">Supri Nordeste — Orç. 362355 (04/08/26)</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">Injetor POE 200 AT 802.3af/at Gigabit ET</td><td class="num">Intelbras</td><td class="num"><input type="number" class="qty-in" value="1" step="1"></td><td class="money"><input type="number" class="price-in" value="156.16" step="0.01"></td><td class="money row-total"></td><td class="fonte">Comercial Brasil — Orç. 17861020184417</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">Cabo Engate Rápido Mod. Bateria CB 600</td><td class="num">Intelbras</td><td class="num"><input type="number" class="qty-in" value="2" step="1"></td><td class="money"><input type="number" class="price-in" value="47.87" step="0.01"></td><td class="money row-total"></td><td class="fonte">Comercial Brasil — Orç. 17861020184417</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">Cabo Flexível 750V 10,00mm — Preto</td><td class="num">-</td><td class="num"><input type="number" class="qty-in" value="6" step="1"></td><td class="money"><input type="number" class="price-in" value="12.02" step="0.01"></td><td class="money row-total"></td><td class="fonte">Cotação cabo flexível</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">Cabo Flexível 750V 10,00mm — Vermelho</td><td class="num">-</td><td class="num"><input type="number" class="qty-in" value="6" step="1"></td><td class="money"><input type="number" class="price-in" value="12.02" step="0.01"></td><td class="money row-total"></td><td class="fonte">Cotação cabo flexível</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">SFP+ WDM BiDi 1270TX/1330RX, ER SMF 40km, 10G DDM</td><td class="num">-</td><td class="num"><input type="number" class="qty-in" value="2" step="1"></td><td class="money"><input type="number" class="price-in" value="220.00" step="0.01"></td><td class="money row-total"></td><td class="fonte">Cotação SFP/XFP</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">SFP+ WDM BiDi 1330TX/1270RX, ER SMF 40km, 10G DDM</td><td class="num">-</td><td class="num"><input type="number" class="qty-in" value="2" step="1"></td><td class="money"><input type="number" class="price-in" value="220.00" step="0.01"></td><td class="money row-total"></td><td class="fonte">Cotação SFP/XFP</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">XFP SR, 850nm, MMF 300m, 10G/OC-192 DDM</td><td class="num">-</td><td class="num"><input type="number" class="qty-in" value="1" step="1"></td><td class="money"><input type="number" class="price-in" value="260.00" step="0.01"></td><td class="money row-total"></td><td class="fonte">Cotação SFP/XFP</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">OLT Fiberhome AN5500-16, c/ cabos de força DC -48V</td><td class="num">Fiberhome</td><td class="num"><input type="number" class="qty-in" value="1" step="1"></td><td class="money"><input type="number" class="price-in" value="15000.00" step="0.01"></td><td class="money row-total"></td><td class="fonte">Preço informado pelo usuário</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">Placa GC8 (GPON 8 portas, para OLT AN5500-16)</td><td class="num">Fiberhome</td><td class="num"><input type="number" class="qty-in" value="1" step="1"></td><td class="money"><input type="number" class="price-in" value="4900.00" step="0.01"></td><td class="money row-total"></td><td class="fonte">Preço informado pelo usuário</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">Placa GFOA (GPON 16 portas, para OLT AN5500-16)</td><td class="num">Fiberhome</td><td class="num"><input type="number" class="qty-in" value="1" step="1"></td><td class="money"><input type="number" class="price-in" value="7900.00" step="0.01"></td><td class="money row-total"></td><td class="fonte">Preço informado pelo usuário</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">Rack Preto 36U</td><td class="num">-</td><td class="num"><input type="number" class="qty-in" value="1" step="1"></td><td class="money"><input type="number" class="price-in" value="2500.00" step="0.01"></td><td class="money row-total"></td><td class="fonte">Preço informado pelo usuário</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">Switch Datacom (modelo a confirmar)</td><td class="num">Datacom</td><td class="num"><input type="number" class="qty-in" value="1" step="1"></td><td class="money"><input type="number" class="price-in" value="5000.00" step="0.01"></td><td class="money row-total"></td><td class="fonte">Preço informado pelo usuário</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+        </tbody>
+        <tfoot>
+          <tr><td colspan="4" style="text-align:right;">TOTAL CPD</td><td class="money" id="total-cpd">R$ 0,00</td><td colspan="2"></td></tr>
+        </tfoot>
+      </table>
+      <button class="add-btn" onclick="addRow('tbody-cpd')">+ Adicionar item</button>
+
+      <div class="alerta-box">
+        <strong>Itens ainda sem cotação / quantidade</strong>
+        2 und — No-Break SMS Vision 2200VA · 2x Placa HSWA · 2x Placa HU2A · Ar Condicionado 12.000 BTU
+      </div>
+    </section>
+
+  </div>
+
+  <footer>
+    Orçamento e mapa consolidados a partir de KMZ, cotações de fornecedores e dados reais de campo · LB Jebnet Telecomunicações
+  </footer>
+
+</div>
+
+<script>
+const geo = {"campestre": {"points": [{"name": "CEO", "type": "CEO", "lat": -4.35812344846867, "lon": -37.95954831987327}, {"name": "CEO", "type": "CEO", "lat": -4.349711217272879, "lon": -37.96736661175396}, {"name": "CX 01", "type": "CX", "lat": -4.338315024693929, "lon": -37.96193455703266}, {"name": "CX 02", "type": "CX", "lat": -4.338073468039559, "lon": -37.96484629613393}, {"name": "CX 03", "type": "CX", "lat": -4.337930586621177, "lon": -37.96605660880212}, {"name": "CX 04", "type": "CX", "lat": -4.33760324992982, "lon": -37.96014151509973}, {"name": "CX 05", "type": "CX", "lat": -4.33512387680405, "lon": -37.95858474563757}, {"name": "CX 06", "type": "CX", "lat": -4.349273766990756, "lon": -37.96730020151517}, {"name": "CX 07", "type": "CX", "lat": -4.338476914910252, "lon": -37.95663693684524}, {"name": "CX 08", "type": "CX", "lat": -4.339281524558755, "lon": -37.95540888352856}, {"name": "CTO EMENDA", "type": "CTO", "lat": -4.337635059154676, "lon": -37.95870206751417}, {"name": "CX 09", "type": "CX", "lat": -4.349433127618198, "lon": -37.96768460019511}, {"name": "CX 10", "type": "CX", "lat": -4.350590506871788, "lon": -37.96828658809853}, {"name": "CX 11", "type": "CX", "lat": -4.35385919208541, "lon": -37.97014854303983}, {"name": "CX 12", "type": "CX", "lat": -4.35549339843234, "lon": -37.97084377702163}, {"name": "CX 01", "type": "CX", "lat": -4.344856392355907, "lon": -37.95194529302444}, {"name": "CX 02", "type": "CX", "lat": -4.346548881236304, "lon": -37.94901815452393}, {"name": "CX 04", "type": "CX", "lat": -4.347886248763467, "lon": -37.9533047867391}, {"name": "CX 03", "type": "CX", "lat": -4.347242364571016, "lon": -37.94671587835808}, {"name": "CX 05", "type": "CX", "lat": -4.349647290808416, "lon": -37.94665486301257}, {"name": "CX 06", "type": "CX", "lat": -4.347457347388875, "lon": -37.94506881922873}, {"name": "CX 07", "type": "CX", "lat": -4.347649941497221, "lon": -37.9437260922287}, {"name": "CX 08", "type": "CX", "lat": -4.348938654288279, "lon": -37.94370598973724}, {"name": "CX 09", "type": "CX", "lat": -4.349286182153875, "lon": -37.94224808073646}, {"name": "CX 10", "type": "CX", "lat": -4.347951600658893, "lon": -37.94215108119788}, {"name": "CX 11", "type": "CX", "lat": -4.348352461268349, "lon": -37.94101310065034}, {"name": "CX 12", "type": "CX", "lat": -4.349367977503153, "lon": -37.9410095535154}, {"name": "CX 13", "type": "CX", "lat": -4.348332037435082, "lon": -37.93866507364579}, {"name": "CX 14", "type": "CX", "lat": -4.349717182407885, "lon": -37.9386071649641}, {"name": "CX 15", "type": "CX", "lat": -4.348368272654722, "lon": -37.93702060415599}, {"name": "CX 16", "type": "CX", "lat": -4.348428058956613, "lon": -37.93566382344562}, {"name": "CEO ROTA 02", "type": "CEO", "lat": -4.346614853788831, "lon": -37.94874760340969}, {"name": "CEO ROTA 03", "type": "CEO", "lat": -4.348531483866811, "lon": -37.93520810332193}, {"name": "CX 01", "type": "CX", "lat": -4.348636615108666, "lon": -37.9348641287367}, {"name": "CX 02", "type": "CX", "lat": -4.349064438807569, "lon": -37.93361251349921}, {"name": "CX 03", "type": "CX", "lat": -4.3492917768366, "lon": -37.93269266689708}, {"name": "CX 04", "type": "CX", "lat": -4.351114326708011, "lon": -37.9298536030574}, {"name": "CX 05", "type": "CX", "lat": -4.351823372722321, "lon": -37.92831055865508}, {"name": "CX 06", "type": "CX", "lat": -4.351629427430547, "lon": -37.92661308834315}, {"name": "CX 07", "type": "CX", "lat": -4.351835541622327, "lon": -37.92248052208605}, {"name": "CX 08", "type": "CX", "lat": -4.351621788336923, "lon": -37.9210081683675}, {"name": "CX 09", "type": "CX", "lat": -4.350387864921784, "lon": -37.91880854894207}, {"name": "CX 10", "type": "CX", "lat": -4.35056141501272, "lon": -37.91756100473768}, {"name": "CX 11", "type": "CX", "lat": -4.351155844267526, "lon": -37.91688492949776}, {"name": "CX 12", "type": "CX", "lat": -4.352142971092464, "lon": -37.91652427609694}, {"name": "CX 13", "type": "CX", "lat": -4.352270947362634, "lon": -37.91559186594385}, {"name": "CX 14", "type": "CX", "lat": -4.353427202825167, "lon": -37.91559355687811}, {"name": "CX 15", "type": "CX", "lat": -4.354480666461404, "lon": -37.91553619755144}, {"name": "CX 16", "type": "CX", "lat": -4.354799673999299, "lon": -37.91772886451577}, {"name": "CX 01", "type": "CX", "lat": -4.343556230974929, "lon": -37.94736659438981}, {"name": "CX 02", "type": "CX", "lat": -4.34395875208399, "lon": -37.94531386805581}, {"name": "CX 03", "type": "CX", "lat": -4.344223176328001, "lon": -37.94187810298281}, {"name": "CX 04", "type": "CX", "lat": -4.344299005577225, "lon": -37.94007503194904}, {"name": "CX 05", "type": "CX", "lat": -4.343735135086359, "lon": -37.93881818911117}, {"name": "CX 06", "type": "CX", "lat": -4.342748105691975, "lon": -37.93776153164603}, {"name": "CX 07", "type": "CX", "lat": -4.342877687052615, "lon": -37.93622848673111}, {"name": "CX 08", "type": "CX", "lat": -4.342986147639895, "lon": -37.93467190488283}, {"name": "CEO ROTA 04", "type": "CEO", "lat": -4.343803873909817, "lon": -37.94756463824746}, {"name": "CEO ROTA 05", "type": "CEO", "lat": -4.328831232677233, "lon": -37.9386365944108}, {"name": "CX 05", "type": "CX", "lat": -4.339847554433435, "lon": -37.94401551062754}, {"name": "CX 06", "type": "CX", "lat": -4.339380275162642, "lon": -37.94222905079231}, {"name": "CX 07", "type": "CX", "lat": -4.339255069175296, "lon": -37.94051341417577}, {"name": "CX 08", "type": "CX", "lat": -4.338803927876862, "lon": -37.93908425484048}, {"name": "CX 09", "type": "CX", "lat": -4.338919471518308, "lon": -37.93651143447917}, {"name": "CX 10", "type": "CX", "lat": -4.338798731936882, "lon": -37.93471640857857}, {"name": "CX 11", "type": "CX", "lat": -4.338249566785113, "lon": -37.93306541419018}, {"name": "CX 12", "type": "CX", "lat": -4.338373213395414, "lon": -37.93121705932786}, {"name": "CX 13", "type": "CX", "lat": -4.334417760099297, "lon": -37.93829192227249}, {"name": "CX 14", "type": "CX", "lat": -4.338824561282369, "lon": -37.93794159070824}, {"name": "CX 15", "type": "CX", "lat": -4.329844255455278, "lon": -37.9385298764139}, {"name": "CX 16", "type": "CX", "lat": -4.328810978737008, "lon": -37.93860505604403}, {"name": "CX 02", "type": "CX", "lat": -4.315352513990448, "lon": -37.93683396259957}, {"name": "CX 03", "type": "CX", "lat": -4.314262968157671, "lon": -37.93527154433003}, {"name": "CX 04", "type": "CX", "lat": -4.314682636729715, "lon": -37.93571900360961}, {"name": "CX 05", "type": "CX", "lat": -4.315765705265654, "lon": -37.9361794824955}, {"name": "CX 06", "type": "CX", "lat": -4.316449045381259, "lon": -37.93652468029143}, {"name": "CX 07", "type": "CX", "lat": -4.317043827634292, "lon": -37.93684544230252}, {"name": "CX 08", "type": "CX", "lat": -4.31739237500664, "lon": -37.93550939642821}, {"name": "CX 01", "type": "CX", "lat": -4.317929054469669, "lon": -37.93242549451144}, {"name": "CX 02", "type": "CX", "lat": -4.318280388728638, "lon": -37.93320951407618}, {"name": "CX 03", "type": "CX", "lat": -4.318459755589506, "lon": -37.93176956967487}, {"name": "CX 04", "type": "CX", "lat": -4.318406384847216, "lon": -37.93123639560265}, {"name": "CX 05", "type": "CX", "lat": -4.318669732542197, "lon": -37.93038967644937}, {"name": "CX 06", "type": "CX", "lat": -4.319441618032722, "lon": -37.93002695930798}, {"name": "CX 07", "type": "CX", "lat": -4.320171819777137, "lon": -37.92997798509034}, {"name": "CX 08", "type": "CX", "lat": -4.319956330150074, "lon": -37.9311008679755}, {"name": "CX 01", "type": "CX", "lat": -4.320774371312678, "lon": -37.92990582626501}, {"name": "CX 02", "type": "CX", "lat": -4.320335357370876, "lon": -37.9312349347356}, {"name": "CX 03", "type": "CX", "lat": -4.319838651348975, "lon": -37.93317651115976}, {"name": "CX 04", "type": "CX", "lat": -4.320817760403556, "lon": -37.93306510606879}, {"name": "CX 05", "type": "CX", "lat": -4.321037734707999, "lon": -37.9319944220012}, {"name": "CX 06", "type": "CX", "lat": -4.321605049950286, "lon": -37.93068955566462}, {"name": "CX 07", "type": "CX", "lat": -4.321788095146318, "lon": -37.9298292123086}, {"name": "CX 08", "type": "CX", "lat": -4.321874073618511, "lon": -37.93086481931485}, {"name": "CX 01", "type": "CX", "lat": -4.322504239094369, "lon": -37.93014551090889}, {"name": "CX 02", "type": "CX", "lat": -4.323075462138142, "lon": -37.93060220186049}, {"name": "CX 03", "type": "CX", "lat": -4.32243817405696, "lon": -37.93143532564014}, {"name": "CX 04", "type": "CX", "lat": -4.32324147866543, "lon": -37.92924950030429}, {"name": "CX 05", "type": "CX", "lat": -4.323560838673672, "lon": -37.93121810633507}, {"name": "CX 06", "type": "CX", "lat": -4.324093478405355, "lon": -37.93189312011471}, {"name": "CX 07", "type": "CX", "lat": -4.324644513579201, "lon": -37.93268979189543}, {"name": "CX 08", "type": "CX", "lat": -4.325639404787855, "lon": -37.93418925277319}, {"name": "CEO ROTA 09", "type": "CEO", "lat": -4.325892868081822, "lon": -37.93456196462697}, {"name": "CX 01", "type": "CX", "lat": -4.371069787659843, "lon": -37.98766903410674}, {"name": "CX 02", "type": "CX", "lat": -4.373912660178746, "lon": -37.98360137544799}, {"name": "CX 03", "type": "CX", "lat": -4.37496965624118, "lon": -37.98174677411933}, {"name": "CX0 04", "type": "CX", "lat": -4.375546124361811, "lon": -37.97821984843507}, {"name": "CX 05", "type": "CX", "lat": -4.375346883988641, "lon": -37.97672712586957}, {"name": "CX 06", "type": "CX", "lat": -4.375283538839666, "lon": -37.97578509248059}, {"name": "CX 07", "type": "CX", "lat": -4.373406644884252, "lon": -37.97584487412822}, {"name": "CX 08", "type": "CX", "lat": -4.374873959536139, "lon": -37.97371502627999}, {"name": "CX 09", "type": "CX", "lat": -4.374520809691929, "lon": -37.97472169667699}, {"name": "CX 10", "type": "CX", "lat": -4.37470311123526, "lon": -37.9722358613632}, {"name": "CX 11", "type": "CX", "lat": -4.374430850791262, "lon": -37.97026068202025}, {"name": "CX 12", "type": "CX", "lat": -4.374362217713471, "lon": -37.96905627404652}, {"name": "CX 13", "type": "CX", "lat": -4.376141864728094, "lon": -37.96892380251898}, {"name": "CX 14", "type": "CX", "lat": -4.377654637115034, "lon": -37.96886541898937}, {"name": "CX 15", "type": "CX", "lat": -4.379581329379767, "lon": -37.97056793453539}, {"name": "CX 16", "type": "CX", "lat": -4.369423646101527, "lon": -37.97229162076031}, {"name": "CEO ROTA 07", "type": "CEO", "lat": -4.368711707012812, "lon": -37.97230367092537}], "lines": [{"name": "12FO- 1936M", "coords": [[-4.349720908562519, -37.96736150931149], [-4.349533685667855, -37.96714550738862], [-4.349263164892612, -37.96732364567024], [-4.349027838822276, -37.96702839820126], [-4.347527855352768, -37.96554352638832], [-4.346543819021588, -37.96457345366725], [-4.346193812327648, -37.96428674802139], [-4.344952531844219, -37.96373763714208], [-4.341838074353976, -37.96263021712677], [-4.340994591549574, -37.96232368620872], [-4.338307394544882, -37.96193997608372], [-4.338322467116927, -37.96236246901089], [-4.338366117740361, -37.96266759179467], [-4.338401657767404, -37.96296541070463], [-4.338541154108126, -37.96356101111143], [-4.338484942475659, -37.9638378831679], [-4.338404920209712, -37.96395031547833], [-4.338197303211728, -37.96427661194888], [-4.338106831955419, -37.96440066337067], [-4.338067574495993, -37.96487580180039], [-4.338009339980873, -37.96550812998535], [-4.337913531705738, -37.96606258801096]]}, {"name": "12FO- 799M", "coords": [[-4.338294733163312, -37.96194028168234], [-4.337983244830929, -37.96148728018149], [-4.337773156476658, -37.96113470054042], [-4.337624178600191, -37.96049852509062], [-4.337574379874886, -37.96013807981145], [-4.33768049245774, -37.95997143917965], [-4.337662581097998, -37.95969881799369], [-4.33758272318973, -37.95875813344409], [-4.33759898173752, -37.95828524384685], [-4.337705208691115, -37.95792873982661], [-4.337820449947149, -37.95773485577583], [-4.338153624132673, -37.95710220102362], [-4.338454472163286, -37.95664014096382], [-4.339266433670659, -37.9554081528437]]}, {"name": "12FO-299M", "coords": [[-4.337635810020402, -37.95872863656724], [-4.337222089691601, -37.95870850070736], [-4.336863062616096, -37.95866438997402], [-4.335345033268276, -37.95842869856742], [-4.335151085559434, -37.95839915053411], [-4.33512735398631, -37.95859536721748]]}, {"name": "12FO- 812M", "coords": [[-4.349714176992943, -37.96736714446922], [-4.349403308224874, -37.96768919129811], [-4.350440639703933, -37.96823305885045], [-4.350695308001222, -37.96837241992994], [-4.351129696086597, -37.96862958008094], [-4.351595759514399, -37.96890565736704], [-4.352536395849897, -37.96950324814031], [-4.353204363939047, -37.96989188763023], [-4.353867693435395, -37.97018337619676], [-4.354131432621416, -37.97026930557764], [-4.354530477411492, -37.97039081769269], [-4.35498293490016, -37.9704947916201], [-4.355236570018149, -37.97065792442411], [-4.355463395010093, -37.970861047578]]}, {"name": "12FO- 1494M", "coords": [[-4.346616422927393, -37.94875509812226], [-4.346514271231695, -37.94853541495716], [-4.347215196379642, -37.94669131893279], [-4.347331462579601, -37.94641838097187], [-4.3473334167734, -37.94570187160981], [-4.347421061052173, -37.94507075405725], [-4.347599784759241, -37.94399142299108], [-4.347617282424503, -37.943736751788], [-4.347719321294028, -37.94284117230317], [-4.347869334719557, -37.94250714279077], [-4.347903862600053, -37.94214961354623], [-4.348046999060371, -37.94184121336867], [-4.348318917592684, -37.94101832674912], [-4.348525642445821, -37.94027817917115], [-4.34856860259378, -37.94001761365091], [-4.348601403227489, -37.9397186067391], [-4.348558396399221, -37.93943416831726], [-4.34847555548035, -37.93915107285319], [-4.348292860526305, -37.93867894814004], [-4.348333507402929, -37.93772389755916], [-4.348347844587711, -37.93702205617383], [-4.348390117057793, -37.93568651722717]]}, {"name": "12FO-214M", "coords": [[-4.348280735077535, -37.93866746514981], [-4.348452311969882, -37.93903657793386], [-4.348568438323444, -37.93903132000943], [-4.348813382686473, -37.93896173814585], [-4.348818139414167, -37.93870726153349], [-4.34970950795861, -37.9386053415743]]}, {"name": "12FO-113M", "coords": [[-4.34832225102694, -37.94102592196539], [-4.348742965814853, -37.94105596923676], [-4.349340971494811, -37.94101985908761]]}, {"name": "12FO- 150M", "coords": [[-4.347911905008365, -37.94214946501977], [-4.348213574816014, -37.94219745972926], [-4.348609011077774, -37.94220706284162], [-4.349258227559149, -37.94225404948907]]}, {"name": "12FO- 143M", "coords": [[-4.347622320632744, -37.94371929948011], [-4.348045069369777, -37.94371942647685], [-4.348260256357386, -37.9437208268285], [-4.348918205438055, -37.94370549064318]]}, {"name": "12FO- 270M", "coords": [[-4.347192936070652, -37.94673673774061], [-4.34739980474212, -37.94679402157833], [-4.348196070458375, -37.94674849292377], [-4.349625281020407, -37.94663496906907]]}, {"name": "12FO- 717M", "coords": [[-4.34661776340993, -37.94875996491101], [-4.346543427697804, -37.94901803722589], [-4.346659211901607, -37.94929086592717], [-4.347346412514628, -37.9503996034562], [-4.348428685212132, -37.95210015173156], [-4.348921418771122, -37.95322431973877], [-4.348987783325943, -37.95339846631375], [-4.348510017362964, -37.95332229961753], [-4.347825682330546, -37.95331373888257]]}, {"name": "12FO-396M", "coords": [[-4.346561348483921, -37.94902541155361], [-4.34648334954587, -37.94892594653901], [-4.346301220827758, -37.9491709619209], [-4.345618236047716, -37.95024595157369], [-4.345469058196927, -37.95055456996509], [-4.345074671873702, -37.95139794751402], [-4.344862164336188, -37.95194976842183]]}, {"name": "12FO- 2941M", "coords": [[-4.348511022734841, -37.9352181264144], [-4.348634864767973, -37.93486464117063], [-4.348784891429949, -37.93449690845659], [-4.348877138812139, -37.93420608532213], [-4.349050150017071, -37.93361542906325], [-4.349285155629488, -37.9327013722687], [-4.349417966404572, -37.93232383412064], [-4.349482184875587, -37.932061078496], [-4.349603671482935, -37.93192855765487], [-4.350090438988438, -37.9311224751759], [-4.350482741166199, -37.93057717365177], [-4.350885486072328, -37.93002292700217], [-4.351097245117699, -37.92986018427262], [-4.351591866899946, -37.92898420405495], [-4.351808069846464, -37.92832405496655], [-4.351828721239312, -37.92802600542156], [-4.351724048379439, -37.92751016497966], [-4.35163012104716, -37.92691990001219], [-4.351620166900211, -37.92662537837764], [-4.351827845420782, -37.92511526724619], [-4.351849563250538, -37.92469355237159], [-4.351956692647765, -37.92350253072787], [-4.351894870370375, -37.92284744838918], [-4.351796474305254, -37.92249918412148], [-4.351741732960273, -37.92210973640645], [-4.351663508197952, -37.92151598885653], [-4.351579479513152, -37.92099971276781], [-4.351315211833361, -37.92048002878325], [-4.350925505051627, -37.91997380026669], [-4.350397205063913, -37.91910106653223], [-4.350354999444348, -37.91880944300342], [-4.350465247457544, -37.91827988377634], [-4.350530719847206, -37.91754839463776], [-4.350808124930331, -37.91715827953316], [-4.35097650731312, -37.91693210074924], [-4.351135288419078, -37.91687235353135], [-4.351421524518738, -37.9168975323228], [-4.351711521741989, -37.91688981921676], [-4.35187922693938, -37.91671234882966], [-4.351942333874266, -37.91661724135583], [-4.352137012057419, -37.91653187342285], [-4.352192845375185, -37.91643795575548], [-4.352198311011518, -37.9159290396473], [-4.352242088655792, -37.91557139398902], [-4.352596544900392, -37.9156484280614], [-4.353406133543971, -37.91557908297173], [-4.354454346690773, -37.91550388419226], [-4.354530115166131, -37.91575100937098], [-4.354619819447438, -37.91608767714398], [-4.354771104529386, -37.91774673994194]]}, {"name": "12FO- 1580M", "coords": [[-4.343794434640786, -37.94757353303611], [-4.343525833960574, -37.94733776444796], [-4.343698888115805, -37.94701787572961], [-4.343904744323552, -37.94593756813205], [-4.343923282252549, -37.94529321786256], [-4.343897571782846, -37.94458253512916], [-4.343954663721591, -37.94436899332516], [-4.344087051768337, -37.94364465020535], [-4.34401844883537, -37.94267269040621], [-4.344071468949737, -37.94230691142519], [-4.344220855346413, -37.94189892418262], [-4.344369624995323, -37.94122360841412], [-4.34437002524187, -37.94104555292829], [-4.34428287228544, -37.94006478715183], [-4.343959487310973, -37.93962890832032], [-4.343790864331579, -37.93921431532527], [-4.343721800413047, -37.93880223606809], [-4.342817271334812, -37.9388119524169], [-4.342785448440294, -37.93864338601919], [-4.342700401086712, -37.93774819950451], [-4.34279386023776, -37.9366319158012], [-4.342845703239267, -37.93621895787375], [-4.342986814144971, -37.934674274492]]}, {"name": "12FO- 1493M", "coords": [[-4.339871508133493, -37.94420681543458], [-4.339850699973337, -37.94400622102216], [-4.33982776535218, -37.9435154620794], [-4.339617208867136, -37.94314794495506], [-4.339412725456842, -37.94263435133863], [-4.339385604135257, -37.94221395367203], [-4.339189042356395, -37.94138308607667], [-4.339259961914314, -37.94051184501721], [-4.339209208227012, -37.93962604179728], [-4.338939038152252, -37.93934287264268], [-4.338778747332607, -37.93923879817594], [-4.338803454990996, -37.9390961445993], [-4.338810309913154, -37.93793685097371], [-4.338882220723118, -37.93684079313646], [-4.338922722152897, -37.9365215406176], [-4.338821440710101, -37.93613161337341], [-4.338775913522987, -37.93575340784032], [-4.338795576391443, -37.93471102848221], [-4.338645710528954, -37.93402503642886], [-4.338483505621901, -37.93356116514002], [-4.338223044692475, -37.93305995257437], [-4.338246798432141, -37.93225807909662], [-4.338240260669163, -37.93174799731732], [-4.33836223294191, -37.93121552098512]]}, {"name": "12FO- 1109M", "coords": [[-4.338807147572709, -37.93795680621388], [-4.337910348991815, -37.93799552664867], [-4.33686808075909, -37.93806360386896], [-4.335815094141705, -37.93811474961444], [-4.334408782503484, -37.93828885679841], [-4.333580030355056, -37.93836554078501], [-4.333309723420865, -37.9383807981284], [-4.332738162968981, -37.93838988749296], [-4.332459912696677, -37.9383846738218], [-4.331587600433193, -37.93841846579636], [-4.330174091055221, -37.93852501772563], [-4.3298306426086, -37.93852626279068], [-4.328806300418329, -37.93861307154636]]}, {"name": "12FO-320M", "coords": [[-4.315353713286927, -37.9368489677203], [-4.315759081209227, -37.93620332911743], [-4.315831709182321, -37.93597927396853], [-4.315444300350681, -37.93597159656829], [-4.315172064391088, -37.93594647432524], [-4.314904711943303, -37.93576365470608], [-4.314675037077723, -37.93571048891554], [-4.314388595530851, -37.93549581297663], [-4.314403500590022, -37.93537953789673], [-4.314261044096489, -37.93524519776364]]}, {"name": "12FO-418M", "coords": [[-4.315758295565707, -37.93619735408239], [-4.315966244712926, -37.93636620128946], [-4.316266618904955, -37.93649073903531], [-4.316361440931376, -37.93650482591565], [-4.316533210713419, -37.93657609507573], [-4.316650684258842, -37.93664315592169], [-4.316830804887724, -37.93672056827327], [-4.316958803062234, -37.93679839499906], [-4.317053486988473, -37.93687071225205], [-4.317131557844313, -37.93661265513038], [-4.317269251783405, -37.93640720464046], [-4.317398931330303, -37.93578614667899], [-4.3173904360937, -37.93551460736272], [-4.317543434980885, -37.93552057064594], [-4.318106960513421, -37.93555215724442], [-4.318064168078451, -37.93540080276736]]}, {"name": "12FO-679M", "coords": [[-4.318279317003386, -37.93322065931059], [-4.318460587110916, -37.93260325919196], [-4.317941147254538, -37.9324195886734], [-4.318145871452381, -37.93189203642844], [-4.318390258906629, -37.93125859074836], [-4.318485030800501, -37.93098302892626], [-4.31864085446597, -37.93041119248741], [-4.318761326666609, -37.93019527145693], [-4.318843347334006, -37.93014306148075], [-4.319160310025558, -37.93003519486412], [-4.319431918169403, -37.93004228940674], [-4.320162819747087, -37.92999546206996], [-4.320150539458068, -37.93031715461664], [-4.320006285922931, -37.93089498065643], [-4.319966386093414, -37.93109332404804]]}, {"name": "12FO- 84M", "coords": [[-4.318404874099166, -37.93124364783341], [-4.318230030147848, -37.93174180203329], [-4.318460799794845, -37.93177284007421]]}, {"name": "12FO- 879M", "coords": [[-4.319825375434098, -37.93321383159193], [-4.320018708954882, -37.93244534045986], [-4.320318399239954, -37.93124736050061], [-4.320555262878311, -37.9307864294401], [-4.320785548880079, -37.9299129064276], [-4.321819161947815, -37.92983292512598], [-4.321714099972321, -37.93028177356703], [-4.321595394760685, -37.93071127765923], [-4.321363615453975, -37.93093061532588], [-4.321309979028733, -37.93117356937286], [-4.321039696738941, -37.93198608770553], [-4.320842728056512, -37.93307691848238]]}, {"name": "12FO- 143M", "coords": [[-4.321880330647008, -37.93085418492903], [-4.322168162694784, -37.93009621252541], [-4.322048896267376, -37.92996960095068], [-4.321923824681717, -37.92995925762374], [-4.321783394807074, -37.92984825540018]]}, {"name": "12FO-571M", "coords": [[-4.322509227194798, -37.93014394734833], [-4.322623121053154, -37.93025831504062], [-4.323083264888779, -37.93060723297074], [-4.32358170397776, -37.93124362671158], [-4.32412100674888, -37.93189973548428], [-4.324658873576032, -37.93270383019136], [-4.325621351598993, -37.93420726882205]]}, {"name": "12FO-126M", "coords": [[-4.32239616766988, -37.93146600205564], [-4.322541994400989, -37.93131454712981], [-4.322577711095261, -37.93119140781533], [-4.32260483597968, -37.93107000959287], [-4.32267107723355, -37.93094398986519], [-4.322730821234661, -37.93083858068292], [-4.322771239567773, -37.93078321551437], [-4.322885947091867, -37.93073030727173], [-4.323059038383171, -37.93059667428363]]}, {"name": "12FO-144M", "coords": [[-4.322492258825226, -37.93014442774965], [-4.322815082911301, -37.92952541369604], [-4.322966928031092, -37.92922813819977], [-4.323231215664745, -37.92924750485955]]}, {"name": "12FO- 2670M", "coords": [[-4.369401209966592, -37.97230684034503], [-4.368707473122828, -37.97230122881898], [-4.37111994219349, -37.972300239495], [-4.372823872499465, -37.97227211880669], [-4.374709344111569, -37.97223523232076], [-4.374852541136993, -37.97373210652891], [-4.374925603255853, -37.97399100074532], [-4.375207291717476, -37.97483990132397], [-4.375252608944074, -37.97575463328536], [-4.375261634503858, -37.97581973160772], [-4.375236259364023, -37.9760164611082], [-4.375344733770262, -37.97680687745608], [-4.37554068695218, -37.97803417244238], [-4.375563042480623, -37.97822690844701], [-4.37527711841159, -37.97851578811856], [-4.375092641513731, -37.97859643938112], [-4.374952577598063, -37.97867451471544], [-4.374917926421996, -37.97893636858705], [-4.374638789286017, -37.98020740463662], [-4.37469443195044, -37.98048093300493], [-4.374766691295349, -37.98089029227938], [-4.374830588516818, -37.98126140396012], [-4.374974845848084, -37.98176937447708], [-4.374941131780294, -37.98227987740153], [-4.374852744719228, -37.98264222667834], [-4.374603489046409, -37.98296058122803], [-4.37383886296197, -37.98362797655556], [-4.373396650023519, -37.98428670482376], [-4.373060351661282, -37.98467321860193], [-4.37285552781575, -37.98486654976064], [-4.37234870924146, -37.98524657295276], [-4.371767717748326, -37.9859111707129], [-4.37149228163516, -37.98646312014325], [-4.371246366407513, -37.98709142152965], [-4.370995019973136, -37.98772211291789]]}, {"name": "12FO- 208M", "coords": [[-4.375281041591515, -37.97578645862478], [-4.374868703228872, -37.97578873054532], [-4.373399080187132, -37.97585981557269]]}, {"name": "12FO- 1116M", "coords": [[-4.374696251102964, -37.97224484544014], [-4.374645682895498, -37.97201018431436], [-4.374565384558062, -37.97133606085224], [-4.374408309746938, -37.97025933382972], [-4.374335270374807, -37.9692862625385], [-4.374319372108264, -37.96903408900138], [-4.374634930923141, -37.96898596190712], [-4.374791419388282, -37.96902078385697], [-4.376117315202495, -37.96893056504762], [-4.377643835860054, -37.96887460183575], [-4.379171563490415, -37.96881556781619], [-4.379364134500908, -37.9688255243713], [-4.379407895327876, -37.96914319212426], [-4.379479915193359, -37.96958386998521], [-4.37948037658101, -37.96983747644624], [-4.379463599522697, -37.96998193981918], [-4.37948095983046, -37.9703353549945], [-4.379570951448951, -37.97058121856534]]}, {"name": "12FO- 1566M", "coords": [[-4.368700439145303, -37.97225049835145], [-4.366706612000197, -37.97240377533996], [-4.364166410554272, -37.972305311987], [-4.361363440583109, -37.97242628984336], [-4.36008969119079, -37.97246736465583], [-4.35889341183606, -37.97266532346141], [-4.357816230158193, -37.97278142979993], [-4.357078568316598, -37.97274571717202], [-4.356315089202368, -37.97188447991614], [-4.355495075691183, -37.97081741259088]]}, {"name": "12FO-6003m", "coords": [[-4.349673341461762, -37.96738863656313], [-4.351064946993319, -37.96605368038698], [-4.356498344292061, -37.9609525170894], [-4.358068734207998, -37.95952213988451], [-4.35749748029632, -37.9591321289934], [-4.351231964507356, -37.9569326927076], [-4.350812405313666, -37.95626819886535], [-4.349842283942127, -37.95490675771786], [-4.348874089147477, -37.95291634630446], [-4.347588549361153, -37.95040552193615], [-4.346775393275428, -37.94935965532817], [-4.346355997066913, -37.94843614811704], [-4.346242310428392, -37.94835627549961], [-4.345797011792449, -37.9482755819872], [-4.343952828033233, -37.94756845146038], [-4.343776093748069, -37.94755259887404], [-4.342013519176936, -37.94682732586974], [-4.340196101816601, -37.94612073003622], [-4.339943692629181, -37.94594525862951], [-4.338706251352626, -37.94537295976225], [-4.336813608462395, -37.94461519205773], [-4.334053088458645, -37.94329438409528], [-4.332949136248456, -37.94253328234969], [-4.332127888506916, -37.94152383626145], [-4.331411583486376, -37.94068553581444], [-4.330526194331743, -37.9397575393316], [-4.329732798818644, -37.93920135332785], [-4.328941177703132, -37.93874406146188], [-4.328183200294186, -37.93781530491563], [-4.327834276745668, -37.93720564814643], [-4.32713780411301, -37.93663280661532], [-4.326725938162645, -37.93604877578322], [-4.32636765377462, -37.9354145539231], [-4.325845578779013, -37.93455406322637]]}, {"name": "12FO-89M", "coords": [[-4.322477882716392, -37.93015674078922], [-4.322275210672604, -37.93002600007749], [-4.321754833999341, -37.92982138900456]]}, {"name": "12FO-70M", "coords": [[-4.32076989737875, -37.92990270598781], [-4.320499744421856, -37.92995916026789], [-4.320144203820243, -37.92998864528582]]}, {"name": "12FO-246M", "coords": [[-4.31828078242425, -37.93324059577758], [-4.318145106577213, -37.9337201423807], [-4.318126233917899, -37.93404364327699], [-4.318026566893451, -37.9345182985796], [-4.317966066147994, -37.93466947788385], [-4.317979161973066, -37.93511274102945], [-4.318069109866567, -37.93540214696236]]}, {"name": "12FO- 55M", "coords": [[-4.348392900666392, -37.9356694684025], [-4.348440248788399, -37.93548822472993], [-4.348472911689337, -37.93536072352742], [-4.348514728317055, -37.9351925811342]]}], "center": [-4.343300023614255, -37.945674813840256]}, "PALMEIRA": {"points": [{"name": "CX 01", "type": "CX", "lat": -4.335185175684058, "lon": -37.97962405823402}, {"name": "CX 02", "type": "CX", "lat": -4.332822967566557, "lon": -37.98316609141851}, {"name": "CX 03", "type": "CX", "lat": -4.335777020573328, "lon": -37.98285340432255}, {"name": "CX 05", "type": "CX", "lat": -4.337545776096837, "lon": -37.98613989820843}, {"name": "CX 06", "type": "CX", "lat": -4.33876958800325, "lon": -37.9879447972738}, {"name": "CX 07", "type": "CX", "lat": -4.340287907473577, "lon": -37.9906366158595}, {"name": "CX 08", "type": "CX", "lat": -4.338365471160425, "lon": -37.99566083749666}, {"name": "CX 09", "type": "CX", "lat": -4.336603375255896, "lon": -38.00110915921503}, {"name": "CX 10", "type": "CX", "lat": -4.336954088283118, "lon": -38.01031794498103}, {"name": "CX 11", "type": "CX", "lat": -4.33641188457692, "lon": -38.01449248375629}, {"name": "CX 12", "type": "CX", "lat": -4.335840384681874, "lon": -38.01910798127708}, {"name": "CX 13", "type": "CX", "lat": -4.335442547257966, "lon": -38.0239386595261}, {"name": "CX 14", "type": "CX", "lat": -4.334651129733094, "lon": -38.02544903519199}, {"name": "CEO ROTA 01", "type": "CEO", "lat": -4.335476922718236, "lon": -37.98066917730393}, {"name": "CEO EXISTENTE", "type": "CEO", "lat": -4.334108979842506, "lon": -38.02627309937641}, {"name": "CEO ROTA 02", "type": "CEO", "lat": -4.35678425437681, "lon": -38.02901210388291}, {"name": "CX 01", "type": "CX", "lat": -4.358508550001497, "lon": -38.02883091111026}, {"name": "CX 02", "type": "CX", "lat": -4.360639273920063, "lon": -38.02886561953675}, {"name": "CX 03", "type": "CX", "lat": -4.357695644527011, "lon": -38.02726927476035}, {"name": "CX 04", "type": "CX", "lat": -4.357364284163122, "lon": -38.03013486590768}, {"name": "CX 05", "type": "CX", "lat": -4.356301345438601, "lon": -38.02985789509068}, {"name": "CX 06", "type": "CX", "lat": -4.357519683920311, "lon": -38.02907895129876}, {"name": "CX 07", "type": "CX", "lat": -4.355529570967776, "lon": -38.02889187538004}], "lines": [{"name": "12FO- 128M", "coords": [[-4.335487012067987, -37.9806590917679], [-4.335273664737941, -37.98052626803582], [-4.33525391621045, -37.98028533435095], [-4.335202908564999, -37.97977690115077], [-4.335187158982539, -37.97962604981885]]}, {"name": "12FO-5958M", "coords": [[-4.335479646776564, -37.98065700223056], [-4.334735286361775, -37.9812248209425], [-4.334009862722062, -37.98197471968461], [-4.332795155150786, -37.98317121215405], [-4.33330984462267, -37.9827408906049], [-4.33451181506382, -37.98285102980924], [-4.335703166460609, -37.98292861596928], [-4.335795692624584, -37.98285248266113], [-4.3358831204485, -37.983103723013], [-4.33592477413434, -37.98338405502729], [-4.336080111425527, -37.98425108212827], [-4.336131721515092, -37.98439853885463], [-4.337546438567852, -37.98613998982852], [-4.33823035738209, -37.98714941379816], [-4.338490115429914, -37.98766773207729], [-4.338755610649252, -37.98796553579253], [-4.33903730970793, -37.98827898340916], [-4.339347107699135, -37.98857057913516], [-4.339958161262333, -37.98924504120155], [-4.340562227955593, -37.98977120178046], [-4.340681244230807, -37.99015808846329], [-4.340260467221423, -37.9906480427262], [-4.339930715641742, -37.99144708114154], [-4.339841353331649, -37.9917826126271], [-4.339611626264647, -37.99286539828176], [-4.339494434066733, -37.99312279208275], [-4.339051666820181, -37.99425446591363], [-4.338670509414238, -37.99509388986684], [-4.338350387721631, -37.99565891616644], [-4.338070843954199, -37.99626639281792], [-4.338107074268485, -37.99663976611915], [-4.338067811634224, -37.99726553573706], [-4.33780696394047, -37.99787520197702], [-4.337434194135209, -37.99858417623781], [-4.337246391276013, -37.99927438344327], [-4.337116143898052, -37.99959781484807], [-4.336872651896087, -38.00032696259134], [-4.336599149109228, -38.00112326896949], [-4.336407362401587, -38.00200380651548], [-4.336380329671264, -38.00227838526596], [-4.336227495491583, -38.00332724673092], [-4.336243470628458, -38.0035422627446], [-4.336403668820245, -38.00394310039188], [-4.336803707490382, -38.00498250165312], [-4.336907725704218, -38.0056687195424], [-4.336908290617377, -38.00597826935062], [-4.336902423289491, -38.006183733996], [-4.336837191347442, -38.00670759834691], [-4.336875804943483, -38.00776247369446], [-4.336975066787106, -38.00883970455927], [-4.336949946470193, -38.0090495065601], [-4.336943993204634, -38.00918163226471], [-4.336959256195992, -38.00980841248639], [-4.336954658414307, -38.0103243299844], [-4.337016026091835, -38.01124441633117], [-4.337000888568079, -38.01182674530493], [-4.337008630945273, -38.01224079838619], [-4.336875507092128, -38.01277069191275], [-4.336473492360335, -38.0140344688707], [-4.336411903672845, -38.01450424406458], [-4.33641118462298, -38.01486112692737], [-4.33636057167442, -38.01550819773986], [-4.336178180460855, -38.01596754852241], [-4.335982463815436, -38.01658931622929], [-4.335976481556307, -38.0167840036962], [-4.335939802176143, -38.01764248939001], [-4.335837275582764, -38.01910629919699], [-4.335704911649509, -38.02055669778941], [-4.335511450245463, -38.0222694910702], [-4.335462070339113, -38.02372059049883], [-4.335432304757553, -38.02395007683138], [-4.335275018715889, -38.02465951934786], [-4.335150283150465, -38.0248985687688], [-4.334995741546463, -38.02509741030438], [-4.334640559877304, -38.02545670867577], [-4.334152551506171, -38.02612955452337], [-4.334023113845789, -38.02635704806835]]}, {"name": "12FO-2155M", "coords": [[-4.335528909547454, -37.9806767478146], [-4.337685565813213, -37.9787099973296], [-4.339617617630251, -37.976781950015], [-4.34190199625397, -37.97470841207431], [-4.343490426946847, -37.97312521371963], [-4.345275298667431, -37.97155976682213], [-4.347285541671863, -37.96954051151218], [-4.348488999140555, -37.96859587023379], [-4.349700069621004, -37.96736759367444]]}, {"name": "CABO EXISTENTE LB - 2744M", "coords": [[-4.334062435796859, -38.02635566774648], [-4.336241339834948, -38.02725861701206], [-4.33898925239437, -38.02820127093227], [-4.340892013223438, -38.02864501888497], [-4.343185573439253, -38.02915260892131], [-4.346904699875093, -38.02985425770574], [-4.349923807337252, -38.03043191234326], [-4.351644182642662, -38.03072625469633], [-4.352603060754391, -38.03093033819947], [-4.353421640915772, -38.03124361772475], [-4.353713699088212, -38.03146067540967], [-4.354302199449998, -38.03070488114752], [-4.355050275629583, -38.02956747193593], [-4.355516971367837, -38.0288847798685], [-4.356773505926629, -38.02904898254346]]}, {"name": "12FO-820M", "coords": [[-4.356758434428479, -38.02903403095179], [-4.356249458251956, -38.02986791850153], [-4.356983461641635, -38.03008185975337], [-4.358244250880775, -38.03027572066381], [-4.358478607103178, -38.02883215415014], [-4.357752448313373, -38.02889308812621], [-4.357487572294687, -38.02910397836012], [-4.357652870604088, -38.02725583950171]]}, {"name": "12FO- 235M", "coords": [[-4.358508550001497, -38.02883091111026], [-4.36063288551782, -38.02886739306996]]}, {"name": "12FO- 141M", "coords": [[-4.356763356311965, -38.02900914459465], [-4.355493107530382, -38.02890921390592]]}], "center": [-4.3412850817954025, -38.00601958293007]}, "PARAJURU": {"points": [{"name": "CX 01", "type": "CX", "lat": -4.39371115125131, "lon": -37.86197362549733}, {"name": "CX 02", "type": "CX", "lat": -4.383381459272607, "lon": -37.85725466467169}, {"name": "CX 03", "type": "CX", "lat": -4.3844608281278, "lon": -37.85845054439778}, {"name": "CX 05", "type": "CX", "lat": -4.385131634457258, "lon": -37.85798584786166}, {"name": "CX 06", "type": "CX", "lat": -4.396261642180734, "lon": -37.8618195810788}, {"name": "CX 07", "type": "CX", "lat": -4.386522494400324, "lon": -37.85853086947888}, {"name": "CX 08", "type": "CX", "lat": -4.387841714621815, "lon": -37.85778934500664}, {"name": "CX 09", "type": "CX", "lat": -4.397922961536782, "lon": -37.86217125040913}, {"name": "CX 10", "type": "CX", "lat": -4.395132212634721, "lon": -37.86131921360835}, {"name": "CX 11", "type": "CX", "lat": -4.388412908626302, "lon": -37.85929542076937}, {"name": "CX 12", "type": "CX", "lat": -4.396030078271596, "lon": -37.86297175134463}, {"name": "CX 13", "type": "CX", "lat": -4.391330618641761, "lon": -37.85925100134257}, {"name": "CX 14", "type": "CX", "lat": -4.39260969108137, "lon": -37.86082688584435}, {"name": "CX 15", "type": "CX", "lat": -4.394112220130453, "lon": -37.86131551643}, {"name": "CX 16", "type": "CX", "lat": -4.390312695706498, "lon": -37.8600643453201}, {"name": "CEO ROTA 01", "type": "CEO", "lat": -4.395068286383301, "lon": -37.86175792123963}, {"name": "CX 01", "type": "CX", "lat": -4.39155779368362, "lon": -37.86757860714193}, {"name": "CX 02", "type": "CX", "lat": -4.393054478741915, "lon": -37.86778130589721}, {"name": "CX 03", "type": "CX", "lat": -4.391155484721247, "lon": -37.86879409501925}, {"name": "CX 04", "type": "CX", "lat": -4.390845738771845, "lon": -37.87010626501629}, {"name": "CX 05", "type": "CX", "lat": -4.392800155705342, "lon": -37.87040806041857}, {"name": "CX 06", "type": "CX", "lat": -4.393443432895049, "lon": -37.86853085955283}, {"name": "CX 07", "type": "CX", "lat": -4.389231573413015, "lon": -37.87642742796127}, {"name": "CX 08", "type": "CX", "lat": -4.38703577275455, "lon": -37.87546432561835}, {"name": "CX 09", "type": "CX", "lat": -4.386182977634047, "lon": -37.8763423149673}, {"name": "CX 10", "type": "CX", "lat": -4.392000420138271, "lon": -37.86939843007771}, {"name": "CX 11", "type": "CX", "lat": -4.393531517855182, "lon": -37.862513148699}, {"name": "CX 12", "type": "CX", "lat": -4.393163183450396, "lon": -37.86382721817743}, {"name": "CX 13", "type": "CX", "lat": -4.392008663403982, "lon": -37.86350650591702}, {"name": "CX 14", "type": "CX", "lat": -4.393050932196752, "lon": -37.86457934021916}, {"name": "CX 15", "type": "CX", "lat": -4.39177621697861, "lon": -37.86425684277808}, {"name": "CEO ROTA 02", "type": "CEO", "lat": -4.393696698182078, "lon": -37.86880065848692}, {"name": "CX 01", "type": "CX", "lat": -4.380043603756349, "lon": -37.86756197083114}, {"name": "CX 02", "type": "CX", "lat": -4.379574086877893, "lon": -37.87025448251259}, {"name": "CX 03", "type": "CX", "lat": -4.37916863771807, "lon": -37.87243123144813}, {"name": "CX 04", "type": "CX", "lat": -4.378568563079329, "lon": -37.87382845067273}, {"name": "CX 05", "type": "CX", "lat": -4.37775253244385, "lon": -37.87562718776157}, {"name": "CX 06", "type": "CX", "lat": -4.376633891506577, "lon": -37.8785227880795}, {"name": "CX 07", "type": "CX", "lat": -4.375494640462183, "lon": -37.88128583330003}, {"name": "CX 08", "type": "CX", "lat": -4.376631800281596, "lon": -37.88241108562636}, {"name": "CX 09", "type": "CX", "lat": -4.377255192230002, "lon": -37.88014529116715}, {"name": "CX 01", "type": "CX", "lat": -4.380732582477272, "lon": -37.86472305365341}, {"name": "CX 02", "type": "CX", "lat": -4.381411288706495, "lon": -37.86301200683577}, {"name": "CX 03", "type": "CX", "lat": -4.381901774085998, "lon": -37.86150510224046}, {"name": "CX 04", "type": "CX", "lat": -4.382153084435986, "lon": -37.86054713157781}, {"name": "CX 05", "type": "CX", "lat": -4.382537454357805, "lon": -37.85917418474138}, {"name": "CEO ROTA 03", "type": "CEO", "lat": -4.382775795331827, "lon": -37.85844184380554}, {"name": "CX 01", "type": "CX", "lat": -4.38280425850146, "lon": -37.86350666810113}, {"name": "CX 02", "type": "CX", "lat": -4.384324317001105, "lon": -37.86383292888254}, {"name": "CX 03", "type": "CX", "lat": -4.38373453006973, "lon": -37.8626328088228}, {"name": "CX 04", "type": "CX", "lat": -4.382732580647419, "lon": -37.86192516098863}, {"name": "CX 05", "type": "CX", "lat": -4.383723419675683, "lon": -37.86034704281631}, {"name": "CX 06", "type": "CX", "lat": -4.383968901857768, "lon": -37.85986234361035}, {"name": "CX 07", "type": "CX", "lat": -4.38510981599519, "lon": -37.8608773690441}, {"name": "CX 08", "type": "CX", "lat": -4.386257702383479, "lon": -37.86307701687009}, {"name": "CX 09", "type": "CX", "lat": -4.386807688643394, "lon": -37.86023281512379}, {"name": "CX 10", "type": "CX", "lat": -4.383606830522623, "lon": -37.8611573543557}, {"name": "CX EMENDA", "type": "CX", "lat": -4.384772026636436, "lon": -37.86079852156494}, {"name": "CEO ROTA 04", "type": "CEO", "lat": -4.387459501419183, "lon": -37.85905413136696}, {"name": "CX 01", "type": "CX", "lat": -4.396014427016677, "lon": -37.8552444443264}, {"name": "CX 02", "type": "CX", "lat": -4.395830919646189, "lon": -37.85447554309996}, {"name": "CX 03", "type": "CX", "lat": -4.388597269763607, "lon": -37.85179401581696}, {"name": "CX 04", "type": "CX", "lat": -4.3863875208032, "lon": -37.85416497727591}, {"name": "CX 05", "type": "CX", "lat": -4.390251277854069, "lon": -37.85135975589233}, {"name": "CX 06", "type": "CX", "lat": -4.38968134781231, "lon": -37.8503446225448}, {"name": "CX 07", "type": "CX", "lat": -4.391391030396988, "lon": -37.85024903644037}, {"name": "CX 08", "type": "CX", "lat": -4.391970147524974, "lon": -37.84910046429651}, {"name": "CX 09", "type": "CX", "lat": -4.388011115493148, "lon": -37.84976593108623}, {"name": "CX 10", "type": "CX", "lat": -4.39187003609111, "lon": -37.84634068891849}, {"name": "CEO ROTA 05", "type": "CEO", "lat": -4.395933034437063, "lon": -37.85590482191306}], "lines": [{"name": "12FO-1463M", "coords": [[-4.393605201506233, -37.86881301839056], [-4.39389082211266, -37.86823518986525], [-4.394310817797042, -37.86686273140854], [-4.39467275358724, -37.86537708946526], [-4.394910059697726, -37.86350303151634], [-4.394984372435097, -37.8627252998768], [-4.395017616537161, -37.86222262165016], [-4.39502597575281, -37.86173804096335], [-4.39525321905081, -37.86044411195325], [-4.395452887234957, -37.85887759577371], [-4.395774780716343, -37.85677326092495], [-4.395897677761785, -37.85588989897421]]}, {"name": "12FO-6630M", "coords": [[-4.374729431920269, -37.92542136295673], [-4.375610698549504, -37.92311257689202], [-4.376056013097389, -37.92212168530563], [-4.376641401778106, -37.92034394428128], [-4.376791883841868, -37.91972911716507], [-4.376939000302772, -37.91901645942558], [-4.377077586654502, -37.91850597254043], [-4.378224519938137, -37.91518963493363], [-4.379067078094907, -37.91271589249714], [-4.379777965958108, -37.91075060968446], [-4.38022537409573, -37.90958757407962], [-4.380612029770941, -37.90813069382033], [-4.381422178697309, -37.9055348203314], [-4.38266723723879, -37.90176439279647], [-4.383193430131393, -37.90049872926231], [-4.383886063561418, -37.89822147951264], [-4.384509476062579, -37.89674090328171], [-4.38471221707361, -37.89598047268642], [-4.38551025929404, -37.8934420941187], [-4.386509557360278, -37.89040693912111], [-4.387647632077901, -37.88700191401408], [-4.388136433832718, -37.88549466098943], [-4.389311825221365, -37.88224655080022], [-4.39082146180105, -37.8771703727675], [-4.392624041020375, -37.87181390570977], [-4.393619065896212, -37.86876731235077]]}, {"name": "12FO-1274M", "coords": [[-4.383329893236951, -37.85727272983242], [-4.385168543564121, -37.85797526351374], [-4.386542067169328, -37.85853474670623], [-4.388392120176386, -37.85927264279427], [-4.390294316218812, -37.86007015143102], [-4.39259915742001, -37.86079681328701], [-4.394108189529373, -37.8613105029016]]}, {"name": "12FO-214M", "coords": [[-4.390304237046036, -37.8600550484546], [-4.390390482091338, -37.8596685647875], [-4.390483991693072, -37.85901844498642], [-4.39132648836113, -37.85926369566925]]}, {"name": "12FO-223M", "coords": [[-4.386522294187543, -37.85852284846299], [-4.387008285166101, -37.85750248741146], [-4.38783864739471, -37.85780106522621]]}, {"name": "12FO-138M", "coords": [[-4.385125450554878, -37.85800594237637], [-4.384609839046106, -37.85781539784924], [-4.384431501121672, -37.85849083243765]]}, {"name": "12FO-121M", "coords": [[-4.394074846621313, -37.86132645569889], [-4.394076122755301, -37.86143202441409], [-4.393743470177048, -37.86133075924916], [-4.393656955511075, -37.86196209268201]]}, {"name": "12FO- 124M", "coords": [[-4.394071420872977, -37.86130383862995], [-4.394614258528645, -37.86150782325514], [-4.394765970901123, -37.86168825622133], [-4.395058931649293, -37.86175775226884]]}, {"name": "12FO- 411M", "coords": [[-4.395074838542209, -37.86177984470522], [-4.395124748146303, -37.86131705881039], [-4.395104193332051, -37.8616926221508], [-4.395340797210151, -37.8616860971624], [-4.39625943394584, -37.86181782896758], [-4.397596342231125, -37.86210300055674], [-4.397928532070519, -37.86217521687706]]}, {"name": "12FO-1692M", "coords": [[-4.393048371631818, -37.86778029421856], [-4.393674339657631, -37.86780824395143], [-4.393426286190174, -37.86852667121689], [-4.393090871837735, -37.86964115946935], [-4.392798630345665, -37.87043206826652], [-4.391777698271803, -37.87004597157654], [-4.392014519581057, -37.86941847780398], [-4.39116677636085, -37.86925541445892], [-4.391062315192998, -37.86923701538141], [-4.390836990697791, -37.87009431229239], [-4.390730703217889, -37.87054074167239], [-4.390321752103087, -37.8710308247661], [-4.389795103161417, -37.87160716271598], [-4.389203729405594, -37.87224349450826], [-4.388523874189478, -37.87294889021491], [-4.388038667364739, -37.8734553762545], [-4.387413146929924, -37.87412920635283], [-4.387275510527884, -37.87446881180777], [-4.387197932619532, -37.87480600017052], [-4.387117118137212, -37.87516602226664], [-4.387035446434142, -37.87546133804495], [-4.386871297923597, -37.87579516212218], [-4.386576151911377, -37.87573865608899], [-4.386339939433968, -37.87576153273586], [-4.386244843210786, -37.87609125299385], [-4.386167604842726, -37.87634738752926]]}, {"name": "12FO-267M", "coords": [[-4.386973078219907, -37.87547387454365], [-4.387421783448395, -37.87552323943995], [-4.387936732301452, -37.87585255586355], [-4.388397360109784, -37.87612301663416], [-4.388894167009761, -37.87635432391284], [-4.38914732431935, -37.87643042041713]]}, {"name": "12FO-293M", "coords": [[-4.390828306522291, -37.87011390548557], [-4.391132437470599, -37.86881682270983], [-4.391370692581836, -37.86803323381763], [-4.391535642930361, -37.86757742279817]]}, {"name": "12FO-1126M", "coords": [[-4.393437773968392, -37.86853355479258], [-4.39350607503159, -37.86874334067783], [-4.393669911340417, -37.86879586566395], [-4.394119119379766, -37.86735084688721], [-4.39460873794284, -37.86549987674134], [-4.394675739810814, -37.86501756024094], [-4.394847627391849, -37.86335608515362], [-4.394900187846268, -37.86288136991833], [-4.396029514247328, -37.8629717724486], [-4.394926124274289, -37.86284570073104], [-4.39350444672718, -37.86251048228941]]}, {"name": "12FO-532M", "coords": [[-4.393026694739953, -37.8645789923761], [-4.391707552115842, -37.86424635615093], [-4.391969784311135, -37.86349386392254], [-4.39229954247954, -37.86215952431642], [-4.393515481302777, -37.86251368967994]]}, {"name": "12FO-135M", "coords": [[-4.39195102478502, -37.86352727082604], [-4.393135218032088, -37.86383837544745]]}, {"name": "12FO-3229M", "coords": [[-4.382506509862794, -37.85911538474168], [-4.382218783872956, -37.86052034371166], [-4.381920742743336, -37.86157179828481], [-4.381445184188053, -37.86305274091725], [-4.380723768699977, -37.86473662174885], [-4.380082861833354, -37.86676840900417], [-4.379741596267083, -37.86917513789749], [-4.37958000254521, -37.87020316632347], [-4.379460367569093, -37.87141640448125], [-4.379135378111083, -37.87247243020173], [-4.378505707027376, -37.87383696966537], [-4.377770158455159, -37.87561988566619], [-4.376597437141384, -37.87850993093825], [-4.375477169944142, -37.88130126766497], [-4.37513635763248, -37.88268099805575], [-4.376520395645613, -37.88293096986131], [-4.376564042096118, -37.88242221141171], [-4.376602593698377, -37.88209031986808], [-4.376672893583425, -37.88160564817835], [-4.376810710143185, -37.88113015648578], [-4.377225829403011, -37.88016672793096]]}, {"name": "12FO-242M", "coords": [[-4.382490387927498, -37.85920181658329], [-4.382646193638153, -37.85875145567694], [-4.382785490464896, -37.85838653922665], [-4.382945932198844, -37.85824454894519], [-4.383039083129797, -37.85801099212364], [-4.383180317890588, -37.85761047573016], [-4.38335100040536, -37.85742213110459], [-4.383346764592201, -37.85725305075512]]}, {"name": "12FO-354M", "coords": [[-4.382731197209499, -37.86193229159874], [-4.382841119241998, -37.86207924705331], [-4.38286209470162, -37.86224426433743], [-4.382802504148713, -37.86351228948364], [-4.383749831710144, -37.86372222376521], [-4.384337515293002, -37.86385521518998]]}, {"name": "12FO- 221M", "coords": [[-4.385060823011272, -37.86089714206309], [-4.38527582571097, -37.86052241140509], [-4.386030053658708, -37.8604615353636], [-4.386803483566042, -37.86023919202076]]}, {"name": "12FO- 883M", "coords": [[-4.383728320627238, -37.86034780883011], [-4.384815217392131, -37.86084651187994], [-4.385104104722445, -37.86090265496474], [-4.38493260477811, -37.86157046786555], [-4.385680697264619, -37.86175765561679], [-4.385992558827303, -37.86189676159901], [-4.386226718910279, -37.86307413883555], [-4.386581253323095, -37.86418204206113], [-4.385218343674417, -37.86405166200109], [-4.384290495226847, -37.86384173872542]]}, {"name": "12FO-175M", "coords": [[-4.384757176407177, -37.86079706424984], [-4.384886867006071, -37.86028849627699], [-4.384313288586193, -37.86007935509274], [-4.383924150484213, -37.85985972858526]]}, {"name": "12FO- 156M", "coords": [[-4.382699943447169, -37.86193281341155], [-4.382797137186962, -37.8622145646334], [-4.382847474006399, -37.86241374810305], [-4.383721936547449, -37.86263211011264]]}, {"name": "12FO-192M", "coords": [[-4.382723130179286, -37.86193059546639], [-4.382742527514931, -37.8613721195381], [-4.382875871001356, -37.86095308665793], [-4.383583637362068, -37.86115527397217]]}, {"name": "12FO-262M", "coords": [[-4.386730862112927, -37.86018489054514], [-4.386974184591444, -37.8596251511489], [-4.38713405720147, -37.85936316055327], [-4.387433725067498, -37.85901082209565], [-4.38837669267116, -37.85930168198303]]}, {"name": "12FO-2079M", "coords": [[-4.395899325818758, -37.85588967088251], [-4.396074924893912, -37.8545651086227], [-4.395818183838535, -37.85449005170184], [-4.394529940311097, -37.85399423302767], [-4.391543761833045, -37.85289512320804], [-4.388581075795464, -37.85179471709116], [-4.389035769266548, -37.8513121351601], [-4.389241820078459, -37.85097977798272], [-4.389653106001154, -37.85035435940485], [-4.391039581214184, -37.85089406309566], [-4.391383340605151, -37.85023327969841], [-4.391941237891269, -37.84910865608042], [-4.390553477637059, -37.84870476994614], [-4.391828874992588, -37.84631783739346]]}, {"name": "12FO-195M", "coords": [[-4.389671130771741, -37.85035730277166], [-4.388003454029016, -37.84979750869861]]}, {"name": "12FO-201M", "coords": [[-4.38968280957373, -37.85036125124814], [-4.38927833911527, -37.85102030975482], [-4.390264983113189, -37.85136294601599]]}, {"name": "12FO- 365M", "coords": [[-4.388592809319211, -37.85180435201517], [-4.388091294202107, -37.8523418511176], [-4.387405558013111, -37.85307570527681], [-4.387027477887639, -37.85357685288465], [-4.386595044729986, -37.85384783405688], [-4.38637114893328, -37.85420366792892]]}], "center": [-4.387579424338591, -37.86701607634256]}, "PARIPUEIRA": {"points": [{"name": "CEO BACKBONE", "type": "CEO", "lat": -4.371629162531173, "lon": -37.93512565027765}, {"name": "CX 01", "type": "CX", "lat": -4.365715817119895, "lon": -37.92991265643753}, {"name": "CX 02", "type": "CX", "lat": -4.366337061341524, "lon": -37.93054742222571}, {"name": "CX 03", "type": "CX", "lat": -4.367458915167071, "lon": -37.9312320869963}, {"name": "CX 04", "type": "CX", "lat": -4.368641281173272, "lon": -37.93086922965309}, {"name": "CX 05", "type": "CX", "lat": -4.368670954921668, "lon": -37.92501638174623}, {"name": "CX 06", "type": "CX", "lat": -4.369970132698016, "lon": -37.92523740995559}, {"name": "CX 07", "type": "CX", "lat": -4.370908356362078, "lon": -37.92531123437942}, {"name": "CX 08", "type": "CX", "lat": -4.371780983441822, "lon": -37.92536351690556}, {"name": "CX 09", "type": "CX", "lat": -4.372377666593798, "lon": -37.92346017946972}, {"name": "CX 10", "type": "CX", "lat": -4.372406115369442, "lon": -37.92450427970232}, {"name": "CX 11", "type": "CX", "lat": -4.373510041214502, "lon": -37.92297423296732}, {"name": "CX 12", "type": "CX", "lat": -4.373262442655294, "lon": -37.92477942325124}, {"name": "CX 13", "type": "CX", "lat": -4.373855080236128, "lon": -37.92536510869315}, {"name": "CX 14", "type": "CX", "lat": -4.37473316469328, "lon": -37.92375259741364}, {"name": "CX 15", "type": "CX", "lat": -4.375442539684148, "lon": -37.92367980480114}, {"name": "CX 16", "type": "CX", "lat": -4.374938926040632, "lon": -37.92528691934021}, {"name": "CEO ROTA 01", "type": "CEO", "lat": -4.37476825653787, "lon": -37.92540280099045}, {"name": "CX 01", "type": "CX", "lat": -4.368930492936503, "lon": -37.92379434455032}, {"name": "CX 02", "type": "CX", "lat": -4.369297377406881, "lon": -37.92262959491192}, {"name": "CX 03", "type": "CX", "lat": -4.369512553301503, "lon": -37.92401392222557}, {"name": "CX 04", "type": "CX", "lat": -4.370067510578994, "lon": -37.92359505361087}, {"name": "CX 05", "type": "CX", "lat": -4.370698137828025, "lon": -37.92203665118624}, {"name": "CX 06", "type": "CX", "lat": -4.37042443992368, "lon": -37.92292709308437}, {"name": "CX 07", "type": "CX", "lat": -4.370844607366742, "lon": -37.92382066066946}, {"name": "CX 08", "type": "CX", "lat": -4.371463468186001, "lon": -37.92359676388622}, {"name": "CX 09", "type": "CX", "lat": -4.373474750345806, "lon": -37.90748727834654}, {"name": "CX 10", "type": "CX", "lat": -4.374622065596715, "lon": -37.91180582684992}, {"name": "CX 11", "type": "CX", "lat": -4.374356832557339, "lon": -37.91346480470238}, {"name": "CX 12", "type": "CX", "lat": -4.373749137316972, "lon": -37.91512889630997}, {"name": "CX 13", "type": "CX", "lat": -4.373315841913784, "lon": -37.91792904909196}, {"name": "CX 14", "type": "CX", "lat": -4.378458977934662, "lon": -37.91352614220522}, {"name": "CX 15", "type": "CX", "lat": -4.380434051022807, "lon": -37.90884485496703}, {"name": "CEO ROTA 02", "type": "CEO", "lat": -4.37162892471454, "lon": -37.92324975601848}, {"name": "CX 01", "type": "CX", "lat": -4.384863085291592, "lon": -37.93703784158831}, {"name": "CX 02", "type": "CX", "lat": -4.38328594009644, "lon": -37.93692406075558}, {"name": "CX 03", "type": "CX", "lat": -4.381963565120631, "lon": -37.93665029808119}, {"name": "CX 04", "type": "CX", "lat": -4.382383665530138, "lon": -37.93549051685103}, {"name": "CX 05", "type": "CX", "lat": -4.383335536555935, "lon": -37.93541034132905}, {"name": "CX 06", "type": "CX", "lat": -4.383754468314132, "lon": -37.93430499307481}, {"name": "CX 07", "type": "CX", "lat": -4.381338461147058, "lon": -37.93644333404325}, {"name": "CX 01", "type": "CX", "lat": -4.386208107635015, "lon": -37.955910180389}, {"name": "CX 02", "type": "CX", "lat": -4.386707749882707, "lon": -37.95199541467261}, {"name": "CX 03", "type": "CX", "lat": -4.387569288104179, "lon": -37.95013371491267}, {"name": "CX 04", "type": "CX", "lat": -4.388327306901466, "lon": -37.94762979218041}, {"name": "CX 05", "type": "CX", "lat": -4.387720851111148, "lon": -37.94247145921687}, {"name": "CX 06", "type": "CX", "lat": -4.391257286771513, "lon": -37.94062919978052}, {"name": "CX 07", "type": "CX", "lat": -4.386924642522597, "lon": -37.94012349352889}, {"name": "CEO ROTA 05", "type": "CEO", "lat": -4.380844535686863, "lon": -37.93650637207056}], "lines": [{"name": "12FO- 4300M", "coords": [[-4.358224798139408, -37.95957896012565], [-4.360968038223631, -37.95719315739685], [-4.363348230444697, -37.95505502785927], [-4.36496890788055, -37.9532147178636], [-4.365575293693556, -37.95214915258396], [-4.365939832508213, -37.95110273003932], [-4.367301777163444, -37.9472588653893], [-4.369248130654539, -37.94152094324338], [-4.371550567718473, -37.93514558413713], [-4.37447777298592, -37.92628618847738], [-4.374761579754066, -37.92542540821638]]}, {"name": "12FO- 1089M", "coords": [[-4.375431919229525, -37.92368852479881], [-4.374937215399285, -37.92528617274461], [-4.374921844789721, -37.92538577027126], [-4.374423900166937, -37.92544888421409], [-4.373771702876892, -37.92537736159518], [-4.373305369856562, -37.92536540884377], [-4.373343800597476, -37.92477813941797], [-4.373243017953768, -37.9247883994159], [-4.372413601576037, -37.92482208084328], [-4.37238279698556, -37.92450140266945], [-4.372378350406942, -37.92393522012446], [-4.372360626509731, -37.92346977241822], [-4.372524336691929, -37.92291374220002], [-4.373498706702335, -37.92298233505056], [-4.373370485087572, -37.92362596449701], [-4.37471430333668, -37.92374978373311]]}, {"name": "12FO-84M", "coords": [[-4.372367666141553, -37.92344530118257], [-4.371633534005678, -37.92325755767055]]}, {"name": "12FO- 1477M", "coords": [[-4.372367510233909, -37.9244972437124], [-4.372464971734419, -37.92538329479645], [-4.372328588566518, -37.92538869161638], [-4.371208455096902, -37.92535706081595], [-4.370894916301161, -37.92532997042657], [-4.369941929802566, -37.9252616777482], [-4.36928463082501, -37.92513271627293], [-4.368671340279572, -37.92503270931108], [-4.368481337914023, -37.92607540654307], [-4.368237542151093, -37.92663323312171], [-4.367329845111723, -37.92817664102597], [-4.367115307333262, -37.92868014849955], [-4.366341271555059, -37.9305497442349], [-4.36687101408329, -37.93085467806851], [-4.367277888952025, -37.93109730036682], [-4.367481713705049, -37.93125670041049], [-4.368034082859983, -37.93110504061113], [-4.368407449191844, -37.93092388713995], [-4.368661403039812, -37.93088076820523]]}, {"name": "12FO- 105M", "coords": [[-4.366385128406478, -37.93059069183563], [-4.366338741774409, -37.9305548236357], [-4.365958885622034, -37.93022978859874], [-4.365702509522476, -37.92994091945208]]}, {"name": "12FO-1956M", "coords": [[-4.373330733342819, -37.91792941268989], [-4.37336967402549, -37.91693104210097], [-4.373440240634508, -37.9163571254194], [-4.373752357816252, -37.91511257605161], [-4.37410137217291, -37.91426129405576], [-4.374228195875759, -37.91392295150794], [-4.37435782117401, -37.91346714326958], [-4.374576804324332, -37.91267663791565], [-4.374615947255617, -37.91181727915971], [-4.375997483237829, -37.91187053150608], [-4.377737612589277, -37.91191752997501], [-4.37902227685731, -37.91191903072936], [-4.378487556177523, -37.91353068669565], [-4.379069334876232, -37.91194145339868], [-4.37938781175236, -37.91192143172716], [-4.379642361860427, -37.91089396391162], [-4.38040112092305, -37.90885650386633]]}, {"name": "12FO-509M", "coords": [[-4.374569164318452, -37.91186699337212], [-4.374553948673022, -37.9112820867069], [-4.374391926159789, -37.91038128533465], [-4.374282142520928, -37.9097043104481], [-4.374098902969046, -37.90906744231765], [-4.373720151903846, -37.90827239088029], [-4.373506824669505, -37.9077030329044], [-4.373408558503463, -37.90747474330962]]}, {"name": "12FO- 113M", "coords": [[-4.370041168556285, -37.92360680234423], [-4.369691492330151, -37.92343842083513], [-4.369469770589157, -37.92403323718325]]}, {"name": "12FO- 781M", "coords": [[-4.37163234662141, -37.92323727670009], [-4.371327321268706, -37.92398896431534], [-4.370835415623125, -37.92382654348117], [-4.370301367461546, -37.92372347862117], [-4.370036778336105, -37.92361473389958], [-4.370189743206581, -37.92364017075946], [-4.370407938784644, -37.92292663735985], [-4.370604721911927, -37.9221028792397], [-4.370699425743144, -37.92204134433837], [-4.370328250260318, -37.92195453685441], [-4.369971179504545, -37.92187335241956], [-4.369713086043409, -37.9219942521947], [-4.369285453639029, -37.92263646815967], [-4.369098826511174, -37.92329877790564], [-4.368909899689827, -37.92380206445604]]}, {"name": "12FO- 616M", "coords": [[-4.370648764847271, -37.9220573978254], [-4.370912562545781, -37.92187950211243], [-4.371449290206439, -37.92175435240409], [-4.372008503364174, -37.92141842009373], [-4.372384060795227, -37.92116177153104], [-4.372944716286977, -37.92048627749104], [-4.373306747820552, -37.9200505399597], [-4.37333385158555, -37.91947719822238], [-4.373279522942122, -37.91791655073524]]}, {"name": "12FO- 2332M", "coords": [[-4.391222850512854, -37.9406054231152], [-4.388643442155477, -37.94029480191716], [-4.386875909409824, -37.94010838567434], [-4.386949919704004, -37.94067520246151], [-4.387182242357042, -37.94132428691932], [-4.387704210249377, -37.94248248423439], [-4.388079337114874, -37.94321684809221], [-4.388327451378538, -37.94372362587591], [-4.388718143369623, -37.94464318202977], [-4.388749792154435, -37.94497630688151], [-4.388740558564677, -37.94585272291017], [-4.388702289893727, -37.94620071342258], [-4.38843789026141, -37.94713015110229], [-4.388296862800486, -37.94763829806331], [-4.387870594294533, -37.94885632452739], [-4.387633633710173, -37.94961921862414], [-4.387537918584626, -37.95014777826245], [-4.38746420510996, -37.95061943976618], [-4.387310066374636, -37.9510298315189], [-4.386929517060338, -37.95166038109171], [-4.386665412297986, -37.95201439819984], [-4.386482747593735, -37.95236473939016], [-4.38629955853414, -37.95343584978412], [-4.386206899023642, -37.9545348551553], [-4.386177833735793, -37.95567266514762], [-4.38618855962803, -37.95591349379141]]}, {"name": "12FO- 549M", "coords": [[-4.38689802703272, -37.94010250483674], [-4.386957806935595, -37.93954647026381], [-4.387056972531428, -37.93822992530138], [-4.386734943114256, -37.93826481673835], [-4.386260043092483, -37.93832542675801], [-4.385326670701929, -37.93827026155973], [-4.384796366379637, -37.93704041719911]]}, {"name": "12FO- 707M", "coords": [[-4.384812966220522, -37.93704009727089], [-4.384509622292047, -37.93707721128121], [-4.383870342311564, -37.937081095497], [-4.383280872971244, -37.93694530739688], [-4.381960668313523, -37.9366719128756], [-4.382077026781213, -37.93636431279055], [-4.38206891962897, -37.9358688269886], [-4.382194080799909, -37.93570644381145], [-4.382359077548643, -37.93546926349759], [-4.383040803473826, -37.9354102404948], [-4.383323671688713, -37.93542665952195], [-4.383746011166207, -37.93430452430093]]}, {"name": "12FO- 140M", "coords": [[-4.381950662354821, -37.93665339096579], [-4.381872114836413, -37.93645817926786], [-4.381781441199122, -37.93643592178238], [-4.381675315105794, -37.93640712964488], [-4.381313557737305, -37.93644730981345], [-4.380826270340168, -37.93651252868054]]}, {"name": "12FO-1129M", "coords": [[-4.380835650871656, -37.93650501602227], [-4.380320645037698, -37.9365228786016], [-4.379932782100677, -37.93659349011146], [-4.379680502896413, -37.93699884385269], [-4.379469760102026, -37.93730819750053], [-4.37900128476717, -37.93759536445444], [-4.378780484990364, -37.93764191273747], [-4.378264262765343, -37.93743233049511], [-4.377596813838625, -37.93720514058462], [-4.376692169587487, -37.93691904413641], [-4.375776258492, -37.93662462138312], [-4.374781915070066, -37.93627360667396], [-4.374334203941652, -37.9361099589222], [-4.373182891531701, -37.9356820340984], [-4.371541584228678, -37.93511452138131]]}], "center": [-4.376203155117214, -37.930106701880916]}};
+const nomes = {'campestre':'Campestre','PALMEIRA':'Palmeira','PARAJURU':'Parajuru','PARIPUEIRA':'Paripueira'};
+const stats = {
+  'campestre':{cx:111,ceo:8,cabo:29910,portas:888,investimento:76429.99},
+  'PALMEIRA':{cx:20,ceo:2,cabo:9448,portas:160,investimento:22633.03},
+  'PARAJURU':{cx:65,ceo:5,cabo:23221,portas:520,investimento:57356.89},
+  'PARIPUEIRA':{cx:45,ceo:4,cabo:15911,portas:360,investimento:39440.32}
+};
+
+function showTab(name){
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  event.target.classList.add('active');
+  if(name==='mapa' && window._map){ setTimeout(()=>window._map.invalidateSize(),100); }
+}
+
+let map, layerGroup;
+const munKeys = Object.keys(geo);
+
+function initMap(){
+  map = L.map('map');
+  window._map = map;
+  L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
+    maxZoom: 21,
+    subdomains: ['mt0','mt1','mt2','mt3'],
+    attribution: '© Google'
+  }).addTo(map);
+  layerGroup = L.layerGroup().addTo(map);
+
+  const tabsDiv = document.getElementById('mun-tabs');
+
+  const allBtn = document.createElement('button');
+  allBtn.className = 'mun-btn active';
+  allBtn.textContent = 'Todos os municípios';
+  allBtn.onclick = ()=>{
+    document.querySelectorAll('.mun-btn').forEach(b=>b.classList.remove('active'));
+    allBtn.classList.add('active');
+    loadMunicipio('__ALL__');
+  };
+  tabsDiv.appendChild(allBtn);
+
+  munKeys.forEach((k)=>{
+    const btn = document.createElement('button');
+    btn.className = 'mun-btn';
+    btn.textContent = nomes[k];
+    btn.onclick = ()=>{
+      document.querySelectorAll('.mun-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      loadMunicipio(k);
+    };
+    tabsDiv.appendChild(btn);
+  });
+
+  loadMunicipio('__ALL__');
+}
+
+function loadMunicipio(key){
+  layerGroup.clearLayers();
+
+  const isAll = key === '__ALL__';
+  const keysToLoad = isAll ? munKeys : [key];
+  let allLats = [], allLons = [];
+
+  keysToLoad.forEach(k=>{
+    const data = geo[k];
+    data.lines.forEach(line=>{
+      L.polyline(line.coords, {color:'#FFD700', weight:4, opacity:0.95}).bindTooltip(line.name).addTo(layerGroup);
+    });
+    data.points.forEach(p=>{
+      let color = '#FFFFFF';
+      let radius = 5;
+      if(p.type==='CEO'){ color='#C62828'; radius=7; }
+      else if(p.type==='CTO'){ color='#F9A825'; radius=6; }
+      L.circleMarker([p.lat,p.lon], {radius:radius, color:'#1F2937', weight:1.5, fillColor:color, fillOpacity:0.95})
+        .bindTooltip(p.name + ' (' + p.type + ')')
+        .addTo(layerGroup);
+      allLats.push(p.lat); allLons.push(p.lon);
+    });
+  });
+
+  if(isAll){
+    const avgLat = allLats.reduce((a,b)=>a+b,0)/allLats.length;
+    const avgLon = allLons.reduce((a,b)=>a+b,0)/allLons.length;
+    map.setView([avgLat, avgLon], 11);
+  } else {
+    map.setView(geo[key].center, 14);
+  }
+
+  const statsDiv = document.getElementById('mun-stats');
+  if(isAll){
+    const tot = {cx:0,ceo:0,cabo:0,portas:0,investimento:0};
+    munKeys.forEach(k=>{
+      tot.cx += stats[k].cx; tot.ceo += stats[k].ceo; tot.cabo += stats[k].cabo;
+      tot.portas += stats[k].portas; tot.investimento += stats[k].investimento;
+    });
+    statsDiv.innerHTML = `
+      <div class="stat"><div class="num">${tot.cx}</div><div class="lbl">Caixas CX</div></div>
+      <div class="stat"><div class="num">${tot.ceo}</div><div class="lbl">CEO</div></div>
+      <div class="stat"><div class="num">${tot.cabo.toLocaleString('pt-BR')} m</div><div class="lbl">Cabo 12FO</div></div>
+      <div class="stat"><div class="num">${tot.portas.toLocaleString('pt-BR')}</div><div class="lbl">Portas a atender</div></div>
+      <div class="stat" style="background:#fff9ec;"><div class="num" style="color:#B8860B;">R$ ${tot.investimento.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div class="lbl">Investimento (infra externa)</div></div>
+    `;
+    return;
+  }
+
+  const s = stats[key];
+  document.getElementById('mun-stats').innerHTML = `
+    <div class="stat"><div class="num">${s.cx}</div><div class="lbl">Caixas CX</div></div>
+    <div class="stat"><div class="num">${s.ceo}</div><div class="lbl">CEO</div></div>
+    <div class="stat"><div class="num">${s.cabo.toLocaleString('pt-BR')} m</div><div class="lbl">Cabo 12FO</div></div>
+    <div class="stat"><div class="num">${s.portas.toLocaleString('pt-BR')}</div><div class="lbl">Portas a atender</div></div>
+    <div class="stat" style="background:#fff9ec;"><div class="num" style="color:#B8860B;">R$ ${s.investimento.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div class="lbl">Investimento (infra externa)</div></div>
+
+  `;
+}
+
+try{ initMap(); }
+catch(e){ console.error('Falha ao iniciar o mapa (KMZ/Leaflet indisponível?):', e); }
+
+// ============================================================
+// Tabelas editáveis (Infraestrutura Externa + CPD)
+// ============================================================
+function formatMoney(v){
+  return 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function recalcRow(tr){
+  const qtyIn = tr.querySelector('.qty-in');
+  const priceIn = tr.querySelector('.price-in');
+  const totalCell = tr.querySelector('.row-total');
+  if(!qtyIn || !priceIn || !totalCell) return 0;
+  const qty = parseFloat(qtyIn.value) || 0;
+  const price = parseFloat(priceIn.value) || 0;
+  const total = qty * price;
+  totalCell.textContent = formatMoney(total);
+  return total;
+}
+
+function recalcTable(tbodyId, totalCellId){
+  const tbody = document.getElementById(tbodyId);
+  let sum = 0;
+  tbody.querySelectorAll('tr[data-row]').forEach(tr => { sum += recalcRow(tr); });
+  document.getElementById(totalCellId).textContent = formatMoney(sum);
+  return sum;
+}
+
+function recalcAll(){
+  const infraTotal = recalcTable('tbody-infra', 'total-infra');
+  const cpdTotal = recalcTable('tbody-cpd', 'total-cpd');
+  const grand = infraTotal + cpdTotal;
+  const cards = document.querySelectorAll('.card-resumo .valor');
+  if(cards[0]) cards[0].textContent = formatMoney(infraTotal);
+  if(cards[1]) cards[1].textContent = formatMoney(cpdTotal);
+  if(cards[2]) cards[2].textContent = formatMoney(grand);
+}
+
+// ============================================================
+// Persistência local — sem isso, qualquer edição de quantidade/preço
+// se perdia ao sair da página. Guarda o estado das duas tabelas
+// (infra + CPD) no navegador e restaura na próxima visita.
+// ============================================================
+const STORAGE_KEY = 'beberibe-projeto1-v1';
+
+function serializeTbody(tbodyId){
+  return [...document.querySelectorAll('#'+tbodyId+' tr[data-row]')].map(tr=>({
+    cls: tr.className,
+    desc: tr.querySelector('.desc').textContent,
+    unid: tr.querySelector('.num').textContent,
+    qty: tr.querySelector('.qty-in').value,
+    price: tr.querySelector('.price-in').value,
+    fonte: tr.querySelector('.fonte').textContent,
+  }));
+}
+
+function captureState(){
+  return { infra: serializeTbody('tbody-infra'), cpd: serializeTbody('tbody-cpd'), updated: Date.now() };
+}
+
+function rowFromData(r){
+  const tr = document.createElement('tr');
+  tr.className = r.cls||'';
+  tr.setAttribute('data-row','');
+  tr.innerHTML =
+    '<td class="desc" contenteditable="true">'+r.desc+'</td>'+
+    '<td class="num" contenteditable="true">'+r.unid+'</td>'+
+    '<td class="num"><input type="number" class="qty-in" value="'+r.qty+'" step="1"></td>'+
+    '<td class="money"><input type="number" class="price-in" value="'+r.price+'" step="0.01"></td>'+
+    '<td class="money row-total"></td>'+
+    '<td class="fonte" contenteditable="true">'+r.fonte+'</td>'+
+    '<td><button class="del-btn" onclick="delRow(this)">✕</button></td>';
+  return tr;
+}
+
+function applyState(state){
+  if(!state) return;
+  if(state.infra && state.infra.length){
+    const tbody = document.getElementById('tbody-infra');
+    tbody.innerHTML = '';
+    state.infra.forEach(r=>tbody.appendChild(rowFromData(r)));
+  }
+  if(state.cpd && state.cpd.length){
+    const tbody = document.getElementById('tbody-cpd');
+    tbody.innerHTML = '';
+    state.cpd.forEach(r=>tbody.appendChild(rowFromData(r)));
+  }
+  recalcAll();
+}
+
+let _saveTimer = null;
+function scheduleSave(){
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(()=>{
+    const state = captureState();
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    catch(e){ /* armazenamento local indisponível — segue só na sessão */ }
+    syncToCloud(state);
+  }, 500);
+}
+
+let _cloudSyncTimer = null;
+function syncToCloud(state){
+  if(!window._fbUser || !window._cloudSave) return;
+  clearTimeout(_cloudSyncTimer);
+  _cloudSyncTimer = setTimeout(async ()=>{
+    try{ await window._cloudSave(state); }
+    catch(e){ console.error('Falha ao sincronizar Beberibe Projeto 1 com a nuvem:', e); }
+  }, 1000);
+}
+
+// Aplica atualização recebida em tempo real de outra pessoa logada com a
+// mesma conta (mesmo padrão do resto do site).
+window._applyRemoteState = function(data){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }catch(e){}
+  applyState(data);
+};
+
+function addRow(tbodyId){
+  const tbody = document.getElementById(tbodyId);
+  const isCpd = tbodyId === 'tbody-cpd';
+  const tr = document.createElement('tr');
+  tr.setAttribute('data-row','');
+  if(isCpd){
+    tr.innerHTML = `
+      <td class="desc" contenteditable="true">Novo item</td>
+      <td class="num" contenteditable="true">-</td>
+      <td class="num"><input type="number" class="qty-in" value="1" step="1"></td>
+      <td class="money"><input type="number" class="price-in" value="0" step="0.01"></td>
+      <td class="money row-total"></td>
+      <td class="fonte" contenteditable="true">Adicionado manualmente</td>
+      <td><button class="del-btn" onclick="delRow(this)">✕</button></td>
+    `;
+  } else {
+    tr.innerHTML = `
+      <td class="desc" contenteditable="true">Novo item</td>
+      <td class="num" contenteditable="true">Unid.</td>
+      <td class="num"><input type="number" class="qty-in" value="1" step="1"></td>
+      <td class="money"><input type="number" class="price-in" value="0" step="0.01"></td>
+      <td class="money row-total"></td>
+      <td class="fonte" contenteditable="true">Adicionado manualmente</td>
+      <td><button class="del-btn" onclick="delRow(this)">✕</button></td>
+    `;
+  }
+  tbody.appendChild(tr);
+  recalcAll();
+  scheduleSave();
+}
+
+function delRow(btn){
+  const tr = btn.closest('tr');
+  tr.remove();
+  recalcAll();
+  scheduleSave();
+}
+
+document.addEventListener('input', (e)=>{
+  if(e.target.classList.contains('qty-in') || e.target.classList.contains('price-in')){
+    recalcAll();
+  }
+  if(e.target.closest('#tbody-infra') || e.target.closest('#tbody-cpd')){
+    scheduleSave();
+  }
+});
+
+let _savedState = null;
+try{ const raw = localStorage.getItem(STORAGE_KEY); if(raw) _savedState = JSON.parse(raw); }catch(e){}
+if(_savedState){ applyState(_savedState); }
+else { recalcAll(); }
+</script>
+
+</body>
+</html>

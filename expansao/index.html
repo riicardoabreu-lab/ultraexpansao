@@ -33,7 +33,18 @@
   // ---- Sincronização em tempo real com a nuvem (Firestore), mesmo padrão
   // usado em Aquisições: last write wins, KMZ à parte pra não inflar o
   // documento principal.
-  window._lastKnownUpdated = 0;
+  // Semeia com o "updated" já salvo localmente (não com 0) — senão, se a
+  // gravação na nuvem de uma edição recente (ex.: subir um KMZ) ainda não
+  // tiver terminado quando a página é recarregada, o snapshot antigo que
+  // chega da nuvem logo em seguida passa no filtro de "desatualizado" e
+  // sobrescreve o que acabou de ser salvo no navegador.
+  window._lastKnownUpdated = (function(){
+    try{
+      const raw = localStorage.getItem('expansao-v1');
+      if(raw) return JSON.parse(raw).updated || 0;
+    }catch(e){}
+    return 0;
+  })();
   window._cloudSave = (data) => {
     if(!window._fbUser) return Promise.resolve();
     window._lastKnownUpdated = data.updated;
@@ -60,51 +71,46 @@
       if(!data.cidades || !data.cidades.length) return;
       if((data.updated||0) <= (window._lastKnownUpdated||0)) return;
       window._lastKnownUpdated = data.updated;
-      if(window._applyRemoteState) window._applyRemoteState(data.cidades);
+      if(window._applyRemoteState) window._applyRemoteState(data.cidades, data.updated);
     }, err => console.error('Falha no listener de sincronização (Expansão):', err));
   });
 </script>
 <title>Expansão Orgânica — Infolink-ISP</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root{
-    --bg:#0d0620; --bg-panel:#1a0f2e; --bg-panel-2:#221540; --bg-inset:#170c28;
-    --border:#3a2160; --border-soft:#2c1850;
-    --accent:#00d4c8; --accent-dim:#0d3a36;
-    --good:#34d399; --good-dim:#123a2c;
-    --bad:#fb7185; --bad-dim:#3f1622;
-    --text:#f1eefa; --text-dim:#a99bc4; --text-faint:#6f5f92;
-    --purple:#6a00b8; --magenta:#b91cd0;
+    --bg:#f4f6f8; --bg-panel:#ffffff; --bg-panel-2:#D9E1F2; --bg-inset:#f7f9fb;
+    --border:#c7d2de; --border-soft:#dfe3e8;
+    --accent:#1F4E78; --accent-dim:#E8F0FA;
+    --good:#1f7a44; --good-dim:#E2EFDA;
+    --bad:#c0392b; --bad-dim:#FDE2E4;
+    --text:#1f2937; --text-dim:#334155; --text-faint:#6b7280;
+    --purple:#1F4E78; --magenta:#2c6ca3;
     --radius:10px;
-    --mono:'IBM Plex Mono', ui-monospace, monospace;
-    --disp:'Space Grotesk', sans-serif;
-    --body:'Inter', sans-serif;
+    --mono:Arial, Helvetica, sans-serif;
+    --disp:Arial, Helvetica, sans-serif;
+    --body:Arial, Helvetica, sans-serif;
   }
   *{box-sizing:border-box;}
   html{scroll-behavior:smooth;}
   body{
     margin:0; background:var(--bg); color:var(--text); font-family:var(--body); font-size:14px; line-height:1.5;
-    background-image:
-      radial-gradient(ellipse 900px 500px at 12% -10%, rgba(0,212,200,.09), transparent 60%),
-      radial-gradient(ellipse 700px 500px at 100% 0%, rgba(185,28,208,.08), transparent 60%);
-    background-attachment:fixed;
   }
-  ::selection{ background:var(--accent); color:#03110f; }
+  ::selection{ background:var(--accent); color:#fff; }
   button, input, select{ font-family:inherit; }
 
-  .topbar{ position:sticky; top:0; z-index:50; backdrop-filter:blur(10px); background:rgba(13,6,32,.9); border-bottom:1px solid var(--border-soft); }
+  .topbar{ position:sticky; top:0; z-index:50; background:#fff; border-bottom:1px solid var(--border-soft); box-shadow:0 1px 4px rgba(0,0,0,.06); }
   .topbar-inner{ max-width:1560px; margin:0 auto; padding:12px 22px; display:flex; align-items:center; gap:16px; }
-  .brand{ display:flex; align-items:center; gap:9px; font-family:var(--disp); font-weight:600; font-size:14.5px; white-space:nowrap; }
-  .brand-dot{ width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px 2px rgba(0,212,200,.7); }
+  .brand{ display:flex; align-items:center; gap:9px; font-weight:700; font-size:14.5px; white-space:nowrap; color:var(--accent); }
+  .brand-dot{ width:9px; height:9px; border-radius:50%; background:var(--accent); }
   .topbar-actions{ margin-left:auto; display:flex; align-items:center; gap:8px; }
   .ghost-btn{ background:transparent; border:1px solid var(--border); color:var(--text-dim); padding:7px 13px; border-radius:7px; font-size:12px; cursor:pointer; white-space:nowrap; }
   .ghost-btn:hover{ border-color:var(--accent); color:var(--accent); }
-  .status-pill{ display:flex; align-items:center; gap:8px; padding:6px 12px; border-radius:20px; border:1px solid var(--border); font-family:var(--mono); font-size:12px; white-space:nowrap; }
-  .status-pill b{ font-family:var(--body); font-weight:600;}
+  .icon-btn{ padding:7px 10px; font-size:14px; line-height:1; }
+  .status-pill{ display:flex; align-items:center; gap:8px; padding:6px 12px; border-radius:20px; border:1px solid var(--border); font-size:12px; white-space:nowrap; }
+  .status-pill b{ font-weight:600;}
   .dot{width:7px;height:7px;border-radius:50%; background:var(--good);}
   @media (max-width:760px){
     .topbar-inner{ flex-wrap:wrap; row-gap:8px; }
@@ -116,20 +122,21 @@
     width:280px; flex-shrink:0; padding:20px 14px 40px; position:sticky; top:53px;
     height:calc(100vh - 53px); overflow-y:auto; border-right:1px solid var(--border-soft);
   }
-  .sidebar h4{ font-family:var(--disp); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-faint); margin:4px 6px 12px; }
+  .sidebar h4{ font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-faint); margin:4px 6px 12px; }
   .new-city-btn{
-    width:100%; background:linear-gradient(180deg, rgba(0,212,200,.14), rgba(0,212,200,.05)); border:1px dashed rgba(0,212,200,.45);
-    color:var(--accent); padding:11px; border-radius:9px; font-size:12.5px; font-weight:600; cursor:pointer; margin-bottom:16px;
+    width:100%; background:var(--bg-inset); border:1px dashed var(--accent);
+    color:var(--accent); padding:11px; border-radius:9px; font-size:12.5px; font-weight:700; cursor:pointer; margin-bottom:16px;
   }
-  .new-city-btn:hover{ background:rgba(0,212,200,.18); }
+  .new-city-btn:hover{ background:var(--accent-dim); }
   .city-list{ display:flex; flex-direction:column; gap:8px; }
   .city-card{
     background:var(--bg-panel); border:1px solid var(--border-soft); border-radius:9px; padding:11px 12px; cursor:pointer; position:relative; transition:.15s;
+    box-shadow:0 1px 3px rgba(0,0,0,.04);
   }
   .city-card:hover{ border-color:var(--border); }
-  .city-card.active{ border-color:var(--accent); background:linear-gradient(180deg, rgba(0,212,200,.09), var(--bg-panel) 70%); }
-  .city-card .cname{ font-weight:600; font-size:13px; margin-bottom:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .city-card .cmeta{ color:var(--text-faint); font-size:11px; font-family:var(--mono); }
+  .city-card.active{ border-color:var(--accent); background:var(--accent-dim); }
+  .city-card .cname{ font-weight:700; font-size:13px; margin-bottom:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }
+  .city-card .cmeta{ color:var(--text-faint); font-size:11px; }
   .city-card .cactions{ display:flex; gap:6px; margin-top:8px; }
   .city-card .cactions button{
     background:transparent; border:1px solid var(--border-soft); color:var(--text-faint); font-size:10.5px; padding:3px 7px; border-radius:5px; cursor:pointer;
@@ -147,21 +154,27 @@
   .main{ flex:1; min-width:0; padding:26px 28px 90px; }
   .empty-main{ color:var(--text-faint); font-size:13.5px; padding:40px 6px; line-height:1.7; }
 
+  /* ---------- modo relatório (?relatorio=<id>) — link somente daquela cidade,
+     sem a barra lateral com as outras, pra compartilhar/imprimir ---------- */
+  body.modo-relatorio .sidebar{ display:none; }
+  body.modo-relatorio .main{ max-width:1040px; margin:0 auto; }
+  .relatorio-link-btn{ margin-top:12px; }
+
   .phead-row{ display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap; margin-bottom:22px; }
   input.cname-input{
-    background:transparent; border:none; border-bottom:2px solid transparent; color:var(--text); font-family:var(--disp);
+    background:transparent; border:none; border-bottom:2px solid transparent; color:var(--text);
     font-weight:700; font-size:clamp(22px,3vw,30px); padding:2px 0; min-width:220px;
   }
   input.cname-input:hover, input.cname-input:focus{ border-bottom-color:var(--border); outline:none; }
 
   /* ---------- banner de topo da cidade (estilo header.page-title do orçamento consolidado) ---------- */
   .page-banner{
-    background:linear-gradient(135deg,var(--purple),#4a0f80); border-radius:12px; padding:24px 28px;
-    margin-bottom:24px; box-shadow:0 4px 14px rgba(0,0,0,.35);
+    background:linear-gradient(135deg,var(--accent),#2c6ca3); border-radius:12px; padding:24px 28px;
+    margin-bottom:24px; box-shadow:0 4px 14px rgba(31,78,120,.25);
   }
   .page-banner .cname-input{ color:#fff; width:100%; }
   .page-banner .cname-input:hover, .page-banner .cname-input:focus{ border-bottom-color:rgba(255,255,255,.5); }
-  .page-banner-sub{ margin:6px 0 0; font-size:12.5px; color:rgba(255,255,255,.85); }
+  .page-banner-sub{ margin:6px 0 0; font-size:13px; color:rgba(255,255,255,.9); }
 
   .breadcrumb-link{ display:inline-block; margin-bottom:12px; color:var(--text-dim); font-size:12.5px; text-decoration:none; }
   .breadcrumb-link:hover{ color:var(--accent); }
@@ -173,104 +186,118 @@
   .bairro-card .cname::before{ content:"📍"; font-size:12px; }
 
   /* ---------- bloco: card com barra de título colorida (mesmo padrão do orçamento consolidado) ---------- */
-  .bloco{ background:var(--bg-panel); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; margin-bottom:26px; }
-  .bloco-header{ background:var(--purple); color:#fff; padding:14px 20px; font-family:var(--disp); font-size:15px; font-weight:700; }
-  .bloco-sub{ padding:10px 20px 0; font-size:12px; color:var(--text-faint); font-style:italic; line-height:1.55; }
+  .bloco{ background:var(--bg-panel); border:none; border-radius:var(--radius); overflow:hidden; margin-bottom:26px; box-shadow:0 1px 6px rgba(0,0,0,.08); }
+  .bloco-header{ background:var(--accent); color:#fff; padding:14px 20px; font-size:16px; font-weight:700; }
+  .bloco-sub{ padding:10px 20px 0; font-size:12.5px; color:var(--text-faint); font-style:italic; line-height:1.55; }
   .bloco-body{ padding:18px 20px 20px; }
   .bloco-body .table-scroll{ margin-top:0; }
 
-  .panel{ background:var(--bg-panel); border:1px solid var(--border); border-radius:var(--radius); padding:20px; min-width:0; }
+  .panel{ background:var(--bg-panel); border:1px solid var(--border-soft); border-radius:var(--radius); padding:20px; min-width:0; box-shadow:0 1px 4px rgba(0,0,0,.06); }
   .sec-block{ margin-bottom:26px; }
-  .sec-block > h3{ font-family:var(--disp); font-size:14.5px; font-weight:600; margin:0 0 12px; color:var(--text-dim); }
+  .sec-block > h3{ font-size:14.5px; font-weight:700; margin:0 0 12px; color:var(--text-dim); }
   .sec-block > p.hint{ color:var(--text-faint); font-size:12px; margin:-6px 0 14px; }
 
   .field{ display:flex; flex-direction:column; gap:5px; }
   .field label{ font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.06em; }
   .field input, .field select{
-    background:var(--bg-inset); border:1px solid var(--border); color:var(--text); font-family:var(--mono);
+    background:#fff; border:1px solid var(--border); color:var(--text);
     font-size:13.5px; padding:9px 10px; border-radius:7px; width:100%;
   }
-  .field input:focus, .field select:focus, table input:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(0,212,200,.15); }
+  .field input:focus, .field select:focus, table input:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(31,78,120,.15); }
   .field-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; }
 
+  textarea.planos-in{
+    background:#fff; border:1px solid var(--border); color:var(--text); font-family:inherit;
+    font-size:12.5px; padding:6px 8px; border-radius:6px; width:100%; min-width:180px; resize:vertical;
+  }
+  textarea.planos-in:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(31,78,120,.15); }
+
+  input.conc-in{
+    background:#fff; border:1px solid var(--border); color:var(--text);
+    font-size:12.5px; padding:6px 8px; border-radius:6px; width:100%; min-width:110px;
+  }
+  input.conc-nome{ min-width:160px; }
+  input.conc-num{ min-width:70px; }
+  .del-btn{
+    background:transparent; border:1px solid var(--border); color:var(--text-faint);
+    width:28px; height:28px; border-radius:6px; cursor:pointer; font-size:13px; line-height:1;
+  }
+  .del-btn:hover{ border-color:var(--bad); color:var(--bad); }
+
+  input.mat-in{
+    background:#fff; border:1px solid var(--border); color:var(--text);
+    font-size:12.5px; padding:6px 8px; border-radius:6px; width:100%; min-width:80px;
+  }
+  input.mat-nome{ min-width:200px; }
+  input.mat-unid{ min-width:70px; }
+  input.mat-num{ min-width:90px; }
+  input.mat-in:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(31,78,120,.15); }
+
   .kpi-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:14px; }
-  .kpi{ background:var(--bg-panel); border:1px solid var(--border); border-radius:var(--radius); padding:15px 17px; }
+  .kpi{ background:var(--bg-inset); border:1px solid var(--border-soft); border-radius:var(--radius); padding:15px 17px; }
   .kpi .label{ color:var(--text-faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; margin-bottom:7px; }
-  .kpi .value{ font-family:var(--mono); font-weight:600; font-size:19px; }
-  .kpi.hi{ border-color:rgba(0,212,200,.4); background:linear-gradient(180deg, rgba(0,212,200,.08), var(--bg-panel) 60%); }
+  .kpi .value{ font-weight:700; font-size:19px; color:var(--text); }
+  .kpi.hi{ border-color:var(--accent); background:var(--accent-dim); }
   .kpi.hi .value{ color:var(--accent); font-size:22px; }
 
   .table-scroll{ overflow-x:auto; border-radius:8px; border:1px solid var(--border-soft); }
-  table{ width:100%; border-collapse:collapse; min-width:520px; }
-  table.mat-table{ min-width:980px; }
-  table.mat-table td:nth-child(1) input{ min-width:200px; }
-  table.mat-table td:nth-child(6){ min-width:190px; }
-  table.mat-table td:last-child{ white-space:nowrap; }
-  thead th{ background:var(--bg-panel-2); color:var(--text-faint); text-transform:uppercase; letter-spacing:.05em; font-size:10.5px; font-weight:600; text-align:right; padding:10px; white-space:nowrap; border-bottom:1px solid var(--border); }
+  table{ width:100%; border-collapse:collapse; min-width:520px; font-size:13px; }
+  table.mat-table{ min-width:820px; }
+  thead th{ background:var(--bg-panel-2); color:#17324d; text-transform:uppercase; letter-spacing:.02em; font-size:12px; font-weight:700; text-align:right; padding:10px 12px; white-space:nowrap; border-bottom:2px solid var(--accent); }
   thead th:first-child{ text-align:left; }
-  tbody td{ padding:6px 8px; border-bottom:1px solid var(--border-soft); text-align:right; white-space:nowrap; }
+  tbody td{ padding:9px 12px; border-bottom:1px solid var(--border-soft); text-align:right; vertical-align:top; }
   tbody td:first-child{ text-align:left; }
-  tbody tr:hover{ background:rgba(255,255,255,.02); }
-  table input{ background:var(--bg-inset); border:1px solid var(--border); color:var(--text); font-family:var(--mono); font-size:12.5px; padding:7px 8px; border-radius:6px; width:100%; min-width:70px; text-align:right; }
-  table td:first-child input{ text-align:left; font-family:var(--body); }
-  tfoot td{ padding:12px 8px; font-weight:700; border-top:2px solid #c99400; background:#e6b400; color:#241a00; font-family:var(--mono); }
-  .computed{ color:var(--text-dim); font-family:var(--mono); }
+  tbody tr:hover{ background:#fafbfc; }
+  table input{ background:#fff; border:1px solid var(--border); color:var(--text); font-size:12.5px; padding:7px 8px; border-radius:6px; width:100%; min-width:70px; text-align:right; }
+  table td:first-child input{ text-align:left; }
+  tfoot td{ padding:12px; font-weight:700; border-top:2px solid #d99e00; background:#FFC000; color:#241a00; }
+  .computed{ color:var(--text-dim); }
   tfoot .computed{ color:#241a00; }
-  .rm-btn{ background:transparent; border:1px solid var(--border); color:var(--text-faint); width:26px; height:26px; border-radius:6px; cursor:pointer; font-size:14px; line-height:1; }
-  .rm-btn:hover{ border-color:var(--bad); color:var(--bad); }
-  .add-row{ margin-top:10px; background:var(--bg-inset); border:1px dashed var(--border); color:var(--text-dim); padding:9px 14px; border-radius:7px; font-size:12.5px; cursor:pointer; }
-  .add-row:hover{ border-color:var(--accent); color:var(--accent); }
-
-  .fiber{ position:relative; height:2px; margin:30px 0 26px; background:linear-gradient(90deg, transparent, var(--border) 8%, var(--border) 92%, transparent); overflow:hidden; }
-  .fiber::before{ content:""; position:absolute; top:0; left:-20%; width:20%; height:100%; background:linear-gradient(90deg, transparent, var(--accent), transparent); filter:blur(1px); animation:pulse 5.5s ease-in-out infinite; }
-  @keyframes pulse{ 0%{left:-20%;} 55%{left:100%;} 100%{left:100%;} }
-  @media (prefers-reduced-motion: reduce){ .fiber::before{ animation:none; left:40%; } }
+  .rm-btn{ background:none; border:none; color:var(--bad); font-size:14px; cursor:pointer; padding:2px 6px; border-radius:4px; }
+  .rm-btn:hover{ background:var(--bad-dim); }
+  .add-row{ display:block; margin-top:10px; background:var(--accent); color:#fff; border:none; padding:9px 16px; border-radius:7px; font-size:12.5px; font-weight:700; cursor:pointer; }
+  .add-row:hover{ background:#173e60; }
 
   /* ---------- tabs (Mapa da Rede / Orçamento) ---------- */
-  .ctabs{ display:flex; gap:6px; margin-bottom:22px; background:var(--bg-panel); padding:6px; border-radius:10px; border:1px solid var(--border-soft); }
-  .ctab-btn{ flex:1; border:none; background:transparent; padding:10px 14px; font-family:var(--disp); font-size:13px; font-weight:700; color:var(--text-dim); border-radius:7px; cursor:pointer; transition:.15s; }
-  .ctab-btn.active{ background:var(--purple); color:#fff; }
+  .ctabs{ display:flex; gap:6px; margin-bottom:22px; background:#fff; padding:6px; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+  .ctab-btn{ flex:1; border:none; background:transparent; padding:10px 14px; font-size:13px; font-weight:700; color:var(--text-faint); border-radius:7px; cursor:pointer; transition:.15s; }
+  .ctab-btn.active{ background:var(--accent); color:#fff; }
   .ctab-panel{ display:none; }
   .ctab-panel.active{ display:block; }
 
   /* ---------- resumo cards ---------- */
-  .resumo-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin-bottom:20px; }
-  .card-resumo{ background:var(--bg-panel); border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:var(--radius); padding:16px 18px; }
-  .card-resumo.total{ border-left-color:#fbbf24; background:linear-gradient(180deg, rgba(251,191,36,.08), var(--bg-panel) 60%); }
-  .card-resumo .label{ font-size:10.5px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.06em; margin-bottom:7px; }
-  .card-resumo .valor{ font-family:var(--mono); font-weight:600; font-size:19px; color:var(--accent); }
-  .card-resumo.total .valor{ color:#fbbf24; }
+  .resumo-row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; margin-bottom:20px; }
+  .card-resumo{ background:var(--bg-panel); border-radius:10px; padding:18px 20px; box-shadow:0 1px 4px rgba(0,0,0,.08); border-left:5px solid var(--accent); }
+  .card-resumo.total{ border-left-color:#E8A400; background:#fff9ec; }
+  .card-resumo .label{ font-size:12px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
+  .card-resumo .valor{ font-weight:700; font-size:22px; color:var(--accent); }
+  .card-resumo.total .valor{ color:#B8860B; }
 
   /* ---------- legenda origem do dado ---------- */
-  .legenda{ display:flex; gap:16px; align-items:center; flex-wrap:wrap; font-size:11.5px; color:var(--text-dim); margin-bottom:16px; }
-  .legenda .sw{ display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:6px; vertical-align:middle; }
+  .legenda{ display:flex; gap:18px; align-items:center; flex-wrap:wrap; font-size:12px; color:var(--text-faint); margin-bottom:20px; }
+  .legenda .sw{ display:inline-block; width:14px; height:14px; border-radius:3px; margin-right:6px; vertical-align:middle; }
 
-  /* ---------- linhas da tabela de materiais coloridas por origem ---------- */
-  tr.origem-kmz td{ background:rgba(0,212,200,.07); }
-  tr.origem-kmz td.qtd-cell{ color:var(--accent); font-weight:600; }
-  tr.origem-user td.qtd-cell{ color:var(--good); font-weight:600; }
-  tr.origem-pendente td{ background:rgba(251,191,36,.09); }
-  tr.origem-pendente td:first-child::after{ content:"⚠ aguardando cotação"; display:block; margin-top:3px; color:#fbbf24; font-size:10.5px; font-style:italic; font-weight:600; }
-  select.origem-sel{ background:var(--bg-inset); border:1px solid var(--border); color:var(--text); font-family:var(--mono); font-size:11.5px; padding:6px 7px; border-radius:6px; width:100%; }
+  /* ---------- linhas da tabela de materiais coloridas por origem (mesmo padrão do orçamento consolidado) ---------- */
+  td.fonte{ color:var(--text-faint); font-size:11.5px; font-style:italic; }
+  tr.origem-kmz td.qtd-cell{ background:var(--accent-dim); font-weight:700; color:var(--accent); }
+  tr.origem-user td.qtd-cell{ background:var(--good-dim); font-weight:700; color:var(--good); }
+  tr.origem-pendente td{ background:#FFF6B0; }
+  tr.origem-pendente td:first-child::after{ content:"⚠ aguardando cotação"; display:block; margin-top:3px; color:#8a6d00; font-size:11px; font-style:italic; font-weight:600; }
 
   /* ---------- alerta: itens ainda sem cotação ---------- */
-  .alerta-box{ margin-top:16px; padding:14px 16px; background:rgba(251,191,36,.08); border-left:4px solid #fbbf24; border-radius:6px; font-size:12.5px; color:#e8c874; line-height:1.6; }
-  .alerta-box strong{ display:block; margin-bottom:4px; color:#fbbf24; }
-
-  /* ---------- comparativo entre cidades ---------- */
-  .comp-table td, .comp-table th{ text-align:right; }
-  .comp-table td:first-child, .comp-table th:first-child{ text-align:left; }
+  .alerta-box{ margin-top:16px; padding:14px 16px; background:var(--bad-dim); border-left:4px solid #d9534f; border-radius:6px; font-size:12.5px; color:#7a2b2b; line-height:1.6; }
+  .alerta-box strong{ display:block; margin-bottom:4px; color:#a12626; }
 
   .map-toolbar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
-  .upload-btn{ background:var(--accent); color:#03211d; border:none; padding:10px 16px; border-radius:8px; font-size:12.5px; font-weight:700; cursor:pointer; }
-  .upload-btn:hover{ filter:brightness(1.08); }
-  #map{ height:440px; border-radius:10px; border:1px solid var(--border); background:var(--bg-inset); }
-  .map-meta{ display:flex; gap:18px; flex-wrap:wrap; color:var(--text-dim); font-size:12px; font-family:var(--mono); margin-top:12px; }
+  .upload-btn{ background:var(--accent); color:#fff; border:none; padding:10px 16px; border-radius:8px; font-size:12.5px; font-weight:700; cursor:pointer; }
+  .upload-btn:hover{ background:#173e60; }
+  #map{ height:440px; border-radius:10px; border:1px solid var(--border-soft); background:var(--bg-inset); }
+  .map-meta{ display:flex; gap:18px; flex-wrap:wrap; color:var(--text-dim); font-size:12px; margin-top:12px; }
   .map-empty{ height:440px; border-radius:10px; border:1px dashed var(--border); display:flex; align-items:center; justify-content:center; flex-direction:column; gap:14px; color:var(--text-faint); text-align:center; padding:30px; }
   .map-empty svg{ opacity:.5; }
   #kmzInput{ display:none; }
 
-  footer{ margin-top:50px; padding-top:24px; border-top:1px solid var(--border-soft); color:var(--text-faint); font-size:11.5px; text-align:center; }
+  footer{ margin-top:50px; padding-top:24px; border-top:1px solid var(--border-soft); color:#9aa4b2; font-size:11.5px; text-align:center; }
 </style>
 </head>
 <body>
@@ -280,6 +307,7 @@
     <a href="../home.html" class="brand" style="text-decoration:none;color:inherit;"><span class="brand-dot"></span>Expansão Orgânica</a>
     <div class="topbar-actions">
       <a href="../home.html" class="ghost-btn" style="text-decoration:none;">← Voltar</a>
+      <button class="ghost-btn icon-btn" id="refreshPageBtn" title="Atualizar a página">🔄</button>
       <div class="status-pill"><span class="dot"></span>Sincronizado com a equipe</div>
       <button class="ghost-btn" onclick="window._doLogout()">Sair</button>
     </div>
@@ -314,6 +342,8 @@ function blankCidade(nome, municipioId){
     materiais: [],
     kmz: null, // {name} — o arquivo em si fica no IndexedDB deste navegador
     municipioId: municipioId || null, // se preenchido, essa cidade é um bairro dentro de outra (o município)
+    concorrentes: [], // [{id,nome,caixas,clientes,planos}] — lista editável (adicionar/editar/excluir),
+                       // pode ser semeada a partir do CFO, mas depois de importada é independente dele
   };
 }
 
@@ -328,16 +358,31 @@ function loadApp(){
   return { cidades:[], currentId:null };
 }
 function saveApp(){
+  app.updated = Date.now();
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }
   catch(e){ alert('Não foi possível salvar (armazenamento local cheio).'); }
   syncToCloud();
 }
 function current(){ return app.cidades.find(c=>c.id===app.currentId) || null; }
 
-// Aplica atualização recebida em tempo real de outra pessoa logada com a
-// mesma conta, sem tirar quem está vendo da cidade atual.
-function applyRemoteState(remoteCidades){
-  app.cidades = remoteCidades.map(rc => ({ ...rc, kmz: rc.kmz || null, materiais: rc.materiais || [] }));
+// Se uma atualização remota chegar enquanto uma gravação local ainda está
+// pendente (não confirmada na nuvem), não aplica na hora — senão ela
+// sobrescreveria a edição que a pessoa acabou de fazer (ex.: subir um KMZ)
+// com o estado antigo vindo da nuvem. Fica na fila e só aplica (ou
+// descarta, se ficou desatualizada) depois que a gravação local terminar.
+let _pendingRemoteState = null;
+function applyRemoteState(remoteCidades, updated){
+  if(_localSyncPending){ _pendingRemoteState = { cidades: remoteCidades, updated }; return; }
+  applyRemoteStateNow(remoteCidades);
+}
+function flushPendingRemoteState(){
+  if(!_pendingRemoteState || _localSyncPending) return;
+  const d = _pendingRemoteState; _pendingRemoteState = null;
+  if((d.updated||0) <= (window._lastKnownUpdated||0)) return; // desatualizou enquanto esperava
+  applyRemoteStateNow(d.cidades);
+}
+function applyRemoteStateNow(remoteCidades){
+  app.cidades = remoteCidades.map(rc => ({ ...rc, kmz: rc.kmz || null, materiais: rc.materiais || [], concorrentes: rc.concorrentes || null }));
   if(!app.cidades.find(c=>c.id===app.currentId)){
     app.currentId = app.cidades[0]?.id || null;
   }
@@ -347,13 +392,21 @@ function applyRemoteState(remoteCidades){
 window._applyRemoteState = applyRemoteState;
 
 let _cloudSyncTimer = null;
+// true enquanto uma gravação local está agendada mas ainda não chegou na
+// nuvem — usado pra NÃO deixar uma atualização remota chegando nesse
+// meio-tempo sobrescrever uma edição local que ainda nem foi enviada.
+let _localSyncPending = false;
 function syncToCloud(){
   if(!window._fbUser || !window._cloudSave) return;
   clearTimeout(_cloudSyncTimer);
+  _localSyncPending = true;
   _cloudSyncTimer = setTimeout(async ()=>{
     try{
-      await window._cloudSave({ cidades: app.cidades, currentId: app.currentId, updated: Date.now() });
+      const updated = Date.now();
+      window._lastKnownUpdated = updated; // ignora o eco dessa mesma gravação no listener
+      await window._cloudSave({ cidades: app.cidades, currentId: app.currentId, updated });
     }catch(e){ console.error('Falha ao sincronizar Expansão com a nuvem:', e); }
+    finally{ _localSyncPending = false; flushPendingRemoteState(); }
   }, 1500);
 }
 
@@ -438,6 +491,30 @@ function mainSkeleton(){
     return;
   }
 
+  // Cidades com relatório(s) HTML consolidado(s) próprio(s) — igual aos
+  // documentos "Orçamento e Mapa da Rede" que a equipe manda prontos — usam
+  // uma grade de "projetos" (cada um abre o HTML dele) em vez do fluxo
+  // genérico de bairros/orçamento editável do painel. Ver c.projetos,
+  // preenchido em seedProjetosHtml().
+  if((c.projetos||[]).length){
+    main.innerHTML = `
+      <div class="page-banner">
+        <input class="cname-input" id="in-nome" value="${esc(c.nome)}" placeholder="Nome do município">
+        <p class="page-banner-sub">Relatório(s) consolidado(s) de mapa da rede + orçamento.</p>
+      </div>
+
+      <div class="bloco">
+        <div class="bloco-header">Bairros de ${esc(c.nome)}</div>
+        <div class="bloco-sub">Cada bairro abre o mapa da rede (KMZ) e o orçamento de infraestrutura já consolidados num relatório próprio.</div>
+        <div class="bloco-body">
+          <div class="bairro-grid" id="bairroGrid"></div>
+          <button class="add-row" id="addBairroBtn">+ Novo bairro</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
   const filhos = filhosDe(c.id);
   if(filhos.length){
     main.innerHTML = `
@@ -461,14 +538,16 @@ function mainSkeleton(){
   const municipio = c.municipioId ? app.cidades.find(x=>x.id===c.municipioId) : null;
 
   main.innerHTML = `
-    ${municipio ? `<a href="#" id="voltarMunicipio" class="breadcrumb-link">← Voltar para ${esc(municipio.nome)}</a>` : ''}
+    ${(municipio && !RELATORIO_ID) ? `<a href="#" id="voltarMunicipio" class="breadcrumb-link">← Voltar para ${esc(municipio.nome)}</a>` : ''}
     <div class="page-banner">
       <input class="cname-input" id="in-nome" value="${esc(c.nome)}" placeholder="Nome da cidade">
       <p class="page-banner-sub">Mapa da rede real (KMZ) + orçamento cruzando contagem geoespacial, dados de campo e cotações reais</p>
+      ${!RELATORIO_ID ? `<a class="ghost-btn relatorio-link-btn" href="?relatorio=${esc(c.id)}" target="_blank" style="display:inline-block;text-decoration:none;background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.4);color:#fff;">🔗 Relatório desta cidade</a>` : ''}
     </div>
 
     <div class="ctabs">
       <button class="ctab-btn active" data-tab="mapa">🗺️ Mapa da Rede</button>
+      <button class="ctab-btn" data-tab="concorrentes">🥊 Concorrentes</button>
       <button class="ctab-btn" data-tab="orcamento">💰 Orçamento</button>
     </div>
 
@@ -482,12 +561,6 @@ function mainSkeleton(){
             <div class="field"><label>Casas na região</label><input id="in-casas" type="number" min="0" step="1"></div>
           </div>
         </div>
-      </div>
-
-      <div class="bloco">
-        <div class="bloco-header">Concorrência no bairro (CFO)</div>
-        <div class="bloco-sub">Busca automática pelo nome acima ("${esc(c.nome)}") nos dados já importados do Map Marker no painel CFO — sem precisar digitar manualmente.</div>
-        <div class="bloco-body" id="concorrenciaBlock"></div>
       </div>
 
       <div class="bloco">
@@ -511,10 +584,13 @@ function mainSkeleton(){
         </div>
       </div>
 
+    </div>
+
+    <div class="ctab-panel" id="ctab-concorrentes">
       <div class="bloco">
-        <div class="bloco-header">Comparativo entre cidades</div>
-        <div class="bloco-sub">Visão geral de todas as cidades cadastradas neste painel.</div>
-        <div class="bloco-body" id="comparativoBlock"></div>
+        <div class="bloco-header">Concorrência no bairro (CFO)</div>
+        <div class="bloco-sub">Busca automática pelo nome acima ("${esc(c.nome)}") nos dados já importados do Map Marker no painel CFO — sem precisar digitar manualmente. O campo "Planos" é digitado à mão (não vem de nenhuma fonte automática) e fica salvo por concorrente, sincronizado com a equipe.</div>
+        <div class="bloco-body" id="concorrenciaBlock"></div>
       </div>
     </div>
 
@@ -522,14 +598,14 @@ function mainSkeleton(){
       <div class="resumo-row" id="resumoCards"></div>
 
       <div class="legenda">
-        <span><span class="sw" style="background:rgba(0,212,200,.35);border:1px solid var(--accent);"></span>Contagem do KMZ</span>
-        <span><span class="sw" style="background:rgba(52,211,153,.3);border:1px solid var(--good);"></span>Dado real de campo</span>
-        <span><span class="sw" style="background:rgba(251,191,36,.35);border:1px solid #fbbf24;"></span>Aguardando cotação</span>
+        <span><span class="sw" style="background:#E8F0FA;border:1px solid #b9cbe6;"></span>Quantidade da contagem do KMZ</span>
+        <span><span class="sw" style="background:#E2EFDA;border:1px solid #b7e3c6;"></span>Dado real de campo</span>
+        <span><span class="sw" style="background:#FFF6B0;border:1px solid #E6C200;"></span>Aguardando cotação / quantidade</span>
       </div>
 
       <div class="bloco">
         <div class="bloco-header">Orçamento de materiais</div>
-        <div class="bloco-sub">Item, unidade, quantidade, valor unitário e de onde veio cada número — tudo editável.</div>
+        <div class="bloco-sub">Item, unidade, quantidade, valor unitário e de onde veio cada número.</div>
         <div class="bloco-body">
           <div class="table-scroll">
             <table class="mat-table">
@@ -538,7 +614,7 @@ function mainSkeleton(){
               <tfoot><tr><td colspan="4">TOTAL GERAL</td><td class="computed" id="materiaisTotal">—</td><td colspan="2"></td></tr></tfoot>
             </table>
           </div>
-          <button class="add-row" id="addMaterialBtn">+ Adicionar item</button>
+          <button class="add-row" id="addMaterialBtn" type="button">+ Adicionar item</button>
           <div id="alertaPendentes"></div>
         </div>
       </div>
@@ -550,51 +626,93 @@ function mainSkeleton(){
 
 const ORIGEM_LABEL = { kmz:'Contagem do KMZ', user:'Dado real de campo', pendente:'Aguardando cotação' };
 
+// Preços de referência pra gerar o orçamento sozinho assim que o KMZ é
+// carregado — mesmos valores usados no orçamento consolidado dos 4
+// municípios já levantados (ver seedInfolinkExpansao). Só cria a linha se
+// ainda não existir uma com esse nome (não sobrescreve edição manual nem
+// duplica se o KMZ for reenviado).
+const KMZ_ITEM_PRECOS = {
+  'Cabo de Fibra 12FO': { unidade:'Metro', preco:1.79, qtd: s=>Math.round(s.metragemTotal), origemTexto:'Contagem do KMZ' },
+  'CTO (Caixa CX)': { unidade:'Unid.', preco:59.00, qtd: s=>s.caixas, origemTexto:'Contagem do KMZ' },
+  'CEO 24FO': { unidade:'Unid.', preco:152.90, qtd: s=>s.ceos, origemTexto:'Contagem do KMZ (CEO novos)' },
+  'Splitter 1x8 SC': { unidade:'Unid.', preco:24.40, qtd: s=>s.caixas, origemTexto:'1 por caixa CX (contagem do KMZ)' },
+};
+
+function gerarMateriaisDoKmz(c, stats){
+  if(!stats) return false;
+  if(!Array.isArray(c.materiais)) c.materiais = [];
+  let mudou = false;
+  Object.entries(KMZ_ITEM_PRECOS).forEach(([nome, def])=>{
+    const jaTem = c.materiais.some(r=>(r.nome||'').trim().toLowerCase()===nome.toLowerCase());
+    if(jaTem) return;
+    const qtd = def.qtd(stats);
+    if(!qtd) return;
+    c.materiais.push({
+      id: novoId('m'), nome, unidade: def.unidade, qtd, custo: def.preco,
+      origemTipo: 'kmz', origemTexto: def.origemTexto,
+    });
+    mudou = true;
+  });
+  if(mudou) saveApp();
+  return mudou;
+}
+
 function buildMateriaisTable(){
   const c = current(); if(!c) return;
   const tbody = document.getElementById('materiaisBody');
   if(!tbody) return;
+  if(!Array.isArray(c.materiais)) c.materiais = [];
   tbody.innerHTML = c.materiais.map(r=>{
     const origemTipo = r.origemTipo || 'user';
+    const origem = r.origemTexto || ORIGEM_LABEL[origemTipo] || origemTipo;
     return `
-    <tr data-id="${r.id}" class="origem-${origemTipo}">
-      <td><input class="mat-nome" value="${esc(r.nome)}" placeholder="Ex: Cabo 12FO"></td>
-      <td><input class="mat-unidade" value="${esc(r.unidade||'')}" placeholder="Unid." style="width:64px;"></td>
-      <td class="qtd-cell"><input class="mat-qtd" type="number" min="0" step="1" value="${r.qtd||0}"></td>
-      <td><input class="mat-custo" type="number" min="0" step="0.01" value="${r.custo||0}"></td>
+    <tr class="origem-${origemTipo}" data-id="${r.id}">
+      <td><input type="text" class="mat-in mat-nome" value="${esc(r.nome)}" placeholder="Nome do item"></td>
+      <td><input type="text" class="mat-in mat-unid" value="${esc(r.unidade)}" placeholder="Unid."></td>
+      <td class="qtd-cell"><input type="number" class="mat-in mat-num" data-field="qtd" value="${r.qtd||0}" min="0" step="any"></td>
+      <td><input type="number" class="mat-in mat-num" data-field="custo" value="${r.custo||0}" min="0" step="0.01"></td>
       <td class="computed">${fmtBRL((r.qtd||0)*(r.custo||0))}</td>
-      <td>
-        <select class="origem-sel mat-origem-tipo">
-          <option value="kmz"${origemTipo==='kmz'?' selected':''}>Contagem do KMZ</option>
-          <option value="user"${origemTipo==='user'?' selected':''}>Dado real de campo</option>
-          <option value="pendente"${origemTipo==='pendente'?' selected':''}>Aguardando cotação</option>
-        </select>
-        <input class="mat-origem-texto" value="${esc(r.origemTexto||'')}" placeholder="Detalhe (opcional)" style="margin-top:5px;font-size:11px;">
-      </td>
-      <td><button class="rm-btn" data-id="${r.id}" title="Remover">✕</button></td>
+      <td class="fonte">${esc(origem)}</td>
+      <td><button class="del-btn" type="button" title="Excluir item">✕</button></td>
     </tr>`;
-  }).join('') || `<tr><td colspan="7" style="color:var(--text-dim);">Nenhum item adicionado ainda.</td></tr>`;
+  }).join('') || `<tr><td colspan="7" style="color:var(--text-dim);">Nenhum item cadastrado ainda — envie o KMZ (aba Mapa da Rede) ou adicione um item à mão.</td></tr>`;
 
-  tbody.querySelectorAll('tr[data-id]').forEach(row=>{
-    const id = row.dataset.id;
-    const item = c.materiais.find(r=>r.id===id);
-    row.querySelector('.mat-nome').oninput = e=>{ item.nome = e.target.value; saveApp(); renderSidebar(); };
-    row.querySelector('.mat-unidade').oninput = e=>{ item.unidade = e.target.value; saveApp(); };
-    row.querySelector('.mat-qtd').oninput = e=>{ item.qtd = parseFloat(e.target.value)||0; buildMateriaisTable(); renderResumoCards(); saveApp(); renderSidebar(); };
-    row.querySelector('.mat-custo').oninput = e=>{ item.custo = parseFloat(e.target.value)||0; buildMateriaisTable(); renderResumoCards(); saveApp(); renderSidebar(); };
-    row.querySelector('.mat-origem-tipo').onchange = e=>{ item.origemTipo = e.target.value; buildMateriaisTable(); saveApp(); };
-    row.querySelector('.mat-origem-texto').oninput = e=>{ item.origemTexto = e.target.value; saveApp(); };
+  tbody.querySelectorAll('tr[data-id]').forEach(tr=>{
+    const row = c.materiais.find(r=>r.id===tr.dataset.id);
+    if(!row) return;
+    tr.querySelector('.mat-nome').addEventListener('input', e=>{ row.nome = e.target.value; saveApp(); });
+    tr.querySelector('.mat-unid').addEventListener('input', e=>{ row.unidade = e.target.value; saveApp(); });
+    tr.querySelectorAll('.mat-num').forEach(inp=>{
+      inp.addEventListener('input', e=>{
+        row[inp.dataset.field] = parseFloat(e.target.value)||0;
+        saveApp();
+        tr.querySelector('.computed').textContent = fmtBRL((row.qtd||0)*(row.custo||0));
+        atualizarTotaisMateriais(c);
+      });
+    });
+    tr.querySelector('.del-btn').addEventListener('click', ()=>{
+      c.materiais = c.materiais.filter(r=>r.id!==tr.dataset.id);
+      saveApp();
+      buildMateriaisTable();
+    });
   });
-  tbody.querySelectorAll('.rm-btn').forEach(btn=>{
-    btn.onclick = ()=>{
-      c.materiais = c.materiais.filter(r=>r.id!==btn.dataset.id);
-      buildMateriaisTable(); renderResumoCards(); saveApp(); renderSidebar();
-    };
-  });
+  const addBtn = document.getElementById('addMaterialBtn');
+  if(addBtn) addBtn.onclick = ()=>{
+    c.materiais.push({ id: novoId('m'), nome:'', unidade:'Unid.', qtd:0, custo:0, origemTipo:'user', origemTexto:'Dado real de campo' });
+    saveApp();
+    buildMateriaisTable();
+    const inputs = tbody.querySelectorAll('.mat-nome');
+    if(inputs.length) inputs[inputs.length-1].focus();
+  };
 
+  atualizarTotaisMateriais(c);
+}
+
+function atualizarTotaisMateriais(c){
   const total = c.materiais.reduce((s,r)=>s+(r.qtd||0)*(r.custo||0),0);
   setText('materiaisTotal', fmtBRL(total));
   renderAlertaPendentes();
+  renderResumoCards();
 }
 
 function renderAlertaPendentes(){
@@ -623,34 +741,6 @@ function renderResumoCards(){
   `;
 }
 
-/* ======================================================================
-   COMPARATIVO ENTRE CIDADES
-====================================================================== */
-function renderComparativo(){
-  const el = document.getElementById('comparativoBlock');
-  if(!el) return;
-  // Municípios que só agrupam bairros (sem orçamento próprio) não entram na comparação —
-  // os bairros deles já aparecem individualmente na lista.
-  const listaveis = app.cidades.filter(c=>!filhosDe(c.id).length);
-  if(!listaveis.length){ el.innerHTML = ''; return; }
-  const rows = listaveis.map(c=>{
-    const total = (c.materiais||[]).reduce((s,r)=>s+(r.qtd||0)*(r.custo||0),0);
-    const isCurrent = c.id === app.currentId;
-    return `<tr${isCurrent?' style="color:var(--accent);"':''}>
-      <td>${esc(c.nome)}</td>
-      <td>${fmtNum(c.casasRegiao)}</td>
-      <td>${fmtNum(c.clientesAtender)}</td>
-      <td>${fmtNum(c.provedoresRegiao)}</td>
-      <td>${fmtBRL(total)}</td>
-    </tr>`;
-  }).join('');
-  const totalGeral = listaveis.reduce((s,c)=>s+(c.materiais||[]).reduce((s2,r)=>s2+(r.qtd||0)*(r.custo||0),0), 0);
-  el.innerHTML = `<div class="table-scroll"><table class="comp-table">
-    <thead><tr><th>Cidade</th><th>Casas</th><th>Clientes a atender</th><th>Provedores</th><th>Orçamento</th></tr></thead>
-    <tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="4">Total geral</td><td class="computed">${fmtBRL(totalGeral)}</td></tr></tfoot>
-  </table></div>`;
-}
 
 /* ======================================================================
    CONCORRÊNCIA NO BAIRRO — busca nos dados já importados do CFO
@@ -696,31 +786,103 @@ function loadCfoIndex(){
   return cfoDataPromise;
 }
 
+function novoConcorrenteId(){
+  return 'cc' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+}
+
+// Cidades salvas antes dessa lista existir tinham só o campo "Planos" livre
+// (concorrentesPlanos: {nome: texto}), sem caixas/clientes. Converte pra
+// lista editável uma única vez, sem perder o que já tinha sido digitado.
+function migrarConcorrentes(c){
+  if(Array.isArray(c.concorrentes)) return;
+  c.concorrentes = Object.entries(c.concorrentesPlanos||{}).map(([nome,planos])=>(
+    { id: novoConcorrenteId(), nome, caixas:0, clientes:0, planos }
+  ));
+}
+
+function renderConcorrentesTabela(c){
+  const linhas = c.concorrentes.map(row => `
+    <tr data-id="${row.id}">
+      <td><input type="text" class="conc-in conc-nome" value="${esc(row.nome)}" placeholder="Nome do provedor"></td>
+      <td><input type="number" class="conc-in conc-num" data-field="caixas" value="${row.caixas||0}" min="0"></td>
+      <td><input type="number" class="conc-in conc-num" data-field="clientes" value="${row.clientes||0}" min="0"></td>
+      <td><textarea class="planos-in" rows="2" placeholder="Ex: 300MB R$79,90 / 600MB R$99,90">${esc(row.planos||'')}</textarea></td>
+      <td><button class="del-btn" type="button" title="Excluir concorrente">✕</button></td>
+    </tr>`).join('');
+  return `<div class="table-scroll"><table>
+      <thead><tr><th>Provedor</th><th>Caixas</th><th>Clientes</th><th>Planos</th><th></th></tr></thead>
+      <tbody>${linhas || `<tr><td colspan="5" class="hint" style="padding:14px;">Nenhum concorrente cadastrado ainda — adicione à mão ou importe do CFO abaixo.</td></tr>`}</tbody>
+    </table></div>
+    <button class="ghost-btn" id="addConcorrenteBtn" type="button" style="margin-top:10px;">+ Adicionar concorrente</button>`;
+}
+
+function renderConcorrentesEditor(){
+  const c = current(); if(!c) return;
+  migrarConcorrentes(c);
+  const editor = document.getElementById('concorrentesEditor');
+  if(!editor) return;
+  editor.innerHTML = renderConcorrentesTabela(c);
+  editor.querySelectorAll('tr[data-id]').forEach(tr=>{
+    const row = c.concorrentes.find(r=>r.id===tr.dataset.id);
+    if(!row) return;
+    tr.querySelector('.conc-nome').addEventListener('input', e=>{ row.nome = e.target.value; saveApp(); });
+    tr.querySelectorAll('.conc-num').forEach(inp=>{
+      inp.addEventListener('input', e=>{ row[inp.dataset.field] = parseInt(e.target.value,10)||0; saveApp(); });
+    });
+    tr.querySelector('.planos-in').addEventListener('input', e=>{ row.planos = e.target.value; saveApp(); });
+    tr.querySelector('.del-btn').addEventListener('click', ()=>{
+      c.concorrentes = c.concorrentes.filter(r=>r.id!==tr.dataset.id);
+      saveApp();
+      renderConcorrentesEditor();
+    });
+  });
+  const addBtn = editor.querySelector('#addConcorrenteBtn');
+  if(addBtn) addBtn.onclick = ()=>{
+    c.concorrentes.push({ id: novoConcorrenteId(), nome:'', caixas:0, clientes:0, planos:'' });
+    saveApp();
+    renderConcorrentesEditor();
+    const inputs = editor.querySelectorAll('.conc-nome');
+    if(inputs.length) inputs[inputs.length-1].focus();
+  };
+}
+
+function importarConcorrentesDoCfo(c, providers, contaComoProvedor){
+  const existentes = new Set(c.concorrentes.map(r=>normBairro(r.nome)));
+  Object.entries(providers).forEach(([nome,d])=>{
+    if(!contaComoProvedor(nome)) return;
+    const chave = normBairro(nome);
+    if(existentes.has(chave)) return;
+    c.concorrentes.push({ id: novoConcorrenteId(), nome, caixas: d.cx||0, clientes: d.clientes||0, planos:'' });
+    existentes.add(chave);
+  });
+  saveApp();
+}
+
 let _concorrenciaSeq = 0;
-async function updateConcorrencia(){
+async function updateConcorrenciaCfo(){
   const c = current(); if(!c) return;
   const seq = ++_concorrenciaSeq;
-  const block = document.getElementById('concorrenciaBlock');
-  if(!block) return;
+  const cfoBlock = document.getElementById('concorrenciaCfo');
+  if(!cfoBlock) return;
   const chave = normBairro(c.nome);
-  if(!chave){ block.innerHTML = ''; return; }
-  block.innerHTML = `<p class="hint">Buscando "${esc(c.nome)}" nos dados do CFO...</p>`;
+  if(!chave){ cfoBlock.innerHTML = ''; return; }
+  cfoBlock.innerHTML = `<p class="hint">Buscando "${esc(c.nome)}" nos dados do CFO...</p>`;
   let idx;
   try{ idx = await loadCfoIndex(); }
   catch(err){
     if(seq !== _concorrenciaSeq) return;
-    block.innerHTML = `<p class="hint" style="color:var(--bad);">Não foi possível carregar os dados do CFO (${esc(err.message)}).</p>`;
+    cfoBlock.innerHTML = `<p class="hint" style="color:var(--bad);">Não foi possível carregar os dados do CFO (${esc(err.message)}).</p>`;
     return;
   }
   if(seq !== _concorrenciaSeq) return;
   const matches = idx.get(chave) || [];
   if(!matches.length){
-    block.innerHTML = `<p class="hint">Nenhum dado de concorrência encontrado no CFO para "${esc(c.nome)}". Preencha "Provedores concorrentes" manualmente, ou ajuste o nome pra bater com o bairro cadastrado lá.</p>`;
+    cfoBlock.innerHTML = `<p class="hint">Nenhum dado de concorrência encontrado no CFO para "${esc(c.nome)}". Adicione concorrentes manualmente acima, ou ajuste o nome pra bater com o bairro cadastrado lá.</p>`;
     return;
   }
   // "Caixa sem ID" / "Pacpon sem ID" não são provedores de verdade — são
   // caixas sem identificação achada em campo. Ficam na lista, mas não
-  // contam na quantidade de provedores concorrentes.
+  // contam na quantidade de provedores concorrentes nem entram na importação.
   const contaComoProvedor = nome => !/SEM\s*ID/i.test(nome);
   const contarProvedores = providers => Object.keys(providers).filter(contaComoProvedor).length;
 
@@ -733,38 +895,56 @@ async function updateConcorrencia(){
     if(inProv) inProv.value = totalProv;
     saveApp(); renderSidebar();
   }
-  block.innerHTML = matches.map((m,i)=>{
-    const linhas = Object.entries(m.providers).sort((a,b)=>(b[1].cx||0)-(a[1].cx||0)).map(([nome,d])=>`
-      <tr${contaComoProvedor(nome)?'':' style="color:var(--text-faint);"'}><td>${esc(nome)}</td><td>${fmtNum(d.cx)}</td><td>${fmtNum(d.clientes)}</td></tr>
-    `).join('');
+  cfoBlock.innerHTML = (matches.length > 1 ? `<p class="hint">Encontrei "${esc(c.nome)}" em mais de um município — escolha qual usar abaixo.</p>` : '') + matches.map((m,i)=>{
+    const linhas = Object.entries(m.providers).sort((a,b)=>(b[1].cx||0)-(a[1].cx||0)).map(([nome,d])=>{
+      const ehProvedor = contaComoProvedor(nome);
+      return `<tr${ehProvedor?'':' style="color:var(--text-faint);"'}><td>${esc(nome)}</td><td>${fmtNum(d.cx)}</td><td>${fmtNum(d.clientes)}</td></tr>`;
+    }).join('');
     const totalProv = contarProvedores(m.providers);
-    const acao = matches.length === 1
+    const acaoProv = matches.length === 1
       ? `<span style="color:var(--good);font-size:11.5px;font-family:var(--mono);">✓ ${totalProv} provedores aplicado acima</span>`
-      : `<button class="ghost-btn" data-idx="${i}">Usar ${totalProv} provedores</button>`;
+      : `<button class="ghost-btn" data-idx-prov="${i}">Usar ${totalProv} provedores</button>`;
     return `<div class="panel" style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
         <div><b>${esc(m.bairro)}</b> — ${esc(m.municipio)} <span style="color:var(--text-faint);font-size:11.5px;">(fonte: CFO / Map Marker)</span></div>
-        ${acao}
+        ${acaoProv}
       </div>
       <div class="table-scroll"><table>
         <thead><tr><th>Provedor</th><th>Caixas</th><th>Clientes</th></tr></thead>
         <tbody>${linhas}</tbody>
       </table></div>
-      <p class="hint" style="margin:8px 0 0;">Caixas sem identificação (em cinza) não entram na contagem de provedores.</p>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px;">
+        <p class="hint" style="margin:0;">Caixas sem identificação (em cinza) não entram na contagem.</p>
+        <button class="ghost-btn" data-idx-import="${i}">⬇ Importar provedores pra lista acima</button>
+      </div>
     </div>`;
   }).join('');
-  if(matches.length > 1){
-    block.insertAdjacentHTML('afterbegin', `<p class="hint">Encontrei "${esc(c.nome)}" em mais de um município — escolha qual usar abaixo.</p>`);
-  }
-  block.querySelectorAll('[data-idx]').forEach(btn=>{
+  cfoBlock.querySelectorAll('[data-idx-prov]').forEach(btn=>{
     btn.onclick = ()=>{
-      const m = matches[Number(btn.dataset.idx)];
+      const m = matches[Number(btn.dataset.idxProv)];
       c.provedoresRegiao = contarProvedores(m.providers);
       const el = document.getElementById('in-provedores');
       if(el) el.value = c.provedoresRegiao;
       saveApp(); renderSidebar();
     };
   });
+  cfoBlock.querySelectorAll('[data-idx-import]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const m = matches[Number(btn.dataset.idxImport)];
+      importarConcorrentesDoCfo(c, m.providers, contaComoProvedor);
+      renderConcorrentesEditor();
+    };
+  });
+}
+
+async function updateConcorrencia(){
+  const c = current(); if(!c) return;
+  migrarConcorrentes(c);
+  const block = document.getElementById('concorrenciaBlock');
+  if(!block) return;
+  block.innerHTML = `<div id="concorrentesEditor"></div><div id="concorrenciaCfo" style="margin-top:18px;"></div>`;
+  renderConcorrentesEditor();
+  await updateConcorrenciaCfo();
 }
 
 let _concorrenciaTimer = null;
@@ -787,25 +967,20 @@ function bindAll(){
       document.querySelectorAll('.ctab-panel').forEach(p=>p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('ctab-'+btn.dataset.tab).classList.add('active');
-      if(btn.dataset.tab==='mapa'){ initMapIfNeeded(); renderComparativo(); }
+      if(btn.dataset.tab==='mapa'){ initMapIfNeeded(); }
     };
   });
 
-  document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); renderComparativo(); scheduleConcorrencia(); };
+  document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); scheduleConcorrencia(); };
   [['in-provedores','provedoresRegiao'],['in-clientes','clientesAtender'],['in-casas','casasRegiao']].forEach(([id,field])=>{
     const el = document.getElementById(id);
     el.value = c[field] || '';
-    el.oninput = e=>{ c[field] = parseFloat(e.target.value)||0; saveApp(); renderSidebar(); renderComparativo(); };
+    el.oninput = e=>{ c[field] = parseFloat(e.target.value)||0; saveApp(); renderSidebar(); };
   });
 
-  document.getElementById('addMaterialBtn').onclick = ()=>{
-    c.materiais.push({ id: novoId('m'), nome:'', unidade:'', qtd:0, custo:0, origemTipo:'user', origemTexto:'' });
-    buildMateriaisTable(); renderResumoCards(); saveApp();
-  };
   buildMateriaisTable();
   renderResumoCards();
   renderAlertaPendentes();
-  renderComparativo();
   updateConcorrencia();
 
   bindKmzControls();
@@ -1030,6 +1205,9 @@ async function loadKmlIntoMap(c){
     document.getElementById('mapMeta').innerHTML = `<span>Arquivo: <b style="color:var(--text)">${esc(stored.name)}</b></span><span>Elementos: <b style="color:var(--text)">${count}</b></span>`;
     currentKmzStats = stats;
     renderKmzStatsPanel();
+    if(gerarMateriaisDoKmz(c, stats)){
+      buildMateriaisTable();
+    }
   }catch(err){
     document.getElementById('mapMeta').innerHTML = `<span style="color:var(--bad)">Erro ao ler o arquivo: ${esc(err.message)}</span>`;
     currentKmzStats = null; renderKmzStatsPanel();
@@ -1089,27 +1267,38 @@ function bindKmzControls(){
    INIT
 ====================================================================== */
 function renderAll(){
+  if(RELATORIO_ID && app.cidades.some(x=>x.id===RELATORIO_ID)) app.currentId = RELATORIO_ID;
   renderSidebar();
   mainSkeleton();
   const c = current();
   if(!c) return;
+  // Cidades com grade de "projetos" (c.projetos) já vêm montadas dentro do
+  // próprio mainSkeleton() — mas também podem ter bairros novos cadastrados
+  // pelo fluxo genérico (ver bloco "Bairros de..."), daí o bindHubView() aqui.
+  if((c.projetos||[]).length){ bindHubView(); return; }
   if(filhosDe(c.id).length){ bindHubView(); }
   else { bindAll(); initMapIfNeeded(); }
 }
 
 function bindHubView(){
   const c = current(); if(!c) return;
-  document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); };
+  document.getElementById('in-nome').oninput = e=>{ c.nome = e.target.value; saveApp(); renderSidebar(); scheduleConcorrencia(); };
 
   const grid = document.getElementById('bairroGrid');
   const filhos = filhosDe(c.id);
-  grid.innerHTML = filhos.map(f=>{
+  const projetosHtml = (c.projetos||[]).map(p=>`
+    <a href="${esc(p.arquivo)}" class="city-card" style="display:block;text-decoration:none;color:inherit;">
+      <div class="cname">📁 ${esc(p.nome)}</div>
+      <div class="cmeta">${esc(p.desc||'Mapa + orçamento consolidado')}</div>
+    </a>`).join('');
+  const bairrosHtml = filhos.map(f=>{
     const total = (f.materiais||[]).reduce((s,r)=>s+(r.qtd||0)*(r.custo||0),0);
     return `<div class="city-card bairro-card" data-id="${f.id}">
       <div class="cname">${esc(f.nome)||'(sem nome)'}</div>
       <div class="cmeta">${fmtNum(f.casasRegiao)} casas · ${fmtBRL(total)}</div>
     </div>`;
-  }).join('') || `<div class="empty-side">Nenhum bairro cadastrado ainda. Clique em <b>+ Novo bairro</b> para começar.</div>`;
+  }).join('');
+  grid.innerHTML = (projetosHtml + bairrosHtml) || `<div class="empty-side">Nenhum bairro cadastrado ainda. Clique em <b>+ Novo bairro</b> para começar.</div>`;
   grid.querySelectorAll('.bairro-card').forEach(card=>{
     card.onclick = ()=>{ app.currentId = card.dataset.id; saveApp(); renderAll(); };
   });
@@ -1135,6 +1324,13 @@ document.getElementById('newCityBtn').onclick = () => {
   renderAll();
 };
 
+// Link de relatório: expansao/index.html?relatorio=<idDaCidade> abre direto
+// naquela cidade, sem a barra lateral com as outras — pra compartilhar ou
+// imprimir só aquele mapa+orçamento+concorrência, sem precisar de um HTML
+// separado feito à mão pra cada projeto novo.
+const RELATORIO_ID = new URLSearchParams(location.search).get('relatorio') || null;
+if(RELATORIO_ID) document.body.classList.add('modo-relatorio');
+
 let app = loadApp();
 
 // Orçamento consolidado de expansão (Infolink) — 4 municípios com KMZ/campo
@@ -1142,28 +1338,48 @@ let app = loadApp();
 // cidade marca até onde a migração automática já foi aplicada, pra
 // atualizar quem recebeu a versão 1 (linha única) pra versão 2 (itens
 // detalhados) sem duplicar nem apagar edição manual feita depois disso.
+// V3 detalha por item (igual ao "Orçamento e Mapa da Rede" consolidado):
+// cabo, CTO, CEO e splitter 1x8 vêm da contagem exata do KMZ por município;
+// acoplador (1/porta) e raquete CEO (1/CEO) do dado real de campo; os
+// itens que a planilha mestra só informa em total do projeto (alça, BAP,
+// SUPA, poste, arame espinar, tubete, splitter 1x2) ficam numa linha de
+// rateio por município — o valor de cada rateio é exato (investimento
+// oficial do município menos a soma dos itens já detalhados acima), não
+// uma estimativa proporcional arredondada.
 (function seedInfolinkExpansao(){
-  const SEED_V = 2;
+  const SEED_V = 3;
   const municipios = [
-    {nome:'Campestre', casas:888, investimento:76429.99},
-    {nome:'Palmeira', casas:160, investimento:22633.03},
-    {nome:'Parajuru', casas:520, investimento:57356.89},
-    {nome:'Paripueira', casas:360, investimento:39440.32},
+    {nome:'Campestre', casas:888, cabo:29910, cx:111, ceo:8, investimento:76429.99},
+    {nome:'Palmeira', casas:160, cabo:9448, cx:20, ceo:2, investimento:22633.03},
+    {nome:'Parajuru', casas:520, cabo:23221, cx:65, ceo:5, investimento:57356.89},
+    {nome:'Paripueira', casas:360, cabo:15911, cx:45, ceo:4, investimento:39440.32},
   ];
   municipios.forEach(m=>{
     let c = app.cidades.find(x=>(x.nome||'').toLowerCase()===m.nome.toLowerCase());
     if(c && (c._seedV||0) >= SEED_V) return;
     if(!c){ c = blankCidade(m.nome); app.cidades.push(c); }
     c.casasRegiao = m.casas;
-    c.materiais = [{
-      id: novoId('m'),
-      nome: 'Infraestrutura externa (cabo 12FO, CTO, CEO, splitters, poste, BAP, SUPA, alça, acoplador, arame, tubete)',
-      unidade: 'Verba',
-      qtd: 1,
-      custo: m.investimento,
-      origemTipo: 'user',
-      origemTexto: 'Investimento consolidado do município (contagem do KMZ + dado real de campo, planilha mestra)',
-    }];
+    const detalhados = [
+      {nome:'Cabo de Fibra 12FO', unidade:'Metro', qtd:m.cabo, custo:1.79, origemTipo:'kmz', origemTexto:'Contagem do KMZ'},
+      {nome:'CTO (Caixa CX)', unidade:'Unid.', qtd:m.cx, custo:59.00, origemTipo:'kmz', origemTexto:'Contagem do KMZ'},
+      {nome:'CEO 24FO', unidade:'Unid.', qtd:m.ceo, custo:152.90, origemTipo:'kmz', origemTexto:'Contagem do KMZ (CEO novos)'},
+      {nome:'Splitter 1x8 SC', unidade:'Unid.', qtd:m.cx, custo:24.40, origemTipo:'kmz', origemTexto:'1 por caixa CX (contagem do KMZ)'},
+      {nome:'Acoplador', unidade:'Unid.', qtd:m.casas, custo:0.64, origemTipo:'user', origemTexto:'1 por porta (dado real de campo)'},
+      {nome:'Raquete CEO', unidade:'Unid.', qtd:m.ceo, custo:27.84, origemTipo:'user', origemTexto:'1 por CEO (dado real de campo)'},
+    ];
+    const custoDetalhado = detalhados.reduce((s,r)=>s+r.qtd*r.custo,0);
+    c.materiais = [
+      ...detalhados.map(r=>({id:novoId('m'), ...r})),
+      {
+        id: novoId('m'),
+        nome: 'Demais itens de infraestrutura externa (alça, BAP, SUPA, poste, arame espinar, tubete, splitter 1x2)',
+        unidade: 'Verba',
+        qtd: 1,
+        custo: Math.round((m.investimento-custoDetalhado)*100)/100,
+        origemTipo: 'user',
+        origemTexto: 'Rateio do valor desses itens pelo município — a planilha mestra só informa a quantidade total do projeto, não por município (contagem completa no orçamento consolidado)',
+      },
+    ];
     c._seedV = SEED_V;
   });
 
@@ -1231,7 +1447,35 @@ let app = loadApp();
   saveApp();
 })();
 
+// Cidades cujo mapa + orçamento já vêm prontos como relatório HTML
+// consolidado (documentos que a equipe manda direto, tipo o "Orçamento e
+// Mapa da Rede") — em vez do fluxo genérico de bairros/materiais editável
+// do painel. Lista fixa vinda do código (estática), roda toda vez pra
+// garantir que a cidade exista e que a grade de projetos dela esteja
+// atualizada, sem depender de versão/migração.
+const PROJETOS_HTML = {
+  'beberibe': [
+    { nome:'Projeto 1', arquivo:'beberibe-projeto1.html', desc:'Mapa + orçamento consolidado — Campestre, Palmeira, Parajuru, Paripueira e CPD' },
+  ],
+  'aquiraz': [
+    { nome:'Projeto 1', arquivo:'aquiraz-projeto1.html', desc:'PATACAS — mapa + orçamento de infraestrutura externa (backbone + rotas 01 e 02)' },
+  ],
+};
+(function seedProjetosHtml(){
+  Object.entries(PROJETOS_HTML).forEach(([nomeChave, projetos])=>{
+    let c = app.cidades.find(x=>(x.nome||'').trim().toLowerCase()===nomeChave);
+    if(!c){
+      c = blankCidade(nomeChave.charAt(0).toUpperCase()+nomeChave.slice(1));
+      app.cidades.push(c);
+    }
+    c.projetos = projetos;
+  });
+  saveApp();
+})();
+
 renderAll();
+
+document.getElementById('refreshPageBtn').onclick = () => location.reload();
 </script>
 
 </body>
