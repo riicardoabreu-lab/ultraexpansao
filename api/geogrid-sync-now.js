@@ -23,7 +23,13 @@ module.exports = async function handler(req, res) {
   try {
     if (pagina === 1) {
       const snap = await statusRef.get();
-      if (snap.exists && snap.data().emAndamento) {
+      // Uma trava "emAndamento" travada há mais de 5 min é lixo de uma
+      // execução anterior que foi morta por timeout no meio do caminho -
+      // nesse caso o código que desligaria a trava nunca chegou a rodar.
+      // Sem isso, toda sincronização nova ficava recusada pra sempre.
+      const travaVelha = snap.exists && snap.data().emAndamento
+        && (Date.now() - (snap.data().iniciadoEm || 0)) > 5 * 60 * 1000;
+      if (snap.exists && snap.data().emAndamento && !travaVelha) {
         res.status(429).json({erro: 'já tem uma sincronização em andamento, aguarde'});
         return;
       }
@@ -31,13 +37,13 @@ module.exports = async function handler(req, res) {
     }
 
     const pastaInfo = await carregarPastas();
-    const {totalTipo, gravados, temMais} = await sincronizarPaginaTipo('terminal', pagina, pastaInfo);
+    const {totalTipo, recebidos, gravados, semId, temMais} = await sincronizarPaginaTipo('terminal', pagina, pastaInfo);
 
     if (!temMais) {
       await statusRef.set({emAndamento: false, ultimaEm: Date.now()}, {merge: true});
     }
 
-    res.status(200).json({ok: true, pagina, totalTipo, gravados, temMais});
+    res.status(200).json({ok: true, pagina, totalTipo, recebidos, gravados, semId, temMais});
   } catch (e) {
     console.error(`geogridSyncNow falhou na página ${pagina}:`, e);
     await statusRef.set({emAndamento: false}, {merge: true}).catch(() => {});

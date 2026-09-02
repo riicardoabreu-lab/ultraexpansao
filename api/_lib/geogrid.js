@@ -172,13 +172,17 @@ async function sincronizarPaginaTipo(tipo, pagina, pastaInfo) {
   const registros = dados.registros || [];
   const totalTipo = parseInt(dados.totalRegistros, 10) || 0;
 
+  // semIdCount conta itens sem "dados.id" (ficam de fora silenciosamente) -
+  // exposto pra diagnosticar se um lote inteiro de itens (ex.: os da
+  // Infolink) está sendo descartado aqui em vez de gravado.
   let gravados = 0;
+  let semId = 0;
   for (let i = 0; i < registros.length; i += 500) {
     const lote = registros.slice(i, i + 500);
     const batch = db.batch();
     for (const item of lote) {
       const id = item.dados && item.dados.id;
-      if (!id) continue;
+      if (!id) { semId++; continue; }
       batch.set(db.collection('mapa_rede').doc(String(id)), montarDoc(item, pastaInfo), {merge: true});
       gravados++;
     }
@@ -186,7 +190,7 @@ async function sincronizarPaginaTipo(tipo, pagina, pastaInfo) {
   }
 
   const temMais = registros.length > 0 && pagina * 500 < totalTipo;
-  return {totalTipo, gravados, temMais};
+  return {totalTipo, recebidos: registros.length, gravados, semId, temMais};
 }
 
 module.exports = {admin, getDb, geogridFetch, carregarPastas, montarDoc, sincronizarTipos, sincronizarPaginaTipo, TIPOS_SINCRONIZADOS};

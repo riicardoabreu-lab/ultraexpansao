@@ -212,6 +212,7 @@ tbody tr:hover{background:var(--paper);}
     <span><span class="dot" id="syncDot"></span><span id="syncText">carregando reservas da equipe…</span></span>
     <button class="btn-sync-now" id="btnSyncNow" title="O painel já sincroniza sozinho (webhook + diário) — isso só força agora">🔄 Sincronizar agora</button>
   </div>
+  <div id="syncNowLog" style="display:none;font-family:var(--mono);font-size:11.5px;color:#6b6280;background:var(--paper-2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:-16px 0 24px;white-space:pre-wrap;"></div>
 
   <div class="stats" id="stats"></div>
   <div id="diagnosticoRede" style="display:none;background:#fdf1de;border:1px solid #d98c2b;border-radius:10px;padding:12px 16px;margin-bottom:24px;font-size:13px;color:#1a1625;"></div>
@@ -605,32 +606,43 @@ document.getElementById('btnCopyRepetidos').addEventListener('click', ()=>{
 // isso só chama o endpoint sem segredo /api/geogrid-sync-now pra adiantar a espera.
 document.getElementById('btnSyncNow').addEventListener('click', async ()=>{
   const btn = document.getElementById('btnSyncNow');
+  const logEl = document.getElementById('syncNowLog');
   btn.disabled = true;
+  logEl.style.display = 'block';
+  logEl.textContent = '';
   let totalGravados = 0;
+  let totalSemId = 0;
   try{
     // Pagina página por página (a conta já tem ~13700 terminais = 28
     // páginas) - uma chamada só por tudo estourava o tempo de execução da
-    // função na Vercel, sem gravar nada. Cada chamada aqui é curta.
+    // função na Vercel, sem gravar nada. Cada chamada aqui é curta. O log
+    // fica na tela (não some sozinho) pra dar pra conferir com calma depois.
     let pagina = 1;
     for (;;) {
       btn.textContent = `🔄 Sincronizando (página ${pagina})...`;
       const resp = await fetch(`/api/geogrid-sync-now?pagina=${pagina}`, { method:'POST' });
       const data = await resp.json().catch(()=>({}));
       if (!resp.ok || !data.ok) {
-        btn.textContent = '✕ ' + (data.erro || `falha ao sincronizar (HTTP ${resp.status})`);
+        btn.textContent = '✕ falha ao sincronizar';
+        logEl.textContent += `\npágina ${pagina}: ERRO — ${data.erro || `HTTP ${resp.status}`}`;
         break;
       }
       totalGravados += data.gravados || 0;
+      totalSemId += data.semId || 0;
+      logEl.textContent += `página ${data.pagina}: ${data.recebidos} recebidos, ${data.gravados} gravados${data.semId ? `, ${data.semId} SEM ID (descartados!)` : ''} — total do tipo na API: ${data.totalTipo}\n`;
       if (!data.temMais) {
         btn.textContent = `✓ ${totalGravados.toLocaleString('pt-BR')} CTO(s) sincronizada(s)`;
+        logEl.textContent += `\nFIM: ${totalGravados} gravados no total${totalSemId ? `, ${totalSemId} descartados por falta de ID` : ''}.`;
         break;
       }
       pagina++;
     }
   } catch(e){
     btn.textContent = '✕ erro de rede';
+    logEl.textContent += `\nerro de rede: ${e.message}`;
   }
-  setTimeout(()=>{ btn.disabled = false; btn.textContent = '🔄 Sincronizar agora'; }, 4000);
+  btn.disabled = false;
+  setTimeout(()=>{ btn.textContent = '🔄 Sincronizar agora'; }, 4000);
 });
 
 function getFiltered(){
