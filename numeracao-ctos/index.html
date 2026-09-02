@@ -571,7 +571,8 @@ function atualizarDiagnostico(){
     el.innerHTML = `<b>⚠️ Nenhuma CTO com sigla "CX..." encontrada.</b><br>
       Exemplos de sigla reais do GeoGrid (${records.length} CTOs no total):<br>
       <div style="margin-top:6px;font-family:monospace;">${exemplos.map(s => `"${s}"`).join(', ')}</div>
-      <button id="btnDiagCx" class="btn-ghost-sm" style="margin-top:10px;">🔍 Procurar "CX" em qualquer tipo de item (não só terminal)</button>
+      <button id="btnDiagCx" class="btn-ghost-sm" style="margin-top:10px;">🔍 Procurar "CX" em qualquer tipo já sincronizado (Firestore)</button>
+      <button id="btnDiagCxApi" class="btn-ghost-sm" style="margin-top:10px;margin-left:8px;">🔎 Procurar "CX" direto na API do GeoGrid (todos os tipos)</button>
       <div id="diagCxResultado" style="margin-top:8px;"></div>`;
     document.getElementById('btnDiagCx').addEventListener('click', async (e) => {
       e.target.disabled = true;
@@ -580,11 +581,34 @@ function atualizarDiagnostico(){
       try {
         const r = await window._diagnosticarCxEmQualquerTipo();
         resultadoEl.innerHTML = r.total === 0
-          ? '<b>Nenhum item com sigla "CX..." em nenhum tipo.</b> As CTOs Infolink podem ainda não ter sido sincronizadas do GeoGrid pra cá.'
+          ? '<b>Nenhum item com sigla "CX..." em nenhum tipo já sincronizado.</b>'
           : `<b>Achou ${r.total} item(ns) com sigla "CX..."</b>, por tipo: ${JSON.stringify(r.porTipo)}<br>
              <div style="font-family:monospace;margin-top:4px;">${r.exemplos.map(x=>`"${x.sigla}" (item: ${x.item})`).join('<br>')}</div>`;
       } catch (err) {
         resultadoEl.textContent = 'Falha ao procurar: ' + err.message;
+      }
+      e.target.remove();
+    });
+    // Vai direto na API do GeoGrid (não no Firestore) - pega até tipos que a
+    // gente normalmente não sincroniza (poste, grupoAcesso), pra descartar de
+    // vez a hipótese de classificação errada antes de suspeitar de outra conta.
+    document.getElementById('btnDiagCxApi').addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      const resultadoEl = document.getElementById('diagCxResultado');
+      const tipos = ['terminal','caixa','rack','estacao','pontoAcesso','interesse','reserva','poste','grupoAcesso'];
+      const linhas = [];
+      for (const tipo of tipos) {
+        e.target.textContent = `Procurando na API (${tipo})...`;
+        try {
+          const resp = await fetch(`/api/geogrid-diagnostico-cx?tipo=${tipo}`, {method:'POST'});
+          const d = await resp.json();
+          if (!resp.ok || !d.ok) { linhas.push(`${tipo}: erro (${d.erro || resp.status})`); continue; }
+          linhas.push(`${tipo}: ${d.totalTipo} no total, ${d.totalCx} com sigla "CX..."${d.exemplos.length ? ' — ex.: ' + d.exemplos.join(', ') : ''}`);
+          resultadoEl.innerHTML = `<div style="font-family:monospace;">${linhas.join('<br>')}</div>`;
+        } catch (err) {
+          linhas.push(`${tipo}: falha de rede (${err.message})`);
+          resultadoEl.innerHTML = `<div style="font-family:monospace;">${linhas.join('<br>')}</div>`;
+        }
       }
       e.target.remove();
     });
