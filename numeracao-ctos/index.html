@@ -12,7 +12,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import { getFirestore, doc, setDoc, onSnapshot, collection, query, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   const fb = initializeApp({
     apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
     authDomain: "isp-manager-ce.firebaseapp.com",
@@ -55,6 +55,23 @@
     console.error('Falha ao sincronizar base do GeoGrid:', err);
     window._applyAtivoError && window._applyAtivoError(err);
   });
+
+  // Diagnóstico sob demanda (botão "🔍 Achar sigla CX em outro tipo"): a tela
+  // normal só escuta item=="terminal" - isso aqui varre TODA a coleção
+  // mapa_rede (qualquer tipo: caixa, rack, poste teria dado errado etc.) atrás
+  // de sigla começando com "CX", pra saber se as CTOs Infolink estão
+  // sincronizadas só que classificadas com um "item" diferente de "terminal".
+  window._diagnosticarCxEmQualquerTipo = async function(){
+    const snap = await getDocs(query(collection(fsDb, 'mapa_rede'), where('sigla', '>=', 'CX'), where('sigla', '<', 'CY')));
+    const porTipo = {};
+    const exemplos = [];
+    snap.forEach(d => {
+      const it = d.data();
+      porTipo[it.item] = (porTipo[it.item] || 0) + 1;
+      if (exemplos.length < 10) exemplos.push({sigla: it.sigla, item: it.item});
+    });
+    return {total: snap.size, porTipo, exemplos};
+  };
 </script>
 <title>Numeração de CTOs · Infolink</title>
 <style>
@@ -553,7 +570,24 @@ function atualizarDiagnostico(){
     el.style.display = 'block';
     el.innerHTML = `<b>⚠️ Nenhuma CTO com sigla "CX..." encontrada.</b><br>
       Exemplos de sigla reais do GeoGrid (${records.length} CTOs no total):<br>
-      <div style="margin-top:6px;font-family:monospace;">${exemplos.map(s => `"${s}"`).join(', ')}</div>`;
+      <div style="margin-top:6px;font-family:monospace;">${exemplos.map(s => `"${s}"`).join(', ')}</div>
+      <button id="btnDiagCx" class="btn-ghost-sm" style="margin-top:10px;">🔍 Procurar "CX" em qualquer tipo de item (não só terminal)</button>
+      <div id="diagCxResultado" style="margin-top:8px;"></div>`;
+    document.getElementById('btnDiagCx').addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      e.target.textContent = 'Procurando...';
+      const resultadoEl = document.getElementById('diagCxResultado');
+      try {
+        const r = await window._diagnosticarCxEmQualquerTipo();
+        resultadoEl.innerHTML = r.total === 0
+          ? '<b>Nenhum item com sigla "CX..." em nenhum tipo.</b> As CTOs Infolink podem ainda não ter sido sincronizadas do GeoGrid pra cá.'
+          : `<b>Achou ${r.total} item(ns) com sigla "CX..."</b>, por tipo: ${JSON.stringify(r.porTipo)}<br>
+             <div style="font-family:monospace;margin-top:4px;">${r.exemplos.map(x=>`"${x.sigla}" (item: ${x.item})`).join('<br>')}</div>`;
+      } catch (err) {
+        resultadoEl.textContent = 'Falha ao procurar: ' + err.message;
+      }
+      e.target.remove();
+    });
   } else {
     el.style.display = 'none';
   }
