@@ -196,6 +196,7 @@ tbody tr:hover{background:var(--paper);}
   </div>
 
   <div class="stats" id="stats"></div>
+  <div id="diagnosticoRede" style="display:none;background:#fdf1de;border:1px solid #d98c2b;border-radius:10px;padding:12px 16px;margin-bottom:24px;font-size:13px;color:#1a1625;"></div>
 
   <div class="generator">
     <h2>Gerar novo número</h2>
@@ -292,7 +293,7 @@ function recordsDaRede(){ return REDE === 'infolink' ? records.filter(r => ehInf
 if (REDE === 'infolink') {
   document.title = 'Numeração de CTOs · Infolink (rede própria)';
   document.querySelector('.brand h1').textContent = 'Numeração de CTOs · Infolink';
-  document.querySelector('.brand .sub').textContent = 'Só a rede própria (sem as pastas "Jebnet - X") · numeração continua compartilhada com a Jebnet';
+  document.querySelector('.brand .sub').textContent = 'Só CTOs com sigla "CX..." (rede própria) · numeração continua compartilhada com a Jebnet';
 }
 
 function baseRecordsFromSeed(){
@@ -542,7 +543,22 @@ function renderTable(){
     });
   });
 }
-function render(){ renderStats(); renderTable(); }
+// Mostra na própria tela (sem precisar de DevTools/CSV) alguns exemplos reais
+// de sigla, quando o filtro da rede não achou nada - ajuda a diagnosticar se
+// o padrão "CX..." está certo, sem depender do técnico saber abrir console.
+function atualizarDiagnostico(){
+  const el = document.getElementById('diagnosticoRede');
+  if (REDE === 'infolink' && records.length > 0 && recordsDaRede().length === 0) {
+    const exemplos = [...new Set(records.map(r => r.sigla).filter(Boolean))].slice(0, 15);
+    el.style.display = 'block';
+    el.innerHTML = `<b>⚠️ Nenhuma CTO com sigla "CX..." encontrada.</b><br>
+      Exemplos de sigla reais do GeoGrid (${records.length} CTOs no total):<br>
+      <div style="margin-top:6px;font-family:monospace;">${exemplos.map(s => `"${s}"`).join(', ')}</div>`;
+  } else {
+    el.style.display = 'none';
+  }
+}
+function render(){ renderStats(); renderTable(); atualizarDiagnostico(); }
 
 document.getElementById('btnGenerate').addEventListener('click', async ()=>{
   if(records.length===0 || !reservasProntas) return;
