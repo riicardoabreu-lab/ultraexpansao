@@ -573,7 +573,36 @@ function atualizarDiagnostico(){
       <div style="margin-top:6px;font-family:monospace;">${exemplos.map(s => `"${s}"`).join(', ')}</div>
       <button id="btnDiagCx" class="btn-ghost-sm" style="margin-top:10px;">🔍 Procurar "CX" em qualquer tipo já sincronizado (Firestore)</button>
       <button id="btnDiagCxApi" class="btn-ghost-sm" style="margin-top:10px;margin-left:8px;">🔎 Procurar "CX" direto na API do GeoGrid (todos os tipos)</button>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid #e8c98a;">
+        <label style="font-size:11.5px;display:block;margin-bottom:4px;">Testar outro token (ex.: de um usuário Projetista) sem trocar nada ainda:</label>
+        <input type="password" id="inputTokenTeste" placeholder="cole o token aqui só pra testar" style="padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;font-size:13px;width:340px;max-width:100%;">
+        <button id="btnTestarToken" class="btn-ghost-sm" style="margin-left:6px;">Testar (só terminal)</button>
+        <div style="font-size:11px;color:#6b6280;margin-top:4px;">Esse token só é usado nessa chamada, uma vez, e não fica salvo em lugar nenhum.</div>
+      </div>
       <div id="diagCxResultado" style="margin-top:8px;"></div>`;
+    document.getElementById('btnTestarToken').addEventListener('click', async (e) => {
+      const token = document.getElementById('inputTokenTeste').value.trim();
+      if (!token) { alert('Cola o token no campo antes de testar.'); return; }
+      e.target.disabled = true;
+      e.target.textContent = 'Testando...';
+      const resultadoEl = document.getElementById('diagCxResultado');
+      try {
+        const resp = await fetch('/api/geogrid-testar-token', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({token, tipo: 'terminal'}),
+        });
+        const d = await resp.json();
+        resultadoEl.innerHTML = !d.ok
+          ? `<b>Falha:</b> ${d.erro}`
+          : `<b>Tipo "terminal" com esse token: ${d.totalTipo} no total, ${d.totalCx} com sigla "CX..."</b>${d.exemplos.length ? '<br><div style="font-family:monospace;margin-top:4px;">' + d.exemplos.join(', ') + '</div>' : ''}`;
+      } catch (err) {
+        resultadoEl.textContent = 'Falha ao testar: ' + err.message;
+      }
+      e.target.disabled = false;
+      e.target.textContent = 'Testar (só terminal)';
+      document.getElementById('inputTokenTeste').value = '';
+    });
     document.getElementById('btnDiagCx').addEventListener('click', async (e) => {
       e.target.disabled = true;
       e.target.textContent = 'Procurando...';
