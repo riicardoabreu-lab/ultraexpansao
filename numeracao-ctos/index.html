@@ -337,10 +337,13 @@ function ehInfolink(sigla){ return /^cx\d/i.test((sigla || '').trim()); }
 // isso a checagem exige dígito logo após o hífen, não deixa passar sigla
 // com letras no meio.
 function ehJebnet(sigla){ return /^cto-\d/i.test((sigla || '').trim()); }
+function filtrarPorRede(lista){
+  if (REDE === 'infolink') return lista.filter(r => ehInfolink(r.sigla));
+  if (REDE === 'jebnet') return lista.filter(r => ehJebnet(r.sigla));
+  return lista;
+}
 function recordsDaRede(){
-  if (REDE === 'infolink') return records.filter(r => ehInfolink(r.sigla));
-  if (REDE === 'jebnet') return records.filter(r => ehJebnet(r.sigla));
-  return records;
+  return filtrarPorRede(records);
 }
 if (REDE === 'infolink') {
   document.title = 'Numeração de CTOs · Infolink (rede própria)';
@@ -348,8 +351,8 @@ if (REDE === 'infolink') {
   document.querySelector('.brand .sub').textContent = 'Só CTOs com sigla "CX..." (rede própria) · numeração continua compartilhada com a Jebnet';
 } else if (REDE === 'jebnet') {
   document.title = 'Numeração de CTOs · Jebnet';
-  document.querySelector('.brand h1').textContent = 'Numeração de CTOs · Jebnet';
-  document.querySelector('.brand .sub').textContent = 'Só CTOs com sigla "CTO-..." (rede Jebnet) · numeração continua compartilhada com a Infolink';
+  document.querySelector('.brand h1').textContent = 'Numeração de CTOs';
+  document.querySelector('.brand .sub').textContent = 'Sincronizado com o GeoGrid + reservas, tudo em tempo real com a equipe';
 }
 
 function baseRecordsFromSeed(){
@@ -388,11 +391,16 @@ function setSyncStatus(mode, text){
 
 // Compõe o indicador de status a partir dos dois streams (GeoGrid + reservas da equipe).
 function updateSyncStatus(){
+  // Filtrado pela mesma rede da tela - senão essa linha do topo mostrava o
+  // total geral (as duas redes juntas) mesmo numa tela filtrada só pra uma,
+  // o que parecia "informação da Infolink aparecendo" na tela da Jebnet.
+  const baseEscopo = filtrarPorRede(baseRecords);
+  const reservasEscopo = filtrarPorRede(reservas);
   const geogridTxt = ativoProntos
-    ? `GeoGrid: ${baseRecords.length} CTO${baseRecords.length===1?'':'s'}`
+    ? `GeoGrid: ${baseEscopo.length} CTO${baseEscopo.length===1?'':'s'}`
     : 'GeoGrid: sincronizando...';
   const reservasTxt = reservasProntas
-    ? `equipe: ${reservas.length} reserva${reservas.length===1?'':'s'}`
+    ? `equipe: ${reservasEscopo.length} reserva${reservasEscopo.length===1?'':'s'}`
     : 'equipe: sincronizando...';
   setSyncStatus(ativoProntos && reservasProntas ? 'ok' : 'warn', `${geogridTxt} · ${reservasTxt}`);
 }
