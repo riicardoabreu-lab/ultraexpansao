@@ -518,6 +518,10 @@ function renderStats(){
   lastReservadosList = s.reservadosList;
   lastCidadesList = s.cidadesList;
   lastRepetidosList = s.repetidosList;
+  // "Números repetidos" só faz sentido pra rede Jebnet, que tem sequência
+  // única de verdade (CTO-20000, 20001...). A Infolink numera por
+  // condomínio/loteamento (CX01, CX02... reinicia em cada lugar) - "CX01"
+  // repetir entre condomínios diferentes é normal, não é erro de cadastro.
   document.getElementById('stats').innerHTML = `
     <div class="stat"><div class="val">${s.total.toLocaleString('pt-BR')}</div><div class="lbl">CTOs no GeoGrid</div></div>
     <div class="stat"><div class="val">${s.min}–${s.max}</div><div class="lbl">Faixa de numeração</div></div>
@@ -525,12 +529,12 @@ function renderStats(){
     <div class="stat stat-clickable" id="statReservados"><div class="val">${s.reservados}</div><div class="lbl">Reservados aqui ↗</div></div>
     <div class="stat"><div class="val">${s.max+1}</div><div class="lbl">Próximo sequencial</div></div>
     <div class="stat stat-clickable" id="statCidades"><div class="val">${s.cidadesList.length}</div><div class="lbl">Cidades ↗</div></div>
-    <div class="stat stat-clickable${s.repetidosList.length ? ' stat-alerta' : ''}" id="statRepetidos"><div class="val">${s.repetidosList.length}</div><div class="lbl">Números repetidos ↗</div></div>
+    ${REDE === 'infolink' ? '' : `<div class="stat stat-clickable${s.repetidosList.length ? ' stat-alerta' : ''}" id="statRepetidos"><div class="val">${s.repetidosList.length}</div><div class="lbl">Números repetidos ↗</div></div>`}
   `;
   document.getElementById('statGaps').addEventListener('click', ()=>openGapsModal(s));
   document.getElementById('statReservados').addEventListener('click', ()=>openReservadosModal(s));
   document.getElementById('statCidades').addEventListener('click', ()=>openCidadesModal(s));
-  document.getElementById('statRepetidos').addEventListener('click', ()=>openRepetidosModal(s));
+  document.getElementById('statRepetidos')?.addEventListener('click', ()=>openRepetidosModal(s));
 }
 // Um "gap" é só um número livre, ainda sem CTO nenhuma - mostra com o
 // prefixo da rede da tela atual (CX na Infolink, CTO- no geral/Jebnet).
