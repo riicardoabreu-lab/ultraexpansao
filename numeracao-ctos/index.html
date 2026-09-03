@@ -330,11 +330,19 @@ const SEED_FALLBACK = [[20031, "CTO-20031", "ITAPIPOCA", "LAGOA DAS MERCÊS", "a
 // entre Jebnet e Infolink - só a listagem é que muda por rede.
 const REDE = new URLSearchParams(location.search).get('rede');
 function ehInfolink(sigla){ return /^cx/i.test((sigla || '').trim()); }
-function recordsDaRede(){ return REDE === 'infolink' ? records.filter(r => ehInfolink(r.sigla)) : records; }
+function recordsDaRede(){
+  if (REDE === 'infolink') return records.filter(r => ehInfolink(r.sigla));
+  if (REDE === 'jebnet') return records.filter(r => !ehInfolink(r.sigla));
+  return records;
+}
 if (REDE === 'infolink') {
   document.title = 'Numeração de CTOs · Infolink (rede própria)';
   document.querySelector('.brand h1').textContent = 'Numeração de CTOs · Infolink';
   document.querySelector('.brand .sub').textContent = 'Só CTOs com sigla "CX..." (rede própria) · numeração continua compartilhada com a Jebnet';
+} else if (REDE === 'jebnet') {
+  document.title = 'Numeração de CTOs · Jebnet';
+  document.querySelector('.brand h1').textContent = 'Numeração de CTOs · Jebnet';
+  document.querySelector('.brand .sub').textContent = 'Só CTOs com sigla "CTO-..." (rede Jebnet) · numeração continua compartilhada com a Infolink';
 }
 
 function baseRecordsFromSeed(){
