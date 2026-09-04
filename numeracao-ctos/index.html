@@ -331,15 +331,14 @@ const SEED_FALLBACK = [[20031, "CTO-20031", "ITAPIPOCA", "LAGOA DAS MERCÊS", "a
 const REDE = new URLSearchParams(location.search).get('rede');
 function ehInfolink(sigla){ return /^cx\d/i.test((sigla || '').trim()); }
 // "CTO-" seguido direto de dígito é o padrão real da Jebnet (ex.: CTO-20031,
-// CTO-21187 Pacpon). NÃO é "tudo que não é CX...": a conta do GeoGrid tem
-// pelo menos mais um cliente misturado ali (ex.: sigla "CTO-AC 01", cidades
-// fora do Ceará como Palmares-PE) que não é nem Jebnet nem Infolink - por
-// isso a checagem exige dígito logo após o hífen, não deixa passar sigla
-// com letras no meio.
-function ehJebnet(sigla){ return /^cto-\d/i.test((sigla || '').trim()); }
+// CTO-21187 Pacpon), mas isso sozinho não basta: a conta do GeoGrid tem pelo
+// menos mais um cliente com sigla "CTO-XX" numérica também (ex.: "CTO-01
+// Iparana", "CTO-AC 01") que não é da Jebnet. A numeração real da Jebnet
+// sempre começa em 20000 - por isso exige também o número nessa faixa.
+function ehJebnet(sigla, numero){ return /^cto-\d/i.test((sigla || '').trim()) && numero >= 20000; }
 function filtrarPorRede(lista){
   if (REDE === 'infolink') return lista.filter(r => ehInfolink(r.sigla));
-  if (REDE === 'jebnet') return lista.filter(r => ehJebnet(r.sigla));
+  if (REDE === 'jebnet') return lista.filter(r => ehJebnet(r.sigla, r.numero));
   return lista;
 }
 function recordsDaRede(){
@@ -364,7 +363,7 @@ function baseRecordsFromAtivo(itens){
   // (sigla e numeração num padrão totalmente diferente, tipo "CTO-AC 01" em
   // Palmares-PE) que senão poluem a faixa de numeração, as lacunas e o
   // detector de repetidos pra TODO MUNDO, mesmo na tela sem filtro de rede.
-  return itens.filter(it => it.numero != null && (ehJebnet(it.sigla) || ehInfolink(it.sigla))).map(it => ({
+  return itens.filter(it => it.numero != null && (ehJebnet(it.sigla, it.numero) || ehInfolink(it.sigla))).map(it => ({
     numero: it.numero,
     sigla: it.sigla || `CTO-${it.numero}`,
     municipio: it.municipio || '(sem pasta)',
