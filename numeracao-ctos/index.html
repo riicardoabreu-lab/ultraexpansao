@@ -473,15 +473,18 @@ function updateLocalidades(){
 document.getElementById('genMunicipio').addEventListener('change', updateLocalidades);
 
 function computeStats(){
-  // min/max/gapList ficam SEMPRE sobre "records" completo (as duas redes) -
-  // uma lacuna só é "disponível" de verdade se estiver livre nas duas juntas.
-  // total/reservadosList são cosméticos e podem refletir só a rede da tela.
-  const nums = records.map(r=>r.numero);
+  // Tudo aqui (faixa, lacunas, sequencial, cidades, repetidos) é calculado
+  // só em cima da rede da tela atual (escopo) - Jebnet e Infolink usam
+  // convenções de numeração totalmente diferentes na prática (Jebnet é uma
+  // sequência única 20000+, Infolink reinicia por condomínio em faixas bem
+  // menores), então misturar as duas só atrapalhava a leitura da faixa/
+  // lacunas de cada uma.
+  const escopo = recordsDaRede();
+  const nums = escopo.map(r=>r.numero);
   const min = Math.min(...nums), max = Math.max(...nums);
   const used = new Set(nums);
   const gapList = [];
   for(let i=min;i<=max;i++) if(!used.has(i)) gapList.push(i);
-  const escopo = recordsDaRede();
   const reservadosList = escopo.filter(r=>r.status==='reservado').sort((a,b)=>a.numero-b.numero);
 
   // Quantas CTOs por cidade (só na rede da tela atual) - pra saber onde tem
@@ -493,12 +496,10 @@ function computeStats(){
   }
   const cidadesList = [...porCidade.entries()].map(([municipio, total]) => ({municipio, total})).sort((a,b)=>b.total-a.total);
 
-  // Números repetidos SEMPRE sobre "records" completo (as duas redes juntas)
-  // - um número duplicado entre Jebnet e Infolink é justamente o tipo de erro
-  // que a numeração compartilhada deveria evitar, então vale mostrar mesmo
-  // que a tela atual esteja filtrada só pra uma rede.
+  // Números repetidos também só dentro da rede da tela (escopo) - mesmo
+  // motivo acima.
   const porNumero = new Map();
-  for (const r of records) {
+  for (const r of escopo) {
     if (!porNumero.has(r.numero)) porNumero.set(r.numero, []);
     porNumero.get(r.numero).push(r);
   }
@@ -509,13 +510,17 @@ function computeStats(){
 
   return {total: escopo.length, min, max, gaps: gapList.length, gapList, reservados: reservadosList.length, reservadosList, cidadesList, repetidosList};
 }
+// Gera o próximo número só dentro da rede da tela atual (mesmo escopo dos
+// cards de faixa/lacunas acima) - Jebnet e Infolink não compartilham mais
+// o mesmo espaço de numeração na prática, cada rede tem sua própria faixa.
 function nextGapNumber(){
-  const nums = new Set(records.map(r=>r.numero));
-  const min = Math.min(...records.map(r=>r.numero)), max = Math.max(...records.map(r=>r.numero));
+  const escopo = recordsDaRede();
+  const nums = new Set(escopo.map(r=>r.numero));
+  const min = Math.min(...escopo.map(r=>r.numero)), max = Math.max(...escopo.map(r=>r.numero));
   for(let i=min;i<=max;i++) if(!nums.has(i)) return i;
   return max+1;
 }
-function nextSeqNumber(){ return Math.max(...records.map(r=>r.numero))+1; }
+function nextSeqNumber(){ return Math.max(...recordsDaRede().map(r=>r.numero))+1; }
 
 let lastReservadosList = [];
 let lastCidadesList = [];
