@@ -186,7 +186,7 @@ section{ display:flex; flex-direction:column; gap:14px; }
 .tag.src{ background:var(--accent-soft); color:var(--accent); }
 
 /* ---------- stat tiles ---------- */
-.stats{ display:grid; grid-template-columns:repeat(5,1fr); gap:1px; background:var(--border); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:var(--shadow); }
+.stats{ display:grid; grid-template-columns:repeat(6,1fr); gap:1px; background:var(--border); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:var(--shadow); }
 .stat{ background:var(--surface); padding:16px 18px; display:flex; flex-direction:column; gap:4px; }
 .stat .n{ font-family:'Big Shoulders Display',sans-serif; font-size:30px; font-weight:700; line-height:1; }
 .stat .l{ font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.07em; font-weight:600; }
@@ -237,6 +237,24 @@ input.cell-input{
 input.cell-input:focus{ border-color:var(--accent); background:var(--surface); }
 input.cell-input.price::before{ content:'R$'; }
 .prefix{ display:inline-flex; align-items:center; gap:4px; }
+
+input.name-input{
+  font-family:'IBM Plex Sans',sans-serif; font-size:13px; color:var(--text); background:var(--surface-2);
+  border:1px solid var(--border); border-radius:6px; padding:5px 8px; width:100%; min-width:220px; outline:none;
+}
+input.unit-input{ width:56px; text-align:center; }
+input.name-input:focus, input.unit-input:focus{ border-color:var(--accent); background:var(--surface); }
+.row-del-btn{
+  background:transparent; border:1px solid var(--border); color:var(--text-muted);
+  width:26px; height:26px; border-radius:6px; cursor:pointer; font-size:13px; line-height:1;
+}
+.row-del-btn:hover{ border-color:var(--danger); color:var(--danger); }
+.add-item-btn{
+  font-family:'IBM Plex Sans',sans-serif; font-weight:700; font-size:12.5px; color:var(--accent);
+  background:var(--accent-soft); border:1px solid transparent; border-radius:8px; padding:8px 14px;
+  cursor:pointer; margin-top:12px;
+}
+.add-item-btn:hover{ border-color:var(--accent); }
 .prefix .rs{ color:var(--text-muted); font-size:11px; }
 
 /* ---------- summary ---------- */
@@ -392,11 +410,12 @@ footer{ max-width:1180px; margin:0 auto; padding:0 24px 40px; color:var(--text-m
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Item</th><th class="num">Qtd.</th><th class="num">Un.</th><th class="num">Preço unit.</th><th class="num">Subtotal</th></tr>
+          <tr><th>Item</th><th class="num">Qtd.</th><th class="num">Un.</th><th class="num">Preço unit.</th><th class="num">Subtotal</th><th></th></tr>
         </thead>
         <tbody id="materials-tbody"></tbody>
       </table>
     </div>
+    <button class="add-item-btn" id="btn-add-material" type="button">+ Adicionar item</button>
   </section>
 
   <section id="sec-labor">
@@ -407,11 +426,12 @@ footer{ max-width:1180px; margin:0 auto; padding:0 24px 40px; color:var(--text-m
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Serviço</th><th class="num">Qtd.</th><th class="num">Un.</th><th class="num">Preço unit.</th><th class="num">Subtotal</th></tr>
+          <tr><th>Serviço</th><th class="num">Qtd.</th><th class="num">Un.</th><th class="num">Preço unit.</th><th class="num">Subtotal</th><th></th></tr>
         </thead>
         <tbody id="labor-tbody"></tbody>
       </table>
     </div>
+    <button class="add-item-btn" id="btn-add-labor" type="button">+ Adicionar serviço</button>
   </section>
 
   <section id="sec-summary">
@@ -473,12 +493,15 @@ NETWORK.forEach(r => {
 });
 
 // ---- stat tiles ----
+const PORTAS_POR_CTO = 16; // mesma referência do item "CTO/CX 16 portas completa"
+const totalPortas = totalCX * PORTAS_POR_CTO;
 const stats = [
   {n: totalRoutesN, l: 'Rotas de distribuição'},
   {n: totalCX, l: 'Caixas CX (CTO)'},
   {n: totalCEO + totalEmenda, l: 'CEO / emendas'},
   {n: (totalCabo/1000).toLocaleString('pt-BR',{maximumFractionDigits:1}) + ' km', l: 'Cabo 12FO total'},
   {n: 3, l: 'Setores'},
+  {n: totalPortas.toLocaleString('pt-BR'), l: 'Portas a atender'},
 ];
 document.getElementById('stats-grid').innerHTML = stats.map(s => `<div class="stat"><span class="n mono">${s.n}</span><span class="l">${s.l}</span></div>`).join('');
 
@@ -708,19 +731,53 @@ const LABOR = [
   {key:'mo_mobilizacao', label:'Mobilização de equipe (por setor)', unit:'verba', src:false},
 ];
 
+function novoItemKey(){
+  return 'item_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+}
+
 function rowHTML(item){
   return `<tr data-key="${item.key}">
-    <td>${item.label} ${item.src ? '<span class="tag src">pesquisado</span>' : '<span class="tag est">estimado</span>'}</td>
+    <td><input class="name-input" type="text" data-key="${item.key}" value="${item.label}" placeholder="Nome do item"> ${item.src ? '<span class="tag src">pesquisado</span>' : '<span class="tag est">estimado</span>'}</td>
     <td class="num"><input class="cell-input qty-input" type="number" min="0" step="1" data-key="${item.key}" value="${qty[item.key]}"></td>
-    <td class="num" style="color:var(--text-muted)">${item.unit}</td>
+    <td class="num"><input class="cell-input unit-input" type="text" data-key="${item.key}" value="${item.unit}"></td>
     <td class="num"><span class="prefix"><span class="rs">R$</span><input class="cell-input price-input" type="number" min="0" step="0.01" data-key="${item.key}" value="${price[item.key]}"></span></td>
     <td class="num cost mono" data-sub="${item.key}">R$ 0</td>
+    <td><button class="row-del-btn" type="button" title="Excluir item">✕</button></td>
   </tr>`;
 }
+
+function addItem(list, tbodyId){
+  const key = novoItemKey();
+  list.push({key, label:'', unit:'un', src:false});
+  qty[key] = 0;
+  price[key] = 0;
+  renderTables();
+  recompute();
+  scheduleSave();
+  const tbody = document.getElementById(tbodyId);
+  const input = tbody.querySelector(`tr[data-key="${key}"] .name-input`);
+  if(input) input.focus();
+}
+
+function delItem(list, key){
+  const idx = list.findIndex(i=>i.key===key);
+  if(idx>-1) list.splice(idx,1);
+  delete qty[key];
+  delete price[key];
+  renderTables();
+  recompute();
+  scheduleSave();
+}
+function findItem(key){
+  return MATERIALS.find(i=>i.key===key) || LABOR.find(i=>i.key===key);
+}
+
 function renderTables(){
   document.getElementById('materials-tbody').innerHTML = MATERIALS.map(rowHTML).join('');
   document.getElementById('labor-tbody').innerHTML = LABOR.map(rowHTML).join('');
   bindQtyPriceInputs();
+  bindRowDelButtons('materials-tbody', MATERIALS);
+  bindRowDelButtons('labor-tbody', LABOR);
 }
 function bindQtyPriceInputs(){
   document.querySelectorAll('.qty-input').forEach(inp=>{
@@ -729,17 +786,36 @@ function bindQtyPriceInputs(){
   document.querySelectorAll('.price-input').forEach(inp=>{
     inp.addEventListener('input', e=>{ price[e.target.dataset.key] = parseFloat(e.target.value)||0; recompute(); scheduleSave(); });
   });
+  document.querySelectorAll('.name-input').forEach(inp=>{
+    inp.addEventListener('input', e=>{ const item = findItem(e.target.dataset.key); if(item) item.label = e.target.value; scheduleSave(); });
+  });
+  document.querySelectorAll('.unit-input').forEach(inp=>{
+    inp.addEventListener('input', e=>{ const item = findItem(e.target.dataset.key); if(item) item.unit = e.target.value; scheduleSave(); });
+  });
+}
+function bindRowDelButtons(tbodyId, list){
+  document.getElementById(tbodyId).querySelectorAll('.row-del-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const key = btn.closest('tr').dataset.key;
+      delItem(list, key);
+    });
+  });
 }
 renderTables();
+
+document.getElementById('btn-add-material').addEventListener('click', ()=> addItem(MATERIALS, 'materials-tbody'));
+document.getElementById('btn-add-labor').addEventListener('click', ()=> addItem(LABOR, 'labor-tbody'));
 
 // ---- routes table ----
 const ROUTE_ROWS = NETWORK.map(r => ({...r, sectorLabel: SECTOR_LABEL[r.sector]}));
 function routeCost(r){
-  const caboCost = r.len_m * (price.cabo12fo + price.mo_lancamento);
-  const ctoCost = r.cx.length * (price.cto + price.mo_cto);
-  const ceoCost = (r.ceo.length + r.emenda.length) * (price.ceo + price.mo_ceo);
-  const fusaoCost = (r.cx.length*2 + (r.ceo.length+r.emenda.length)*4) * price.mo_fusao;
-  const otdrCost = (r.route.startsWith('ROTA') ? 1 : 1) * price.mo_otdr;
+  // "|| 0" pra não virar NaN e quebrar a alocação por rota inteira, caso
+  // algum desses itens tenha sido excluído da tabela de materiais/mão de obra.
+  const caboCost = r.len_m * ((price.cabo12fo||0) + (price.mo_lancamento||0));
+  const ctoCost = r.cx.length * ((price.cto||0) + (price.mo_cto||0));
+  const ceoCost = (r.ceo.length + r.emenda.length) * ((price.ceo||0) + (price.mo_ceo||0));
+  const fusaoCost = (r.cx.length*2 + (r.ceo.length+r.emenda.length)*4) * (price.mo_fusao||0);
+  const otdrCost = (r.route.startsWith('ROTA') ? 1 : 1) * (price.mo_otdr||0);
   return caboCost + ctoCost + ceoCost + fusaoCost + otdrCost;
 }
 function buildRoutesTable(){
@@ -845,6 +921,8 @@ function captureState(){
     inVao: document.getElementById('in-vao').value,
     inConting: document.getElementById('in-conting').value,
     inBdi: document.getElementById('in-bdi').value,
+    materials: MATERIALS.map(i=>({...i})),
+    labor: LABOR.map(i=>({...i})),
     qty: {...qty},
     price: {...price},
     updated: Date.now(),
@@ -858,8 +936,12 @@ function applyState(state){
   if(state.inVao!=null) document.getElementById('in-vao').value = state.inVao;
   if(state.inConting!=null) document.getElementById('in-conting').value = state.inConting;
   if(state.inBdi!=null) document.getElementById('in-bdi').value = state.inBdi;
-  if(state.qty) Object.assign(qty, state.qty);
-  if(state.price) Object.assign(price, state.price);
+  // MATERIALS/LABOR são const — muta em vez de reatribuir, senão os itens
+  // adicionados/excluídos à mão (e removidos/renomeados) não voltam certo.
+  if(Array.isArray(state.materials)){ MATERIALS.length = 0; state.materials.forEach(i=>MATERIALS.push(i)); }
+  if(Array.isArray(state.labor)){ LABOR.length = 0; state.labor.forEach(i=>LABOR.push(i)); }
+  if(state.qty){ Object.keys(qty).forEach(k=>delete qty[k]); Object.assign(qty, state.qty); }
+  if(state.price){ Object.keys(price).forEach(k=>delete price[k]); Object.assign(price, state.price); }
   renderTables();
   recompute();
 }
