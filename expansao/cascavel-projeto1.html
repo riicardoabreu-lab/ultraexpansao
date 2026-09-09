@@ -630,11 +630,15 @@ function setDiagramMode(mode){
   const btnSat = document.getElementById('btn-satelite');
   const hint = document.getElementById('diagram-hint');
   if (mode === 'esquema'){
-    svg.hidden = false; satWrap.hidden = true;
+    // svg é um elemento SVG — a propriedade .hidden só existe/reflete em
+    // HTMLElement, então setar svg.hidden não faz nada (o mapa de satélite
+    // ficava por baixo do esquema, os dois aparecendo juntos). Usa
+    // style.display direto, que funciona pra qualquer tipo de elemento.
+    svg.style.display = ''; satWrap.hidden = true;
     btnEsq.classList.add('is-active'); btnSat.classList.remove('is-active');
     hint.textContent = 'Geometria real do KMZ, projetada a partir das coordenadas — não é mapa de ruas';
   } else {
-    svg.hidden = true; satWrap.hidden = false;
+    svg.style.display = 'none'; satWrap.hidden = false;
     btnSat.classList.add('is-active'); btnEsq.classList.remove('is-active');
     hint.textContent = 'Imagem de satélite real sobre as coordenadas do KMZ — requer conexão com a internet';
   }
