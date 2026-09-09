@@ -159,4 +159,38 @@ async function sincronizarTipos(tipos) {
   return {resumo, totalGravados};
 }
 
-module.exports = {admin, getDb, geogridFetch, carregarPastas, montarDoc, sincronizarTipos, TIPOS_SINCRONIZADOS};
+// Sincroniza só UMA página (até 500 itens) de um tipo, em vez do tipo
+// inteiro de uma vez. Criado porque a conta cresceu muito (Jebnet + Infolink
+// juntas, ~13700 terminais = 28 páginas) e sincronizarTipos([tipo]) inteiro
+// não cabe mais no tempo de execução de uma função da Vercel (timeout
+// silencioso no meio do caminho - nada é gravado, ou só um pedaço). O
+// chamador (endpoint) itera página a página; cada chamada é curta e sempre
+// termina dentro do limite.
+async function sincronizarPaginaTipo(tipo, pagina, pastaInfo) {
+  const db = getDb();
+  const dados = await geogridFetch(`/itensRede?item[]=${tipo}&pagina=${pagina}&registrosPorPagina=500`);
+  const registros = dados.registros || [];
+  const totalTipo = parseInt(dados.totalRegistros, 10) || 0;
+
+  // semIdCount conta itens sem "dados.id" (ficam de fora silenciosamente) -
+  // exposto pra diagnosticar se um lote inteiro de itens (ex.: os da
+  // Infolink) está sendo descartado aqui em vez de gravado.
+  let gravados = 0;
+  let semId = 0;
+  for (let i = 0; i < registros.length; i += 500) {
+    const lote = registros.slice(i, i + 500);
+    const batch = db.batch();
+    for (const item of lote) {
+      const id = item.dados && item.dados.id;
+      if (!id) { semId++; continue; }
+      batch.set(db.collection('mapa_rede').doc(String(id)), montarDoc(item, pastaInfo), {merge: true});
+      gravados++;
+    }
+    await batch.commit();
+  }
+
+  const temMais = registros.length > 0 && pagina * 500 < totalTipo;
+  return {totalTipo, recebidos: registros.length, gravados, semId, temMais};
+}
+
+module.exports = {admin, getDb, geogridFetch, carregarPastas, montarDoc, sincronizarTipos, sincronizarPaginaTipo, TIPOS_SINCRONIZADOS};
