@@ -1476,6 +1476,36 @@ const PROJETOS_HTML = {
   saveApp();
 })();
 
+// Bairro Tapera (Aquiraz) com os concorrentes já levantados (planos
+// tirados de imagens enviadas pela equipe) — cria o bairro se ainda não
+// existir e só adiciona quem falta, sem sobrescrever edição manual feita
+// depois (_concSeedV trava depois da primeira vez que roda).
+(function seedConcorrentesTapera(){
+  const V = 1;
+  let aquiraz = app.cidades.find(c=>(c.nome||'').trim().toLowerCase()==='aquiraz');
+  if(!aquiraz){ aquiraz = blankCidade('Aquiraz'); app.cidades.push(aquiraz); }
+  let tapera = app.cidades.find(c=>c.municipioId===aquiraz.id && (c.nome||'').trim().toLowerCase()==='tapera');
+  if(!tapera){ tapera = blankCidade('Tapera', aquiraz.id); app.cidades.push(tapera); }
+  if((tapera._concSeedV||0) < V){
+    if(!Array.isArray(tapera.concorrentes)) tapera.concorrentes = [];
+    const jaTem = nome => tapera.concorrentes.some(r=>(r.nome||'').trim().toLowerCase()===nome.toLowerCase());
+    if(!jaTem('Giga+')){
+      tapera.concorrentes.push({
+        id: novoConcorrenteId(), nome:'Giga+', caixas:0, clientes:0,
+        planos: '800 Mega + Globoplay (plano padrão c/ anúncios) — R$ 109,99/mês no boleto\n600 Mega + Globoplay — R$ 104,99/mês no boleto\n1 Giga + Globoplay — R$ 149,99/mês no boleto',
+      });
+    }
+    if(!jaTem('WHG')){
+      tapera.concorrentes.push({
+        id: novoConcorrenteId(), nome:'WHG', caixas:0, clientes:0,
+        planos: 'Combo Gamer — 800 Mega + ExitLag + IP fixo — R$ 124,99/mês\nCombo Music — assine 500 Mega, ganhe 100 Mega + Deezer — R$ 109,99/mês\nCombo Família — assine 400 Mega, ganhe 100 Mega + Looke ou PlayKids — R$ 89,99/mês\n(valores com desconto de pontualidade; R$10 a mais em cada plano após o vencimento)',
+      });
+    }
+    tapera._concSeedV = V;
+  }
+  saveApp();
+})();
+
 renderAll();
 
 document.getElementById('refreshPageBtn').onclick = () => location.reload();
