@@ -1058,6 +1058,7 @@ function buildStats(){
 /* ---------------- Concorrência — lista editável (adicionar/editar/
    excluir), planos digitados à mão, sem fonte automática. ---------------- */
 let concorrentes = []; // [{id,nome,planos}]
+let _concSeedV = 0;
 
 function novoConcorrenteId(){
   return 'cc' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
@@ -1140,6 +1141,7 @@ function captureState(){
     maodeobra: bomState.maodeobra,
     infolink: bomState.infolink,
     concorrentes,
+    concSeedV: _concSeedV,
     updated: Date.now(),
   };
 }
@@ -1155,6 +1157,7 @@ function applyState(state){
   if(Array.isArray(state.maodeobra)) bomState.maodeobra = state.maodeobra;
   if(Array.isArray(state.infolink)) bomState.infolink = state.infolink;
   if(Array.isArray(state.concorrentes)){ concorrentes = state.concorrentes; renderConcorrentesEditor(); }
+  if(state.concSeedV!=null) _concSeedV = state.concSeedV;
   // Reinicia o contador de IDs novos a partir do maior "row-N" já salvo,
   // pra nunca gerar um id que colida com um item restaurado.
   BOM_GROUPS.forEach(g=>{
@@ -1198,6 +1201,17 @@ window._applyRemoteState = function(data){
 let _savedState = null;
 try{ const raw = localStorage.getItem(STORAGE_KEY); if(raw) _savedState = JSON.parse(raw); }catch(e){}
 if(_savedState) applyState(_savedState);
+
+(function seedConcorrentesPortoDasDunas(){
+  if(_concSeedV >= 1) return;
+  concorrentes.push({ id: novoConcorrenteId(), nome:'Giga+', planos: '1 Giga + Globoplay — R$ 104,99/mês no boleto (de R$ 119,99)\n700 Mega + Globoplay — R$ 99,99/mês no boleto (de R$ 114,99 — melhor oferta)\n800 Mega + Globoplay — R$ 109,99/mês no boleto (de R$ 124,99)\nInclui Globoplay + Conta Outra + Ubook Go\n—\n800 Mega + Globoplay (plano padrão c/ anúncios) — R$ 109,99/mês no boleto\n600 Mega + Globoplay — R$ 104,99/mês no boleto\n1 Giga + Globoplay — R$ 149,99/mês no boleto' });
+  concorrentes.push({ id: novoConcorrenteId(), nome:'Brisanet', planos: '700 Mega + Móvel (Brisachip 50GB) — R$ 119,99/mês\n500 Mega + Móvel (Brisachip 20GB) — R$ 99,99/mês (melhor oferta)\n500 Mega (Wi-Fi Plus) — R$ 84,90/mês\nInclui Skeelo em todos os planos' });
+  concorrentes.push({ id: novoConcorrenteId(), nome:'Claro', planos: '600 Mega (Fibra) — R$ 99,90/mês — Wi-Fi Plus, Claro vídeo, Skeelo, Antivírus McAfee\n350 Mega (Fibra) — R$ 89,90/mês — Wi-Fi Plus, Claro vídeo, Skeelo, Antivírus McAfee\n600 Mega + 60GB móvel (Fibra + Pós) — R$ 109,90/mês (6 meses, depois R$ 139,90)\n600 Mega + Claro tv+ box (Netflix/Disney+/Prime Video/Apple TV/HBO Max) — R$ 239,80/mês\n1 Giga + 50GB móvel (Fibra + Pós) — R$ 179,90/mês\nOfertas específicas pra Aquiraz-CE' });
+  concorrentes.push({ id: novoConcorrenteId(), nome:'Nio', planos: 'Nio Fibra Essencial — 600 Mega — R$ 110/mês (R$ 95 no cartão) — preço fixo até jan/2030\nNio Fibra Super — 800 Mega — R$ 135/mês (R$ 120 no cartão) — inclui Globoplay 12 meses + Wi-Fi 6\nNio Fibra Ultra — 1 Giga — R$ 160/mês (R$ 145 no cartão) — inclui Globoplay 12 meses + Wi-Fi 6 + 1 ponto Wi-Fi 6 Mesh' });
+  _concSeedV = 1;
+  renderConcorrentesEditor();
+  scheduleSave();
+})();
 </script>
 </body>
 </html>
