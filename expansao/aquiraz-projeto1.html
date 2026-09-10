@@ -717,14 +717,12 @@ function loadCfoIndex(){
 function renderConcorrentesTabela(){
   const linhas = concorrentes.map(row => '<tr data-id="'+row.id+'">'
     + '<td><input type="text" class="conc-in conc-nome" value="'+(row.nome||'')+'" placeholder="Nome do provedor"></td>'
-    + '<td><input type="number" class="conc-in conc-num" data-field="caixas" value="'+(row.caixas||0)+'" min="0"></td>'
-    + '<td><input type="number" class="conc-in conc-num" data-field="clientes" value="'+(row.clientes||0)+'" min="0"></td>'
     + '<td><textarea class="planos-in" rows="2" placeholder="Ex: 300MB R$79,90 / 600MB R$99,90">'+(row.planos||'')+'</textarea></td>'
     + '<td><button class="del-btn" type="button" title="Excluir concorrente">✕</button></td>'
     + '</tr>').join('');
   return '<div class="concorrente-panel">'
-    + '<table><thead><tr><th>Provedor</th><th class="num">Caixas</th><th class="num">Clientes</th><th>Planos</th><th></th></tr></thead>'
-    + '<tbody>' + (linhas || '<tr><td colspan="5" style="color:var(--cinza);padding:14px;">Nenhum concorrente cadastrado ainda — adicione à mão ou importe do CFO abaixo.</td></tr>') + '</tbody></table>'
+    + '<table><thead><tr><th>Provedor</th><th>Planos</th><th></th></tr></thead>'
+    + '<tbody>' + (linhas || '<tr><td colspan="3" style="color:var(--cinza);padding:14px;">Nenhum concorrente cadastrado ainda — adicione à mão ou importe do CFO abaixo.</td></tr>') + '</tbody></table>'
     + '<button class="add-btn" id="addConcorrenteBtn" type="button" style="margin:10px 0 0;">+ Adicionar concorrente</button>'
     + '</div>';
 }
@@ -737,9 +735,6 @@ function renderConcorrentesEditor(){
     const row = concorrentes.find(r=>r.id===tr.dataset.id);
     if(!row) return;
     tr.querySelector('.conc-nome').addEventListener('input', e=>{ row.nome = e.target.value; scheduleSave(); });
-    tr.querySelectorAll('.conc-num').forEach(inp=>{
-      inp.addEventListener('input', e=>{ row[inp.dataset.field] = parseInt(e.target.value,10)||0; scheduleSave(); });
-    });
     tr.querySelector('.planos-in').addEventListener('input', e=>{ row.planos = e.target.value; scheduleSave(); });
     tr.querySelector('.del-btn').addEventListener('click', ()=>{
       concorrentes = concorrentes.filter(r=>r.id!==tr.dataset.id);
