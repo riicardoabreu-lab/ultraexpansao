@@ -255,6 +255,13 @@ input.name-input:focus, input.unit-input:focus{ border-color:var(--accent); back
   cursor:pointer; margin-top:12px;
 }
 .add-item-btn:hover{ border-color:var(--accent); }
+
+textarea.planos-input{
+  font-family:'IBM Plex Sans',sans-serif; font-size:12.5px; line-height:1.5; color:var(--text); background:var(--surface-2);
+  border:1px solid var(--border); border-radius:6px; padding:7px 9px; width:100%; min-width:260px; min-height:64px;
+  resize:vertical; outline:none;
+}
+textarea.planos-input:focus{ border-color:var(--accent); background:var(--surface); }
 .prefix .rs{ color:var(--text-muted); font-size:11px; }
 
 /* ---------- summary ---------- */
@@ -439,6 +446,22 @@ footer{ max-width:1180px; margin:0 auto; padding:0 24px 40px; color:var(--text-m
       </table>
     </div>
     <button class="add-item-btn" id="btn-add-labor" type="button">+ Adicionar serviço</button>
+  </section>
+
+  <section id="sec-concorrencia">
+    <div class="section-head">
+      <h2>Concorrência</h2>
+      <span class="hint">Provedores da região — planos e preços levantados, editável</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th style="width:200px;">Provedor</th><th>Planos</th><th></th></tr>
+        </thead>
+        <tbody id="concorrentes-tbody"></tbody>
+      </table>
+    </div>
+    <button class="add-item-btn" id="btn-add-concorrente" type="button">+ Adicionar concorrente</button>
   </section>
 
   <section id="sec-summary">
@@ -824,6 +847,83 @@ document.getElementById('btn-add-material').addEventListener('click', ()=> addIt
 document.getElementById('btn-add-labor').addEventListener('click', ()=> addItem(LABOR, 'labor-tbody'));
 document.getElementById('in-splitter').addEventListener('change', ()=>{ renderStats(); scheduleSave(); });
 
+// ---- concorrência (planos levantados manualmente na região) ----
+const CONCORRENTES = [
+  { key: novoItemKey(), nome:'Nova Net', planos:
+`500 Mega + Telecine — R$ 80,00/mês pagando em dia (R$ 85,00 após o vencimento)
+600 Mega + Telecine — R$ 99,00/mês (promoção até 30/07)
+600 Mega + Globoplay Premium — R$ 114,99/mês (preço fixo garantido até 30/09)
+1 Giga — lançado recentemente, recorde de 1020 Mbps download / 794 Mbps upload no speedtest
+Fibra óptica 100%, instalação grátis, suporte local` },
+  { key: novoItemKey(), nome:'WHG', planos:
+`Combo Gamer — 800 Mega + ExitLag + IP fixo — R$ 124,99/mês
+Combo Music — assine 500 Mega, ganhe 100 Mega + Deezer — R$ 109,99/mês
+Combo Família — assine 400 Mega, ganhe 100 Mega + Looke ou PlayKids — R$ 89,99/mês
+(valores com desconto de pontualidade; R$10,00 a mais em cada plano após o vencimento)` },
+  { key: novoItemKey(), nome:'(nome a confirmar — planos Essencial/Elite/Xtreme)', planos:
+`Essencial — 400 Mbps — 1 roteador AX Mesh Wi-Fi 6 + NXTV
+Elite — 600 Mbps — 1 roteador AX Mesh Wi-Fi 6 + NXTV + Deezer
+Xtreme — 1 Gbps — 2 roteadores AX Mesh Wi-Fi 6 + NXTV + Deezer + Paramount + Watch
+100% fibra óptica, bônus de adimplência em todos os planos` },
+  { key: novoItemKey(), nome:'(nome a confirmar — planos 500/600/800 Mega)', planos:
+`500 Mega — R$ 79,99/mês (no boleto por e-mail)
+600 Mega — R$ 89,99/mês
+800 Mega — R$ 99,99/mês
+Canais de TV grátis, roteador Wi-Fi 6, instalação grátis` },
+  { key: novoItemKey(), nome:'(nome a confirmar — planos 400/600/800 Mega "Consulte")', planos:
+`400 Mega — valor sob consulta
+600 Mega — valor sob consulta
+800 Mega — valor sob consulta
+Internet ilimitada, Wi-Fi em comodato, instalação grátis em até 72h` },
+];
+
+function rowConcorrenteHTML(item){
+  return `<tr data-key="${item.key}">
+    <td><input class="name-input" type="text" data-key="${item.key}" value="${item.nome}" placeholder="Nome do provedor"></td>
+    <td><textarea class="planos-input" data-key="${item.key}" rows="4" placeholder="Ex: 300MB R$79,90 / 600MB R$99,90">${item.planos||''}</textarea></td>
+    <td><button class="row-del-btn" type="button" title="Excluir concorrente">✕</button></td>
+  </tr>`;
+}
+
+function renderConcorrentes(){
+  document.getElementById('concorrentes-tbody').innerHTML = CONCORRENTES.map(rowConcorrenteHTML).join('')
+    || `<tr><td colspan="3" style="color:var(--text-muted);">Nenhum concorrente cadastrado ainda.</td></tr>`;
+  document.querySelectorAll('#concorrentes-tbody .name-input').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      const item = CONCORRENTES.find(i=>i.key===e.target.dataset.key);
+      if(item) item.nome = e.target.value;
+      scheduleSave();
+    });
+  });
+  document.querySelectorAll('#concorrentes-tbody .planos-input').forEach(ta=>{
+    ta.addEventListener('input', e=>{
+      const item = CONCORRENTES.find(i=>i.key===e.target.dataset.key);
+      if(item) item.planos = e.target.value;
+      scheduleSave();
+    });
+  });
+  document.getElementById('concorrentes-tbody').querySelectorAll('.row-del-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const key = btn.closest('tr').dataset.key;
+      const idx = CONCORRENTES.findIndex(i=>i.key===key);
+      if(idx>-1) CONCORRENTES.splice(idx,1);
+      renderConcorrentes();
+      scheduleSave();
+    });
+  });
+}
+renderConcorrentes();
+
+document.getElementById('btn-add-concorrente').addEventListener('click', ()=>{
+  const key = novoItemKey();
+  CONCORRENTES.push({key, nome:'', planos:''});
+  renderConcorrentes();
+  scheduleSave();
+  const tbody = document.getElementById('concorrentes-tbody');
+  const input = tbody.querySelector(`tr[data-key="${key}"] .name-input`);
+  if(input) input.focus();
+});
+
 // ---- routes table ----
 const ROUTE_ROWS = NETWORK.map(r => ({...r, sectorLabel: SECTOR_LABEL[r.sector]}));
 function routeCost(r){
@@ -942,6 +1042,7 @@ function captureState(){
     inBdi: document.getElementById('in-bdi').value,
     materials: MATERIALS.map(i=>({...i})),
     labor: LABOR.map(i=>({...i})),
+    concorrentes: CONCORRENTES.map(i=>({...i})),
     qty: {...qty},
     price: {...price},
     updated: Date.now(),
@@ -960,6 +1061,7 @@ function applyState(state){
   // adicionados/excluídos à mão (e removidos/renomeados) não voltam certo.
   if(Array.isArray(state.materials)){ MATERIALS.length = 0; state.materials.forEach(i=>MATERIALS.push(i)); }
   if(Array.isArray(state.labor)){ LABOR.length = 0; state.labor.forEach(i=>LABOR.push(i)); }
+  if(Array.isArray(state.concorrentes)){ CONCORRENTES.length = 0; state.concorrentes.forEach(i=>CONCORRENTES.push(i)); renderConcorrentes(); }
   if(state.qty){ Object.keys(qty).forEach(k=>delete qty[k]); Object.assign(qty, state.qty); }
   if(state.price){ Object.keys(price).forEach(k=>delete price[k]); Object.assign(price, state.price); }
   renderTables();
