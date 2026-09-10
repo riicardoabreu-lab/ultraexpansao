@@ -1459,6 +1459,10 @@ const PROJETOS_HTML = {
   ],
   'aquiraz': [
     { nome:'Projeto 1', arquivo:'aquiraz-projeto1.html', desc:'PATACAS — mapa + orçamento de infraestrutura externa (backbone + rotas 01 e 02)' },
+    { nome:'Projeto 2', arquivo:'aquiraz-projeto2.html', desc:'PORTO DAS DUNAS — esquema de rede + orçamento de materiais e mão de obra (rotas RT01–RT07 + backbone)' },
+  ],
+  'cascavel': [
+    { nome:'Projeto 1', arquivo:'cascavel-projeto1.html', desc:'CAPONGA — orçamento de infraestrutura FTTH (3 setores, 7 rotas de distribuição + backbone)' },
   ],
 };
 (function seedProjetosHtml(){
@@ -1471,6 +1475,22 @@ const PROJETOS_HTML = {
     c.projetos = projetos;
   });
   saveApp();
+})();
+
+// Correção: um seed anterior criou por engano um bairro "Tapera" dentro
+// de Aquiraz (era pra ser no projeto PATACAS). Remove esse bairro — só se
+// ele tiver a marca desse seed (_concSeedV), pra nunca apagar um "Tapera"
+// que a equipe tenha criado de verdade com dados próprios depois.
+(function removerTaperaEquivocado(){
+  const antes = app.cidades.length;
+  app.cidades = app.cidades.filter(c=>{
+    const ehTaperaDoSeed = (c.nome||'').trim().toLowerCase()==='tapera' && c._concSeedV!=null;
+    return !ehTaperaDoSeed;
+  });
+  if(app.cidades.length !== antes){
+    if(!app.cidades.find(c=>c.id===app.currentId)) app.currentId = app.cidades[0]?.id || null;
+    saveApp();
+  }
 })();
 
 renderAll();

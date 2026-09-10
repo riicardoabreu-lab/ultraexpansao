@@ -1,0 +1,1217 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<script>
+  // Bloqueia acesso direto a esta página sem passar pelo login do portal.
+  if (sessionStorage.getItem('infolink_hub_auth') !== 'ok') {
+    window.location.href = '../index.html';
+  }
+</script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  const fb = initializeApp({
+    apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
+    authDomain: "isp-manager-ce.firebaseapp.com",
+    projectId: "isp-manager-ce",
+    storageBucket: "isp-manager-ce.firebasestorage.app",
+    messagingSenderId: "374725918192",
+    appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
+  });
+  const auth = getAuth(fb);
+  const fsDb = getFirestore(fb);
+
+  // ---- Sincronização em tempo real com a nuvem (Firestore), mesmo padrão
+  // usado nos outros projetos de Expansão Orgânica: last write wins.
+  // Semeia com o "updated" já salvo localmente (não com 0) — senão, se a
+  // gravação na nuvem de uma edição recente ainda não tiver terminado
+  // quando a página é recarregada, o snapshot antigo que chega da nuvem
+  // logo em seguida passa no filtro de "desatualizado" e sobrescreve o
+  // que acabou de ser salvo no navegador.
+  window._lastKnownUpdated = (function(){
+    try{
+      const raw = localStorage.getItem('aquiraz-projeto2-v1');
+      if(raw) return JSON.parse(raw).updated || 0;
+    }catch(e){}
+    return 0;
+  })();
+  window._cloudSave = (data) => {
+    if(!window._fbUser) return Promise.resolve();
+    return setDoc(doc(fsDb, 'aquiraz_projeto2_backups', window._fbUser.uid), data);
+  };
+
+  onAuthStateChanged(auth, user => {
+    if(!user) return;
+    window._fbUser = user;
+    onSnapshot(doc(fsDb, 'aquiraz_projeto2_backups', user.uid), snap => {
+      if(!snap.exists()) return;
+      const data = snap.data();
+      if((data.updated||0) <= (window._lastKnownUpdated||0)) return;
+      window._lastKnownUpdated = data.updated;
+      if(window._applyRemoteState) window._applyRemoteState(data);
+    }, err => console.error('Falha no listener de sincronização (Aquiraz Projeto 2):', err));
+  });
+</script>
+<meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found]){display:none!important}</style>
+<title>Porto das Dunas FTTH</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg-page: #f4f7f6;
+    --bg-surface: #ffffff;
+    --bg-surface-alt: #eef4f3;
+    --bg-hero: #0e2126;
+    --ink-primary: #0e2126;
+    --ink-secondary: #4c6169;
+    --ink-muted: #869699;
+    --ink-on-accent: #f4fbfa;
+    --ink-on-hero: #eaf4f2;
+    --ink-on-hero-muted: #9fb9b7;
+    --border: #dde5e3;
+    --border-strong: #c4d1cf;
+    --accent: #0f9e96;
+    --accent-strong: #0b7d77;
+    --accent-soft: #e1f3f1;
+    --sand: #c97b3d;
+    --sand-soft: #f6e9dc;
+    --good: #0ca30c;
+    --warning: #c98500;
+    --critical: #d03b3b;
+    --route-0: #2a78d6;
+    --route-1: #eb6834;
+    --route-2: #1baf7a;
+    --route-3: #eda100;
+    --route-4: #e87ba4;
+    --route-5: #008300;
+    --route-6: #4a3aa7;
+    --route-7: #e34948;
+    --shadow-card: 0 1px 2px rgba(14,33,38,0.06), 0 8px 24px -12px rgba(14,33,38,0.18);
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    --display: "Manrope", ui-sans-serif, system-ui, sans-serif;
+    --body: "Public Sans", ui-sans-serif, system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg-page: #0a1416;
+      --bg-surface: #101c1f;
+      --bg-surface-alt: #16262a;
+      --bg-hero: #081113;
+      --ink-primary: #e8f2f1;
+      --ink-secondary: #9fb6b4;
+      --ink-muted: #67797c;
+      --ink-on-accent: #052220;
+      --ink-on-hero: #eaf4f2;
+      --ink-on-hero-muted: #7f9997;
+      --border: #22343a;
+      --border-strong: #2c4349;
+      --accent: #2dd4c4;
+      --accent-strong: #56e2d5;
+      --accent-soft: #123330;
+      --sand: #e3a059;
+      --sand-soft: #2c2013;
+      --good: #0ca30c;
+      --warning: #fab219;
+      --critical: #e66767;
+      --route-0: #3987e5;
+      --route-1: #d95926;
+      --route-2: #199e70;
+      --route-3: #c98500;
+      --route-4: #d55181;
+      --route-5: #1fa61f;
+      --route-6: #9085e9;
+      --route-7: #e66767;
+      --shadow-card: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg-page: #0a1416;
+    --bg-surface: #101c1f;
+    --bg-surface-alt: #16262a;
+    --bg-hero: #081113;
+    --ink-primary: #e8f2f1;
+    --ink-secondary: #9fb6b4;
+    --ink-muted: #67797c;
+    --ink-on-accent: #052220;
+    --ink-on-hero: #eaf4f2;
+    --ink-on-hero-muted: #7f9997;
+    --border: #22343a;
+    --border-strong: #2c4349;
+    --accent: #2dd4c4;
+    --accent-strong: #56e2d5;
+    --accent-soft: #123330;
+    --sand: #e3a059;
+    --sand-soft: #2c2013;
+    --good: #0ca30c;
+    --warning: #fab219;
+    --critical: #e66767;
+    --route-0: #3987e5;
+    --route-1: #d95926;
+    --route-2: #199e70;
+    --route-3: #c98500;
+    --route-4: #d55181;
+    --route-5: #1fa61f;
+    --route-6: #9085e9;
+    --route-7: #e66767;
+    --shadow-card: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+  }
+
+  * { box-sizing: border-box; }
+  html { text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg-page);
+    color: var(--ink-primary);
+    font-family: var(--body);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  a { color: var(--accent-strong); }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px 96px; }
+
+  /* ---------- Hero / header ---------- */
+  .hero {
+    background:
+      radial-gradient(ellipse 900px 420px at 82% -10%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 60%),
+      var(--bg-hero);
+    color: var(--ink-on-hero);
+    padding: 44px 24px 40px;
+    border-bottom: 1px solid var(--border-strong);
+  }
+  .hero-inner { max-width: 1180px; margin: 0 auto; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-strong);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-strong) 25%, transparent); }
+  .hero h1 { font-size: clamp(28px, 4vw, 38px); font-weight: 800; letter-spacing: -0.01em; }
+  .hero-meta { display: flex; flex-wrap: wrap; gap: 10px 28px; margin-top: 18px; }
+  .hero-field { display: flex; flex-direction: column; gap: 4px; min-width: 160px; flex: 1 1 200px; }
+  .hero-field label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-on-hero-muted); }
+  .hero-field input {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 8px;
+    color: var(--ink-on-hero);
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 14.5px;
+    padding: 7px 10px;
+    width: 100%;
+    min-width: 0;
+  }
+  .hero-field input:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
+
+  /* ---------- Stat tiles ---------- */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    margin-top: -28px;
+    box-shadow: var(--shadow-card);
+  }
+  .stat {
+    background: var(--bg-surface);
+    padding: 18px 18px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .stat.is-accent { background: var(--accent); color: var(--ink-on-accent); }
+  .stat-label { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted); }
+  .stat.is-accent .stat-label { color: var(--ink-on-accent); opacity: 0.82; }
+  .stat-value { font-family: var(--mono); font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
+  .stat-sub { font-size: 12px; color: var(--ink-muted); }
+  .stat.is-accent .stat-sub { color: var(--ink-on-accent); opacity: 0.82; }
+
+  @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, 1fr); } .stat.is-accent { grid-column: span 2; } }
+
+  /* ---------- Section chrome ---------- */
+  section.block { margin-top: 52px; }
+  .block-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+  .block-head h2 { font-size: 21px; font-weight: 800; }
+  .block-head p { margin: 4px 0 0; color: var(--ink-secondary); font-size: 13.5px; max-width: 60ch; }
+  .card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-card); }
+
+  /* ---------- Map + legend ---------- */
+  .map-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; align-items: stretch; }
+  @media (max-width: 900px) { .map-grid { grid-template-columns: 1fr; } }
+  .map-card { padding: 10px; overflow: hidden; display: flex; flex-direction: column; gap: 8px; }
+  .map-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 4px; }
+  .seg-toggle { display: inline-flex; background: var(--bg-surface-alt); border: 1px solid var(--border); border-radius: 999px; padding: 3px; gap: 2px; }
+  .seg-toggle button {
+    font-family: var(--body); font-weight: 700; font-size: 12.5px; color: var(--ink-secondary);
+    background: transparent; border: none; border-radius: 999px; padding: 6px 14px; cursor: pointer;
+  }
+  .seg-toggle button.is-active { background: var(--accent); color: var(--ink-on-accent); }
+  .seg-toggle button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .bom-tabs { display: flex; margin-bottom: 12px; }
+  tbody.tab-pane.is-hidden { display: none; }
+  svg.net-svg { width: 100%; height: 540px; border-radius: 10px; background: var(--bg-surface-alt); display: block; }
+  svg.net-svg text { font-family: var(--mono); }
+  .shape-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-muted); padding: 2px 6px; }
+  .shape-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .shape-legend i { width: 11px; height: 11px; display: inline-block; flex: none; background: var(--ink-muted); }
+  .shape-legend i.sq { border-radius: 2px; }
+  .shape-legend i.tri { width: 0; height: 0; background: none; border-left: 5.5px solid transparent; border-right: 5.5px solid transparent; border-bottom: 10px solid var(--ink-muted); }
+  .shape-legend i.dia { transform: rotate(45deg); }
+  .shape-legend i.circ { border-radius: 50%; background: var(--bg-hero); border: 2px solid var(--ink-muted); width: 9px; height: 9px; }
+  .net-tooltip {
+    position: fixed; pointer-events: none; z-index: 60; font-family: var(--mono); font-size: 11.5px;
+    background: var(--bg-hero); color: var(--ink-on-hero); padding: 5px 9px; border-radius: 6px; opacity: 0;
+    transition: opacity .1s; white-space: nowrap; box-shadow: var(--shadow-card);
+  }
+  .map-fallback-note {
+    font-size: 12px; color: var(--sand); background: var(--sand-soft); border: 1px solid color-mix(in srgb, var(--sand) 35%, transparent);
+    border-radius: 8px; padding: 8px 12px; margin: 0 4px;
+  }
+  .sat-wrap { position: relative; }
+  .sat-map { width: 100%; height: 540px; border-radius: 10px; background: var(--bg-surface-alt); }
+  .sat-note {
+    font-size: 12px; color: var(--sand); background: var(--sand-soft); border: 1px solid color-mix(in srgb, var(--sand) 35%, transparent);
+    border-radius: 8px; padding: 8px 12px; margin: 8px 4px 0;
+  }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--bg-surface); color: var(--ink-primary); }
+  .leaflet-tooltip { font-family: var(--body); font-size: 12.5px; background: var(--bg-hero); color: var(--ink-on-hero); border: none; box-shadow: var(--shadow-card); }
+  .leaflet-control-attribution { background: color-mix(in srgb, var(--bg-surface) 78%, transparent) !important; color: var(--ink-muted) !important; font-size: 10px !important; }
+  .leaflet-control-attribution a { color: var(--ink-muted) !important; }
+  .map-caption { display: flex; justify-content: space-between; gap: 12px; padding: 4px 10px 4px; font-size: 12px; color: var(--ink-muted); }
+  .legend-card { padding: 6px; display: flex; flex-direction: column; }
+  .legend-row {
+    display: grid;
+    grid-template-columns: 14px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    cursor: default;
+  }
+  .legend-row:last-child { border-bottom: none; }
+  .legend-swatch { width: 12px; height: 12px; border-radius: 3px; }
+  .legend-name { font-weight: 700; }
+  .legend-sub { display: block; font-size: 11.5px; color: var(--ink-muted); font-weight: 400; }
+  .legend-len { font-family: var(--mono); font-size: 12.5px; color: var(--ink-secondary); text-align: right; }
+
+  /* ---------- Tables (shared) ---------- */
+  .table-scroll { overflow-x: auto; border-radius: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; background: var(--bg-surface); }
+  thead th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-muted);
+    font-weight: 700;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-strong);
+    white-space: nowrap;
+  }
+  tbody td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--bg-surface-alt); }
+  td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ---------- BOM calculator ---------- */
+  .bom-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; margin-bottom: 14px; padding: 12px 16px; background: var(--bg-surface-alt); border: 1px solid var(--border); border-radius: 12px; }
+  .bom-toolbar .field { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .bom-toolbar label { color: var(--ink-secondary); font-weight: 600; }
+  .bom-toolbar input[type="number"] {
+    width: 72px; font-family: var(--mono); font-size: 13.5px; padding: 5px 8px;
+    border: 1px solid var(--border-strong); border-radius: 7px; background: var(--bg-surface); color: var(--ink-primary);
+  }
+  input.name-input {
+    font-family: var(--body); font-weight: 600; font-size: 13.5px; width: 100%;
+    border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink-primary);
+    padding: 4px 6px; margin: -4px -6px;
+  }
+  input.note-input {
+    display: block; font-size: 11.5px; color: var(--ink-muted); font-weight: 400; width: 100%;
+    border: 1px solid transparent; border-radius: 6px; background: transparent;
+    padding: 2px 6px; margin: 0 -6px;
+  }
+  input.name-input:hover, input.note-input:hover,
+  input.name-input:focus-visible, input.note-input:focus-visible { border-color: var(--border-strong); background: var(--bg-surface-alt); }
+  input.name-input:focus-visible, input.note-input:focus-visible { outline: none; }
+  input.unit-input {
+    font-family: var(--mono); font-size: 13px; width: 46px; text-align: center;
+    border: 1px solid var(--border-strong); border-radius: 7px; background: var(--bg-surface); color: var(--ink-primary);
+    padding: 6px 4px;
+  }
+  input.qty-input, input.price-input {
+    font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13.5px;
+    border: 1px solid var(--border-strong); border-radius: 7px; background: var(--bg-surface); color: var(--ink-primary);
+    padding: 6px 8px; width: 100%; text-align: right;
+  }
+  input.qty-input { max-width: 92px; }
+  input.price-input { max-width: 110px; }
+  input.conc-name {
+    font-family: var(--body); font-weight: 600; font-size: 13.5px; width: 100%;
+    border: 1px solid var(--border-strong); border-radius: 7px; background: var(--bg-surface); color: var(--ink-primary);
+    padding: 6px 8px;
+  }
+  textarea.planos-input {
+    font-family: var(--body); font-size: 13px; width: 100%; min-height: 56px; resize: vertical;
+    border: 1px solid var(--border-strong); border-radius: 7px; background: var(--bg-surface); color: var(--ink-primary);
+    padding: 6px 8px;
+  }
+  input.conc-name:focus-visible, textarea.planos-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input.qty-input:focus-visible, input.price-input:focus-visible, input.unit-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .src-tag {
+    display: inline-block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.03em;
+    padding: 1px 6px; border-radius: 999px; margin-left: 6px; vertical-align: 1px;
+  }
+  .src-tag.ref { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+  .src-tag.est { background: color-mix(in srgb, var(--sand) 20%, transparent); color: var(--sand); }
+  .row-del {
+    width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border-strong);
+    background: var(--bg-surface); color: var(--critical); font-size: 15px; line-height: 1; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .row-del:hover { background: color-mix(in srgb, var(--critical) 12%, transparent); border-color: var(--critical); }
+  .row-add-wrap { padding: 10px 14px; }
+  .row-add {
+    font-family: var(--body); font-weight: 700; font-size: 13px; color: var(--accent-strong);
+    background: var(--accent-soft); border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 8px; padding: 8px 14px; cursor: pointer; width: 100%; text-align: left;
+  }
+  .row-add:hover { background: color-mix(in srgb, var(--accent) 16%, var(--accent-soft)); }
+  .conc-add {
+    font-family: var(--body); font-weight: 700; font-size: 13px; color: var(--accent-strong);
+    background: var(--accent-soft); border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 8px; padding: 8px 14px; cursor: pointer; width: 100%; text-align: left;
+  }
+  .conc-add:hover { background: color-mix(in srgb, var(--accent) 16%, var(--accent-soft)); }
+
+  .totals-band {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px;
+    background: var(--border); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; margin-top: 16px;
+  }
+  .totals-band > div { background: var(--bg-surface); padding: 16px 18px; }
+  .totals-band .grand { background: var(--bg-hero); color: var(--ink-on-hero); }
+  .totals-band .t-label { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted); }
+  .totals-band .grand .t-label { color: var(--ink-on-hero-muted); }
+  .totals-band .t-value { font-family: var(--mono); font-size: 21px; font-weight: 700; margin-top: 4px; }
+  @media (max-width: 1000px) { .totals-band { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 640px) { .totals-band { grid-template-columns: repeat(2, 1fr); } .totals-band .grand { grid-column: span 2; } }
+
+  /* ---------- Notes / footer ---------- */
+  .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 800px) { .notes { grid-template-columns: 1fr; } }
+  .notes .card { padding: 18px 20px; font-size: 13px; color: var(--ink-secondary); }
+  .notes h3 { font-size: 14px; margin-bottom: 8px; color: var(--ink-primary); }
+  .notes ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+  .notes a { color: var(--accent-strong); text-decoration: none; }
+  .notes a:hover { text-decoration: underline; }
+
+  footer.page-foot { text-align: center; margin-top: 56px; color: var(--ink-muted); font-size: 12px; }
+
+  ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+</head>
+<body>
+<div style="max-width:1180px;margin:0 auto;padding:14px 24px 0;">
+  <a href="index.html" style="display:inline-block;color:#0f9e96;font-size:13px;text-decoration:none;font-family:'Public Sans', ui-sans-serif, system-ui, sans-serif;">← Voltar para Expansão Orgânica</a>
+</div>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div class="eyebrow"><span class="dot"></span>Projeto de expansão &middot; Rede FTTH</div>
+    <h1 id="proj-title">Porto das Dunas</h1>
+    <div class="hero-meta">
+      <div class="hero-field">
+        <label for="in-city">Cidade / bairro</label>
+        <input id="in-city" type="text" value="Aquiraz - CE &middot; Porto das Dunas" />
+      </div>
+      <div class="hero-field">
+        <label for="in-client">Cliente / operadora</label>
+        <input id="in-client" type="text" value="—" placeholder="nome do cliente" />
+      </div>
+      <div class="hero-field">
+        <label>Origem dos dados</label>
+        <input type="text" value="PORTO DAS DUNAS.kmz" readonly style="opacity:.85" />
+      </div>
+      <div class="hero-field">
+        <label>Gerado em</label>
+        <input type="text" value="01/09/2026" readonly style="opacity:.85" />
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section class="stats" aria-label="Resumo do projeto">
+    <div class="stat">
+      <span class="stat-label">Rotas de distribuição</span>
+      <span class="stat-value" id="s-rotas">—</span>
+      <span class="stat-sub">+ 1 backbone</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">CTOs a instalar</span>
+      <span class="stat-value" id="s-ctos">—</span>
+      <span class="stat-sub" id="s-ctos-sub">caixas de terminação</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">CEOs / emendas</span>
+      <span class="stat-value" id="s-ceos">—</span>
+      <span class="stat-sub" id="s-ceos-sub">caixas de emenda</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Cabo óptico novo</span>
+      <span class="stat-value" id="s-cabo">—</span>
+      <span class="stat-sub" id="s-cabo-sub">12FO + 24FO</span>
+    </div>
+    <div class="stat is-accent">
+      <span class="stat-label">Investimento estimado</span>
+      <span class="stat-value" id="s-total">—</span>
+      <span class="stat-sub">materiais + serviços + contingência</span>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="block-head">
+      <div>
+        <h2>Esquema da rede</h2>
+        <p>Rotas, CTOs, CEOs e POP desenhados a partir da geometria real do projeto (KMZ) — sem depender de mapa online, funciona 100% offline.</p>
+      </div>
+    </div>
+    <div class="map-grid">
+      <div class="card map-card">
+        <div class="map-toolbar">
+          <div class="shape-legend">
+            <span><i class="sq"></i> CTO</span>
+            <span><i class="dia"></i> Ponto de emenda</span>
+            <span><i class="tri"></i> CEO</span>
+            <span><i class="circ"></i> POP</span>
+          </div>
+          <div class="seg-toggle" role="group" aria-label="Modo de visualização">
+            <button id="btn-esquema" type="button" class="is-active">Esquema</button>
+            <button id="btn-satelite" type="button">Satélite</button>
+          </div>
+        </div>
+        <svg id="net-svg" class="net-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="sat-wrap" id="sat-wrap" hidden>
+          <div class="sat-map" id="sat-map"></div>
+        </div>
+        <div id="map-fallback-note" class="map-fallback-note" hidden>Não foi possível desenhar o esquema da rede — recarregue a página.</div>
+        <div class="sat-note" id="sat-fail-note" hidden>Satélite indisponível agora (sem conexão com o servidor de mapas) — mostrando o esquema offline. Clique em "Satélite" para tentar de novo.</div>
+        <div class="sat-note" id="sat-tile-note" hidden>Imagem de satélite não carregou completamente (conexão instável) — os pontos e rotas continuam plotados corretamente.</div>
+        <div class="map-caption">
+          <span>Fonte: <code class="mono">doc.kml</code> — 128 elementos (rotas, caixas e cabos)</span>
+        </div>
+      </div>
+      <div class="card legend-card" id="legend-holder"></div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="block-head">
+      <div>
+        <h2>Materiais e serviços</h2>
+        <p>Abas separadas para Materiais, Mão de obra terceirizada e Mão de obra Infolink. Quantidades de partida vêm do projeto; preços são estimativas de mercado <span class="src-tag ref">ref</span>/<span class="src-tag est">est</span> — ajuste para o seu fornecedor. Edite nome, unidade, quantidade ou preço direto na tabela, adicione novos itens ou remova o que não usar.</p>
+      </div>
+    </div>
+
+    <div class="bom-toolbar">
+      <div class="field">
+        <label for="in-vao">Vão médio entre postes</label>
+        <input id="in-vao" type="number" min="10" step="1" value="40" /> m
+      </div>
+      <div class="field">
+        <label for="in-conting">Contingência / imprevistos</label>
+        <input id="in-conting" type="number" min="0" step="0.5" value="5" /> %
+      </div>
+      <div class="field">
+        <label for="in-bdi">BDI / margem</label>
+        <input id="in-bdi" type="number" min="0" step="0.5" value="0" /> %
+      </div>
+    </div>
+
+    <div class="bom-tabs">
+      <div class="seg-toggle" role="tablist" aria-label="Categoria de itens">
+        <button id="tab-materiais" type="button" role="tab" aria-selected="true">Materiais</button>
+        <button id="tab-maodeobra" type="button" role="tab" aria-selected="false">Mão de obra terceirizada</button>
+        <button id="tab-infolink" type="button" role="tab" aria-selected="false">Mão de obra Infolink</button>
+      </div>
+    </div>
+
+    <div class="card table-scroll">
+      <table id="bom-table">
+        <thead>
+          <tr>
+            <th style="width:30%">Item</th>
+            <th>Un.</th>
+            <th class="num">Quantidade</th>
+            <th class="num">Preço unit.</th>
+            <th class="num">Subtotal</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="bom-materiais-body" class="tab-pane"></tbody>
+        <tbody id="bom-mo-body" class="tab-pane is-hidden"></tbody>
+        <tbody id="bom-infolink-body" class="tab-pane is-hidden"></tbody>
+      </table>
+    </div>
+
+    <div class="totals-band">
+      <div>
+        <div class="t-label">Materiais</div>
+        <div class="t-value" id="tot-materiais">—</div>
+      </div>
+      <div>
+        <div class="t-label">Mão de obra terceirizada</div>
+        <div class="t-value" id="tot-mo">—</div>
+      </div>
+      <div>
+        <div class="t-label">Mão de obra Infolink</div>
+        <div class="t-value" id="tot-infolink">—</div>
+      </div>
+      <div>
+        <div class="t-label">Contingência</div>
+        <div class="t-value" id="tot-conting">—</div>
+      </div>
+      <div class="grand">
+        <div class="t-label">Total do projeto</div>
+        <div class="t-value" id="tot-grand">—</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="block-head">
+      <div>
+        <h2>Concorrência</h2>
+        <p>Provedores da região — planos e preços levantados à mão, salvo por concorrente.</p>
+      </div>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th style="width:200px;">Provedor</th><th>Planos</th><th></th></tr></thead>
+        <tbody id="concorrentes-tbody"></tbody>
+      </table>
+    </div>
+    <div class="row-add-wrap">
+      <button class="conc-add" id="btn-add-concorrente" type="button">+ Adicionar concorrente</button>
+    </div>
+  </section>
+
+  <section class="block notes">
+    <div class="card">
+      <h3>Premissas do orçamento</h3>
+      <ul>
+        <li>Rede aérea, aproveitando postes existentes — nenhum poste novo foi incluído no material.</li>
+        <li id="note-totals">—</li>
+        <li>Metragem de cabo calculada pela distância real entre os vértices do traçado — pode variar ±3% frente às etiquetas do desenho original.</li>
+        <li>CTO considerada "completa" (caixa + splitter 1x16 + conectores). CEO considerada com bandeja de emenda.</li>
+        <li>Kit de fusão cobre os pontos de emenda ao longo do cabo + as caixas CEO.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Referências de preço consultadas</h3>
+      <ul>
+        <li>Cabo óptico 12FO autossustentado ~R$2,55–2,80/m — <a href="https://www.lojamundi.com.br/rede/fibra/cabos" target="_blank" rel="noopener">Loja Mundi</a></li>
+        <li>CTO FTTH 16 portas (caixa base) R$75–90 — <a href="https://www.solucaocabos.com.br/caixa-de-terminacao-optico-cto-ftth-16-portas/p" target="_blank" rel="noopener">Solução Cabos</a></li>
+        <li>Demais itens (CEO completa, cabo 24FO, mão de obra, Infolink, mobilização) são estimativas/placeholders sem cotação pública encontrada — marcados <span class="src-tag est">est</span> na tabela. Ajuste para os valores reais antes de fechar o orçamento.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer class="page-foot">Orçamento gerado a partir de <span class="mono">PORTO_DAS_DUNAS.kmz</span> · valores em R$ (BRL) · ferramenta reutilizável para novos projetos</footer>
+</div>
+
+<div class="net-tooltip" id="tooltip"></div>
+
+<script>
+const ROUTES = [{"key": "BACKBONE", "label": "Backbone", "ctoCount": 0, "ceoCount": 2, "emendaCount": 0, "cabo12": 744, "cabo24": 1479, "existente": 827, "lines": [{"n": "FO12- 741M", "c": [[-38.39115201082318, -3.846895695975813], [-38.39042135030521, -3.848112230517977], [-38.38780884466413, -3.852696611490543]], "len": 744}, {"n": "FO24- 1467m", "c": [[-38.39650706507932, -3.851500647555038], [-38.39705420096182, -3.849859138143132], [-38.3958042474862, -3.850561368819821], [-38.39620594770578, -3.849708130655765], [-38.3959294001527, -3.849287555181513], [-38.39556884552647, -3.849535468767288], [-38.39363900155179, -3.848400961251926], [-38.39191554906169, -3.847341393009737], [-38.39077107334621, -3.846657579176073], [-38.39030375029145, -3.845978310119363], [-38.38998030544324, -3.845501498615789], [-38.38986984478936, -3.845593078359137], [-38.38926936491051, -3.846550830719115]], "len": 1479}], "ctos": [], "ceo": [{"n": "CEO BACKBONE", "c": [-38.39195632577102, -3.847389424718854]}, {"n": "CEO BACKBONE", "c": [-38.39114412610348, -3.8468819337578]}], "pop": [{"n": "POP PDD", "c": [-38.39629353794891, -3.851438406410065]}], "reserva": [{"n": "RESERVA", "c": [-38.39599247738265, -3.849280800024111]}]}, {"key": "RT01 / 14 CTO /1 EMENDA / 4286M", "label": "RT01", "ctoCount": 14, "ceoCount": 1, "emendaCount": 1, "cabo12": 4400, "cabo24": 0, "existente": 0, "lines": [{"n": "FO12- 139M", "c": [[-38.40218679201836, -3.839667962508412], [-38.40096515502643, -3.839949694280599]], "len": 139}, {"n": "FO12- 3220M", "c": [[-38.39626420874119, -3.852301210383108], [-38.39801079945057, -3.853691245144437], [-38.39927040565429, -3.85218165732974], [-38.39858761751542, -3.851512771065495], [-38.39893481061543, -3.850078315648755], [-38.39974221399815, -3.847813525508103], [-38.40091744818082, -3.845583949543629], [-38.40148255743411, -3.845833022095045], [-38.40211358613745, -3.845010382239668], [-38.40238251291919, -3.844137917679144], [-38.40298893897479, -3.843247018288451], [-38.4022031826141, -3.842960238590195], [-38.40238085031164, -3.842169134269743], [-38.40303674681449, -3.841166907654347], [-38.40174527565148, -3.84046098928779], [-38.40225159493945, -3.839570575401263], [-38.40304154585928, -3.838108610990842], [-38.40416206574497, -3.836328886810808], [-38.40502209316182, -3.834976331231468], [-38.40541527544761, -3.836315548501888], [-38.40407146891869, -3.838625713792773]], "len": 3331}, {"n": "FO12- 927M", "c": [[-38.39973737306778, -3.84789532920451], [-38.39843337349917, -3.848621910384297], [-38.39829282492017, -3.849201772750694], [-38.39702622080212, -3.849839729071531], [-38.39781981203576, -3.84710494977736], [-38.39667178094378, -3.84768495228363], [-38.39640536357419, -3.848360612502556]], "len": 930}], "ctos": [{"n": "CX 01", "c": [-38.39694671136137, -3.852851610797845]}, {"n": "CX 02", "c": [-38.39798903444098, -3.853709975987539]}, {"n": "CX 03", "c": [-38.39925438165705, -3.852165713373255]}, {"n": "CX 04", "c": [-38.39976690521705, -3.847897861215842]}, {"n": "CX 05", "c": [-38.39829015444684, -3.849231289630933]}, {"n": "CX 06", "c": [-38.39643044972192, -3.848358993236563]}, {"n": "CX 07", "c": [-38.40104957430077, -3.845720044397947]}, {"n": "CX 08", "c": [-38.4025365844364, -3.844175854408452]}, {"n": "CX 09", "c": [-38.40191145119548, -3.840575961116902]}, {"n": "CX 10", "c": [-38.40090739234888, -3.83995911868886]}, {"n": "CX 11", "c": [-38.40311921407785, -3.838135656999186]}, {"n": "CX 12", "c": [-38.40419981146822, -3.836350529731582]}, {"n": "CX 13", "c": [-38.40545950394318, -3.836401435013429]}, {"n": "CX 14", "c": [-38.40410644151276, -3.838629595311542]}, {"n": "CTO EMENDA", "c": [-38.40215885093804, -3.839682874949211], "emenda": true}], "ceo": [{"n": "CEO ROTA 01", "c": [-38.39624172772099, -3.852285526810785]}], "pop": [], "reserva": []}, {"key": "RT02 / 13 CTO / 2 EMENDA / 2744M", "label": "RT02", "ctoCount": 13, "ceoCount": 1, "emendaCount": 2, "cabo12": 2753, "cabo24": 0, "existente": 0, "lines": [{"n": "FO12 - 1451M", "c": [[-38.38776919313518, -3.852732545925207], [-38.38843463156909, -3.853371549948336], [-38.3874051405255, -3.854993101495749], [-38.38678817917805, -3.855921539429759], [-38.38723200993461, -3.856448834016566], [-38.38757130926079, -3.856842025139096], [-38.387746538177, -3.857108465544017], [-38.38838703700574, -3.856083602815864], [-38.38891365534693, -3.855213646402266], [-38.3891194754291, -3.854852345071098], [-38.38942262780188, -3.854344783134052], [-38.39020402519066, -3.855135513714355], [-38.39089404553545, -3.85586730160221], [-38.39148933198121, -3.856716046849987], [-38.39080913886116, -3.857740891474622]], "len": 1456}, {"n": "FO12- 496M", "c": [[-38.3882613045059, -3.856347851299076], [-38.38779490765236, -3.857168131465477], [-38.38826022689823, -3.857657142135733], [-38.38783271953349, -3.858244157187742], [-38.38755678277471, -3.85882398091148], [-38.38810612295798, -3.85952141810874], [-38.3884062104233, -3.859000837841217]], "len": 497}, {"n": "FO12- 204M", "c": [[-38.38835435327786, -3.853256768672569], [-38.3887506906159, -3.852570828815916], [-38.3894831220251, -3.853318643296663]], "len": 204}, {"n": "FO12- 160M", "c": [[-38.39057963783605, -3.854609176468044], [-38.39024984597371, -3.855192177917629], [-38.38981527089494, -3.855839426314229]], "len": 161}, {"n": "FO12- 318M", "c": [[-38.38908972678269, -3.854849941995605], [-38.38945817504469, -3.854373759628267], [-38.38893373848341, -3.853732433286452], [-38.38822924805561, -3.854989966630227]], "len": 319}, {"n": "FO12- 115M", "c": [[-38.39090545421978, -3.856040794546394], [-38.39035015671399, -3.856923825392626]], "len": 116}], "ctos": [{"n": "CX 03", "c": [-38.38674496645573, -3.855921539395838]}, {"n": "CX 08", "c": [-38.387787677449, -3.858322221616902]}, {"n": "CX 01", "c": [-38.3884003498278, -3.853324652940608]}, {"n": "CX 06", "c": [-38.38820482751664, -3.855046301887896]}, {"n": "CX 07", "c": [-38.38829187505589, -3.857567713392031]}, {"n": "CX 05", "c": [-38.3891245608868, -3.854916394032821]}, {"n": "CX 10", "c": [-38.38989510507444, -3.855840492772189]}, {"n": "CX 04", "c": [-38.38822771748666, -3.856377264342592]}, {"n": "CX 12", "c": [-38.3904185054707, -3.856966432576833]}, {"n": "CX 09", "c": [-38.38846879890242, -3.859034446052667]}, {"n": "CX 13", "c": [-38.39082452308478, -3.857770956184734]}, {"n": "CX 11", "c": [-38.39064504241675, -3.854569891404242]}, {"n": "CX 02", "c": [-38.3895376970184, -3.853339001362505]}, {"n": "CTO EMENDA", "c": [-38.39024548878007, -3.855198827101025], "emenda": true}, {"n": "CTO EMENDA", "c": [-38.39096220990358, -3.856007642118656], "emenda": true}], "ceo": [{"n": "CEO ROTA 02", "c": [-38.3878078496235, -3.852773535549741]}], "pop": [], "reserva": []}, {"key": "RT03 / 13 CTO / 1 EMENDA / 2735M", "label": "RT03", "ctoCount": 13, "ceoCount": 1, "emendaCount": 1, "cabo12": 2743, "cabo24": 0, "existente": 0, "lines": [{"n": "FO12- 2414M", "c": [[-38.39041277430122, -3.848112432467882], [-38.39114984439326, -3.848576559552896], [-38.39072668769517, -3.849325035644819], [-38.39026317059753, -3.850118876895776], [-38.39093533169435, -3.850570687847398], [-38.39191236589522, -3.849042670850464], [-38.39260908015009, -3.849477814857195], [-38.39221097813059, -3.850099746078813], [-38.39130368883353, -3.851655095932666], [-38.3908308995561, -3.852447299201918], [-38.3916686180911, -3.852977580416125], [-38.39230081065692, -3.851974391542212], [-38.39310506459655, -3.8498161475284], [-38.39402265616934, -3.850326787786188], [-38.39374142060624, -3.850974209226156], [-38.39293890015649, -3.852730035529462], [-38.39243378712838, -3.853472672641358], [-38.39312902663499, -3.853919846747045], [-38.39184275470644, -3.855882608427649]], "len": 2422}, {"n": "FO12- 104M", "c": [[-38.39401861740156, -3.850302010167669], [-38.3946758852754, -3.850663493765623], [-38.39463758373608, -3.850844848223398]], "len": 104}, {"n": "FO12- 217M", "c": [[-38.39071263318294, -3.8493163811365], [-38.38972547874928, -3.85100476018436]], "len": 217}], "ctos": [{"n": "CX 02", "c": [-38.38972385965207, -3.85100994406589]}, {"n": "CX 01", "c": [-38.3907148500073, -3.849325036858293]}, {"n": "CX 04", "c": [-38.39199286019615, -3.849088590166585]}, {"n": "CX 03", "c": [-38.39094397141155, -3.850570563102642]}, {"n": "CX 06", "c": [-38.39136607488383, -3.851709930437309]}, {"n": "CX 05", "c": [-38.3922822174381, -3.850196276682199]}, {"n": "CX 08", "c": [-38.39315084040388, -3.84985346560706]}, {"n": "CX 07", "c": [-38.39230468111658, -3.852054770757394]}, {"n": "CTO 09", "c": [-38.393777161447, -3.851036953858459]}, {"n": "CTO 10", "c": [-38.39299224997006, -3.852777560487293]}, {"n": "CTO 13", "c": [-38.394694770444, -3.850860803623883]}, {"n": "CTO 12", "c": [-38.39186926212601, -3.855910348959322]}, {"n": "CTO 11", "c": [-38.39318890024853, -3.853943987352588]}, {"n": "CTO EMENDA", "c": [-38.39403854005769, -3.85034520731393], "emenda": true}], "ceo": [{"n": "CEO ROTA 03", "c": [-38.39041410349246, -3.848110466333568]}], "pop": [], "reserva": []}, {"key": "RT04 / 13 CTO / 1 EMENDA / 2726M", "label": "RT04", "ctoCount": 13, "ceoCount": 1, "emendaCount": 1, "cabo12": 2737, "cabo24": 0, "existente": 0, "lines": [{"n": "FO12- 2052M", "c": [[-38.39195347654056, -3.847387504724322], [-38.39245089643059, -3.846617761890228], [-38.39352873835815, -3.844838731710601], [-38.39443398769872, -3.843362073390403], [-38.39510047003338, -3.842227190556654], [-38.39596963325074, -3.842829146529588], [-38.39503481086206, -3.84450341838328], [-38.39418757263573, -3.846336869716009], [-38.39359549496469, -3.848351492625549], [-38.39437357422389, -3.848786168738325], [-38.39465246836865, -3.848419706391784], [-38.39560035583468, -3.845222535019987], [-38.39596844045789, -3.844615712056169]], "len": 2060}, {"n": "FO12- 293M", "c": [[-38.3954018202746, -3.845939181733009], [-38.39599436377659, -3.846426382991704], [-38.39627014158582, -3.845711218895576], [-38.39645506614858, -3.84536409690141], [-38.39657932037193, -3.845133522757008], [-38.396844868023, -3.844766693861595]], "len": 294}, {"n": "FO12- 199M", "c": [[-38.39599606378572, -3.846501459438067], [-38.39544256832955, -3.848209336609942]], "len": 200}, {"n": "FO12- 182M", "c": [[-38.39420579586235, -3.846336798560194], [-38.39360931656784, -3.845977522185194], [-38.39309404739953, -3.846772851062806]], "len": 183}], "ctos": [{"n": "CX 13", "c": [-38.39548284201263, -3.848238187242411]}, {"n": "CX 11", "c": [-38.39599076253469, -3.846412556956959]}, {"n": "CX 12", "c": [-38.39683927545651, -3.844774413031043]}, {"n": "CX 09", "c": [-38.39493450993665, -3.847576805315339]}, {"n": "CX 10", "c": [-38.39596390495312, -3.84464280372239]}, {"n": "CX 04", "c": [-38.39502812125098, -3.844509454825216]}, {"n": "CX 05", "c": [-38.39421271259097, -3.846344276323432]}, {"n": "CX 07", "c": [-38.39307974034415, -3.846777814407806]}, {"n": "CX 08", "c": [-38.39364748875819, -3.848366780466085]}, {"n": "CX 01", "c": [-38.39245866111519, -3.846632292641293]}, {"n": "CX 02", "c": [-38.39353290037656, -3.844863811088527]}, {"n": "CX 03", "c": [-38.39444706918962, -3.84339454221244]}, {"n": "CTO EMENDA", "c": [-38.39540855593571, -3.845933938506639], "emenda": true}], "ceo": [{"n": "CEO ROTA 04", "c": [-38.39215597080205, -3.8470654935815]}], "pop": [], "reserva": []}, {"key": "RT05 / 10 CTO / 2123M", "label": "RT05", "ctoCount": 10, "ceoCount": 1, "emendaCount": 0, "cabo12": 2127, "cabo24": 0, "existente": 0, "lines": [{"n": "FO12- 1732M", "c": [[-38.38927350846163, -3.846546085235481], [-38.38880505822656, -3.847222297107857], [-38.38901985065817, -3.848143662682527], [-38.38841883390767, -3.849160835893576], [-38.38821268573245, -3.849713256574892], [-38.38713625999407, -3.849978673727759], [-38.38621584261563, -3.851529192119085], [-38.38644983578203, -3.852542047798834], [-38.38553524482065, -3.853960204388138], [-38.38475513897884, -3.854128778829593], [-38.38374394742027, -3.854396595946731], [-38.38431981149522, -3.855177967014299], [-38.3852054826482, -3.854926976545392], [-38.38641844817947, -3.854729906801631], [-38.38586537935175, -3.855610300098833], [-38.38544286622521, -3.855762526377569]], "len": 1736}, {"n": "FO12- 178M", "c": [[-38.38624234184139, -3.851494269710111], [-38.38711976963914, -3.851552370114237], [-38.38726457531259, -3.852263307727671]], "len": 178}, {"n": "FO12- 213M", "c": [[-38.38715197930571, -3.849975315540149], [-38.38774429660369, -3.85066507476495], [-38.38871555148635, -3.850387878540931]], "len": 213}], "ctos": [{"n": "CX 09", "c": [-38.3852795178236, -3.854940569132688]}, {"n": "CX 10", "c": [-38.38546041469013, -3.855766420447394]}, {"n": "CX 08", "c": [-38.38486976708276, -3.854156239717949]}, {"n": "CX 07", "c": [-38.38599190353492, -3.853277450705226]}, {"n": "CX 05", "c": [-38.38627172380436, -3.851534067146971]}, {"n": "CX 03", "c": [-38.38716075203708, -3.849979124232094]}, {"n": "CX 02", "c": [-38.3884758973272, -3.849194572258386]}, {"n": "CX 01", "c": [-38.38885309682667, -3.847262078844304]}, {"n": "CX 04", "c": [-38.38875580476277, -3.850423862972885]}, {"n": "CX 06", "c": [-38.38732284261796, -3.852196614619807]}], "ceo": [{"n": "CEO ROTA 05", "c": [-38.38927207029781, -3.846551322514673]}], "pop": [], "reserva": []}, {"key": "RT06 / 09 CTO / 1776M", "label": "RT06", "ctoCount": 9, "ceoCount": 1, "emendaCount": 0, "cabo12": 1775, "cabo24": 0, "existente": 0, "lines": [{"n": "FO12- 1502M", "c": [[-38.39017842550814, -3.845793397009118], [-38.38998661048633, -3.845491369850544], [-38.39017834235066, -3.845444613644937], [-38.39071910920056, -3.845285274195227], [-38.39099912297998, -3.845210043695414], [-38.39133168964027, -3.844818809226962], [-38.39185568798712, -3.84391884093277], [-38.39158321520632, -3.842939620564102], [-38.39157646753963, -3.84274219193941], [-38.39250700750586, -3.841286861430115], [-38.39262363820908, -3.840987020452463], [-38.39358808545975, -3.840754206544887], [-38.39396886748407, -3.840057854799731], [-38.39444256793101, -3.839195313469297], [-38.39421898710422, -3.83821156128636], [-38.39531001953787, -3.83662490068112], [-38.39545688345567, -3.836568124043191], [-38.39588578166617, -3.837130836217665], [-38.39550085784421, -3.837718803827589]], "len": 1500}, {"n": "FO12- 174M", "c": [[-38.39263014929722, -3.840993774036013], [-38.39314717017631, -3.841837711595392], [-38.39371270432711, -3.841699755237463]], "len": 175}, {"n": "FO12- 100M", "c": [[-38.39157810236208, -3.842745040501316], [-38.39236344214768, -3.842869840165837], [-38.39238597374889, -3.842974396815493]], "len": 100}], "ctos": [{"n": "CX 01", "c": [-38.39018462610305, -3.845454640816034]}, {"n": "CX 02", "c": [-38.39148755927057, -3.844602712927754]}, {"n": "CX 03", "c": [-38.39157900993798, -3.842742022453872]}, {"n": "CX 04", "c": [-38.39237811461999, -3.842986904160525]}, {"n": "CX 06", "c": [-38.39371401717478, -3.841698622656871]}, {"n": "CX 05", "c": [-38.39262210378016, -3.840984701473233]}, {"n": "CX 06", "c": [-38.39395910607551, -3.840019607848795]}, {"n": "CX 07", "c": [-38.39421296648309, -3.838220714204756]}, {"n": "CX 08", "c": [-38.39546587710141, -3.836574011338969]}, {"n": "CX 09", "c": [-38.39550264893609, -3.837720007417392]}], "ceo": [{"n": "CEO ROTA 06", "c": [-38.39017630498992, -3.845792762909411]}], "pop": [], "reserva": []}, {"key": "RT07 / 11 CTO / 2782M", "label": "RT07", "ctoCount": 11, "ceoCount": 1, "emendaCount": 0, "cabo12": 2790, "cabo24": 0, "existente": 0, "lines": [{"n": "FO12- 2782M", "c": [[-38.39551169701919, -3.837726087899969], [-38.3958930125963, -3.837151642584381], [-38.39713189824047, -3.836875077383739], [-38.39736060154408, -3.836919101334827], [-38.39768603454976, -3.83635085542897], [-38.39836590323886, -3.836740167583095], [-38.3977244746937, -3.837812068891226], [-38.39763539475824, -3.838063471085981], [-38.39688593423269, -3.839309822580091], [-38.39582526254102, -3.841072871049089], [-38.39681911600474, -3.841643737623459], [-38.39727762626163, -3.840817012926376], [-38.39785865037748, -3.839683380358223], [-38.39862349990931, -3.838388781215336], [-38.39872453597881, -3.838466516390684], [-38.39931458811115, -3.837480614244501], [-38.39947676916372, -3.837419876177713], [-38.40003405903616, -3.837730661833789], [-38.39960768656569, -3.838458320943641], [-38.39878933007881, -3.83988627098166], [-38.3980829719377, -3.841157663299739], [-38.39754912489945, -3.842084255854379], [-38.39821935851708, -3.842487575316506], [-38.39864457990819, -3.841751326638286], [-38.40013241602026, -3.839313418346733]], "len": 2790}], "ctos": [{"n": "CX 01", "c": [-38.39768681862436, -3.836375287670086]}, {"n": "CX 02", "c": [-38.39773310956659, -3.837882475400731]}, {"n": "CX 03", "c": [-38.39675763478319, -3.839567618578124]}, {"n": "CX 04", "c": [-38.397276353507, -3.840823771856511]}, {"n": "CX 05", "c": [-38.39862226420457, -3.838404469404276]}, {"n": "CX 07", "c": [-38.39891106846961, -3.839638853134539]}, {"n": "CX 08", "c": [-38.39792251694404, -3.841408269708687]}, {"n": "CX 06", "c": [-38.3999046866945, -3.837944811274686]}, {"n": "CX 09", "c": [-38.39822590602019, -3.84248161211365]}, {"n": "CX 10", "c": [-38.3990480325543, -3.841096115292204]}, {"n": "CX 11", "c": [-38.40013396451089, -3.83931905355462]}], "ceo": [{"n": "CEO ROTA 07", "c": [-38.39658886773186, -3.836997166542138]}], "pop": [], "reserva": []}];
+const ROUTE_COLORS = ['--route-0','--route-1','--route-2','--route-3','--route-4','--route-5','--route-6','--route-7'];
+
+function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function fmtInt(n){ return Math.round(n).toLocaleString('pt-BR'); }
+function fmtM(n){ return Math.round(n).toLocaleString('pt-BR') + ' m'; }
+function fmtKm(n){ return (n/1000).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1}) + ' km'; }
+function fmtBRL(n){ return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+/* ---------------- Network diagram (SVG, drawn from real KML geometry — no map tiles, no network needed) ---------------- */
+function drawNet(){
+  const svg = document.getElementById('net-svg');
+  if(!svg) return;
+  const tooltip = document.getElementById('tooltip');
+
+  let lats = [], lons = [];
+  ROUTES.forEach(r => {
+    r.lines.forEach(l => l.c.forEach(([lon,lat]) => { lats.push(lat); lons.push(lon); }));
+    [...r.ctos, ...r.ceo, ...r.pop, ...r.reserva].forEach(p => { lons.push(p.c[0]); lats.push(p.c[1]); });
+  });
+  if(!lats.length) return;
+  const lat0 = lats.reduce((a,b)=>a+b,0)/lats.length;
+  const lon0 = lons.reduce((a,b)=>a+b,0)/lons.length;
+  const REARTH = 6371000, cosLat0 = Math.cos(lat0*Math.PI/180);
+  function proj(lon,lat){
+    return [ (lon-lon0)*Math.PI/180*REARTH*cosLat0, -(lat-lat0)*Math.PI/180*REARTH ];
+  }
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const xs = [], ys = [], items = [];
+  ROUTES.forEach((r,i) => {
+    const colorVar = ROUTE_COLORS[i % ROUTE_COLORS.length];
+    r.lines.forEach(l => {
+      const pts = l.c.map(([lon,lat]) => proj(lon,lat));
+      pts.forEach(([x,y]) => { xs.push(x); ys.push(y); });
+      items.push({ type:'line', pts, colorVar, thick: r.label==='Backbone' });
+    });
+    r.ctos.forEach(p => {
+      const [x,y] = proj(p.c[0], p.c[1]); xs.push(x); ys.push(y);
+      items.push({ type: p.emenda ? 'emenda' : 'cto', x, y, colorVar, label: `${p.n} — ${r.label}` });
+    });
+    r.ceo.forEach(p => {
+      const [x,y] = proj(p.c[0], p.c[1]); xs.push(x); ys.push(y);
+      items.push({ type:'ceo', x, y, colorVar, label: `${p.n} — ${r.label}` });
+    });
+    r.pop.forEach(p => {
+      const [x,y] = proj(p.c[0], p.c[1]); xs.push(x); ys.push(y);
+      items.push({ type:'pop', x, y, colorVar, label: `${p.n} — ponto de presença` });
+    });
+    r.reserva.forEach(p => {
+      const [x,y] = proj(p.c[0], p.c[1]); xs.push(x); ys.push(y);
+      items.push({ type:'reserva', x, y, colorVar, label: `${p.n} — ${r.label}` });
+    });
+  });
+
+  const minX=Math.min(...xs), maxX=Math.max(...xs), minY=Math.min(...ys), maxY=Math.max(...ys);
+  const extent = Math.max(maxX-minX, maxY-minY) || 1000;
+  const pad = extent*0.07;
+  svg.setAttribute('viewBox', [minX-pad, minY-pad, (maxX-minX)+pad*2, (maxY-minY)+pad*2].join(' '));
+
+  function showTip(e, text){
+    if(!tooltip) return;
+    tooltip.textContent = text;
+    tooltip.style.left = (e.clientX+12)+'px';
+    tooltip.style.top = (e.clientY+12)+'px';
+    tooltip.style.opacity = 1;
+  }
+  function hideTip(){ if(tooltip) tooltip.style.opacity = 0; }
+
+  items.filter(it => it.type==='line').forEach(it => {
+    const pl = document.createElementNS(NS,'polyline');
+    pl.setAttribute('points', it.pts.map(p => p[0]+','+p[1]).join(' '));
+    pl.setAttribute('fill','none');
+    pl.style.stroke = `var(${it.colorVar})`;
+    pl.setAttribute('stroke-width', (it.thick ? extent*0.011 : extent*0.006));
+    pl.setAttribute('stroke-linecap','round');
+    pl.setAttribute('stroke-linejoin','round');
+    pl.style.opacity = 0.88;
+    svg.appendChild(pl);
+  });
+
+  const unit = extent*0.016;
+  items.filter(it => it.type!=='line').forEach(it => {
+    let el;
+    const size = it.type==='pop' ? unit*1.5 : it.type==='ceo' ? unit*1.15 : unit;
+    if(it.type==='cto'){
+      el = document.createElementNS(NS,'rect');
+      el.setAttribute('x', it.x-size/2); el.setAttribute('y', it.y-size/2);
+      el.setAttribute('width', size); el.setAttribute('height', size);
+      el.setAttribute('rx', size*0.18);
+    } else if(it.type==='emenda'){
+      el = document.createElementNS(NS,'rect');
+      el.setAttribute('x', it.x-size/2); el.setAttribute('y', it.y-size/2);
+      el.setAttribute('width', size); el.setAttribute('height', size);
+      el.setAttribute('transform', `rotate(45 ${it.x} ${it.y})`);
+    } else if(it.type==='ceo'){
+      el = document.createElementNS(NS,'polygon');
+      el.setAttribute('points', `${it.x},${it.y-size} ${it.x-size},${it.y+size*0.7} ${it.x+size},${it.y+size*0.7}`);
+    } else if(it.type==='pop'){
+      el = document.createElementNS(NS,'circle');
+      el.setAttribute('cx', it.x); el.setAttribute('cy', it.y); el.setAttribute('r', size*0.55);
+    } else {
+      el = document.createElementNS(NS,'circle');
+      el.setAttribute('cx', it.x); el.setAttribute('cy', it.y); el.setAttribute('r', size*0.42);
+      el.setAttribute('stroke-dasharray', (size*0.12)+' '+(size*0.12));
+    }
+    el.style.fill = it.type==='pop' ? 'var(--bg-hero)' : `var(${it.colorVar})`;
+    el.style.stroke = it.type==='pop' ? `var(${it.colorVar})` : 'var(--bg-surface)';
+    el.setAttribute('stroke-width', size*0.15);
+    el.style.cursor = 'pointer';
+    el.addEventListener('mousemove', e => showTip(e, it.label));
+    el.addEventListener('mouseleave', hideTip);
+    svg.appendChild(el);
+  });
+}
+
+/* ---------------- Satélite (mapa real, carregado sob demanda — volta pro
+   esquema offline se não conseguir carregar) ---------------- */
+let leafletState = 'idle'; // idle | loading | ready | failed
+let satMap = null, satInited = false;
+
+function loadLeaflet(onReady, onFail){
+  if (leafletState === 'ready') { onReady(); return; }
+  if (leafletState === 'failed') { onFail(); return; }
+  if (leafletState === 'loading') { setTimeout(()=>loadLeaflet(onReady,onFail), 200); return; }
+  leafletState = 'loading';
+  const timer = setTimeout(()=>{ leafletState = 'failed'; onFail(); }, 8000);
+  const script = document.createElement('script');
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+  script.onload = () => { clearTimeout(timer); leafletState = 'ready'; onReady(); };
+  script.onerror = () => { clearTimeout(timer); leafletState = 'failed'; onFail(); };
+  document.head.appendChild(script);
+}
+
+function initSatMap(){
+  if (satInited) { satMap.invalidateSize(); return; }
+  satInited = true;
+  satMap = L.map('sat-map', { scrollWheelZoom: true });
+  const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19, attribution: 'Imagens &copy; Esri, Maxar, Earthstar Geographics'
+  }).addTo(satMap);
+  let tileFailed = false;
+  sat.on('tileerror', () => { if (!tileFailed) { tileFailed = true; const n = document.getElementById('sat-tile-note'); if(n) n.hidden = false; } });
+
+  const bounds = [];
+  ROUTES.forEach((r,i) => {
+    const color = cssVar(ROUTE_COLORS[i % ROUTE_COLORS.length]);
+    const emendaColor = cssVar('--critical');
+    r.lines.forEach(l => {
+      const ll = l.c.map(([lon,lat]) => [lat,lon]);
+      ll.forEach(x => bounds.push(x));
+      L.polyline(ll, { color, weight: r.label==='Backbone' ? 5 : 3, opacity: 0.9, lineCap: 'round' })
+        .addTo(satMap).bindTooltip(r.label, { sticky: true });
+    });
+    r.ctos.forEach(p => {
+      const [lon,lat] = p.c; bounds.push([lat,lon]);
+      L.circleMarker([lat,lon], { radius: p.emenda?6:5, color:'#fff', weight:1.5, fillColor: p.emenda?emendaColor:color, fillOpacity:1 })
+        .addTo(satMap).bindTooltip(`${p.n} — ${r.label}`);
+    });
+    r.ceo.forEach(p => {
+      const [lon,lat] = p.c; bounds.push([lat,lon]);
+      L.circleMarker([lat,lon], { radius:7.5, color:'#fff', weight:2, fillColor: color, fillOpacity:1 })
+        .addTo(satMap).bindTooltip(`${p.n} — ${r.label}`);
+    });
+    r.pop.forEach(p => {
+      const [lon,lat] = p.c; bounds.push([lat,lon]);
+      L.circleMarker([lat,lon], { radius:9, color, weight:2, fillColor:'#fff', fillOpacity:1 })
+        .addTo(satMap).bindTooltip(`${p.n} — ponto de presença`);
+    });
+    r.reserva.forEach(p => {
+      const [lon,lat] = p.c; bounds.push([lat,lon]);
+      L.circleMarker([lat,lon], { radius:5, color:'#fff', weight:1.5, fillColor: color, fillOpacity:0.6 })
+        .addTo(satMap).bindTooltip(`${p.n} — reserva — ${r.label}`);
+    });
+  });
+  if (bounds.length) satMap.fitBounds(bounds, { padding: [24,24] });
+}
+
+function setDiagramMode(mode){
+  const svg = document.getElementById('net-svg');
+  const satWrap = document.getElementById('sat-wrap');
+  const btnEsq = document.getElementById('btn-esquema');
+  const btnSat = document.getElementById('btn-satelite');
+  if (mode === 'esquema'){
+    // svg é um elemento SVG — .hidden não existe/não reflete em elementos
+    // SVG (só em HTMLElement), então usa style.display direto, que
+    // funciona independente do tipo de elemento.
+    svg.style.display = ''; satWrap.hidden = true;
+    btnEsq.classList.add('is-active'); btnSat.classList.remove('is-active');
+  } else {
+    svg.style.display = 'none'; satWrap.hidden = false;
+    btnSat.classList.add('is-active'); btnEsq.classList.remove('is-active');
+  }
+}
+
+function initMapToggle(){
+  document.getElementById('btn-esquema').addEventListener('click', () => setDiagramMode('esquema'));
+  document.getElementById('btn-satelite').addEventListener('click', () => {
+    setDiagramMode('satelite');
+    const failNote = document.getElementById('sat-fail-note');
+    if(failNote) failNote.hidden = true;
+    requestAnimationFrame(() => {
+      loadLeaflet(
+        () => { try { initSatMap(); } catch(err) { console.error(err); setDiagramMode('esquema'); if(failNote) failNote.hidden = false; } },
+        () => { setDiagramMode('esquema'); if(failNote) failNote.hidden = false; }
+      );
+    });
+  });
+}
+
+/* ---------------- Legend ---------------- */
+function buildLegend(){
+  const el = document.getElementById('legend-holder');
+  el.innerHTML = ROUTES.map((r,i) => {
+    const varName = ROUTE_COLORS[i % ROUTE_COLORS.length];
+    const totalCabo = r.cabo12 + r.cabo24;
+    const sub = r.label === 'Backbone'
+      ? `${r.ceoCount} CEO novas &middot; troncal`
+      : `${r.ctoCount} CTO &middot; ${r.ceoCount} CEO`;
+    return `<div class="legend-row">
+      <span class="legend-swatch" style="background:var(${varName})"></span>
+      <span><span class="legend-name">${r.label}</span><span class="legend-sub">${sub}</span></span>
+      <span class="legend-len">${fmtM(totalCabo)}</span>
+    </div>`;
+  }).join('');
+}
+
+/* ---------------- Route totals (used as BOM defaults) ---------------- */
+function totalCabo12(){ return ROUTES.reduce((s,r)=>s+r.cabo12,0); }
+function totalCabo24(){ return ROUTES.reduce((s,r)=>s+r.cabo24,0); }
+function totalCTO(){ return ROUTES.reduce((s,r)=>s+r.ctoCount,0); }
+function totalCEO(){ return ROUTES.reduce((s,r)=>s+r.ceoCount,0); }
+function totalEmenda(){ return ROUTES.reduce((s,r)=>s+r.emendaCount,0); }
+function totalFusaoPontos(){ return totalCEO() + totalEmenda(); }
+function totalRotas(){ return ROUTES.filter(r=>r.label!=='Backbone').length; }
+function totalTestes(){ return ROUTES.length; }
+function totalExistente(){ return ROUTES.reduce((s,r)=>s+(r.existente||0),0); }
+
+function vaoMedio(){ const el = document.getElementById('in-vao'); return (el && parseFloat(el.value)) || 40; }
+function totalAlcas(){ return Math.ceil((totalCabo12()+totalCabo24())/vaoMedio()); }
+
+/* ---------------- BOM state (editable: add / remove / rename) ---------------- */
+let rowSeq = 0;
+function newId(){ return 'row-' + (++rowSeq); }
+
+const bomState = {
+  materiais: [
+    { id:'cabo12', name:'Cabo óptico 12FO autossustentado (CFOA)', note:'drop/distribuição — rotas + backbone', un:'m', qty:totalCabo12(), price:2.65, src:'ref', auto:'cabo12' },
+    { id:'cabo24', name:'Cabo óptico 24FO autossustentado (CFOA)', note:'troncal do backbone', un:'m', qty:totalCabo24(), price:4.30, src:'est', auto:'cabo24' },
+    { id:'cto', name:'CTO 16 portas completa', note:'caixa + splitter 1x16 + conectores SC/APC', un:'un', qty:totalCTO(), price:230.00, src:'est', auto:'cto' },
+    { id:'ceo', name:'CEO 24 posições', note:'caixa de emenda óptica aérea, c/ bandeja', un:'un', qty:totalCEO(), price:240.00, src:'est', auto:'ceo' },
+    { id:'fusaokit', name:'Kit de fusão óptica', note:'bandeja + protetores — 1 por CEO/ponto de emenda', un:'un', qty:totalFusaoPontos(), price:70.00, src:'est', auto:'fusao' },
+    { id:'alca', name:'Alça pré-formada / cordoalha de fixação', note:'estimado pelo vão médio entre postes', un:'un', qty:totalAlcas(), price:9.00, src:'est', auto:'alca' },
+  ],
+  maodeobra: [
+    { id:'lancamento', name:'Lançamento de cabo óptico aéreo', note:'inclui 12FO + 24FO novos', un:'m', qty:totalCabo12()+totalCabo24(), price:1.85, src:'est', auto:'cabotot' },
+    { id:'instcto', name:'Instalação e fixação de CTO', note:'', un:'un', qty:totalCTO(), price:65.00, src:'est', auto:'cto' },
+    { id:'instceo', name:'Instalação e fixação de CEO', note:'', un:'un', qty:totalCEO(), price:130.00, src:'est', auto:'ceo' },
+    { id:'servfusao', name:'Serviço de fusão óptica', note:'por ponto (CEO + emendas de cabo)', un:'un', qty:totalFusaoPontos(), price:45.00, src:'est', auto:'fusao' },
+    { id:'teste', name:'Teste e certificação (OTDR)', note:'por rota, incluindo backbone', un:'un', qty:totalTestes(), price:180.00, src:'est', auto:'testes' },
+    { id:'mobiliz', name:'Mobilização e equipe técnica', note:'visita, deslocamento, EPIs — valor fixo do projeto', un:'vb', qty:1, price:3500.00, src:'est' },
+  ],
+  infolink: [
+    { id:'infolink', name:'Mão de obra — Infolink', note:'equipe terceirizada (empreitada) — preencha valor', un:'vb', qty:1, price:0, src:'est' },
+  ],
+};
+
+const BOM_GROUPS = ['materiais', 'maodeobra', 'infolink'];
+
+function findRow(id){
+  for(const g of BOM_GROUPS){
+    const row = bomState[g].find(r=>r.id===id);
+    if(row) return row;
+  }
+  return null;
+}
+
+function bomRowHtml(it){
+  const subtotal = it.qty * it.price;
+  return `<tr data-id="${it.id}">
+    <td>
+      <input class="name-input" type="text" value="${esc(it.name)}" data-role="name" aria-label="Nome do item">
+      <input class="note-input" type="text" value="${esc(it.note||'')}" data-role="note" placeholder="observação (opcional)" aria-label="Observação">
+    </td>
+    <td><input class="unit-input" type="text" value="${esc(it.un)}" data-role="un" aria-label="Unidade"></td>
+    <td class="num"><input class="qty-input" type="number" min="0" step="1" value="${it.qty}" data-role="qty" aria-label="Quantidade"></td>
+    <td class="num">
+      <input class="price-input" type="number" min="0" step="0.01" value="${it.price.toFixed(2)}" data-role="price" aria-label="Preço unitário">
+      ${it.src ? `<span class="src-tag ${it.src}">${it.src}</span>` : ''}
+    </td>
+    <td class="num mono" data-role="subtotal">${fmtBRL(subtotal)}</td>
+    <td><button type="button" class="row-del" data-role="del" title="Remover item" aria-label="Remover item">&times;</button></td>
+  </tr>`;
+}
+
+function renderGroup(containerId, groupKey){
+  const rows = bomState[groupKey];
+  const el = document.getElementById(containerId);
+  el.innerHTML =
+    rows.map(bomRowHtml).join('') +
+    `<tr><td colspan="6" class="row-add-wrap"><button type="button" class="row-add" data-group="${groupKey}">+ Adicionar item</button></td></tr>`;
+}
+
+function buildBom(){
+  renderGroup('bom-materiais-body', 'materiais');
+  renderGroup('bom-mo-body', 'maodeobra');
+  renderGroup('bom-infolink-body', 'infolink');
+}
+
+function initBomTabs(){
+  const tabs = {
+    materiais: { btn: document.getElementById('tab-materiais'), pane: document.getElementById('bom-materiais-body') },
+    maodeobra: { btn: document.getElementById('tab-maodeobra'), pane: document.getElementById('bom-mo-body') },
+    infolink: { btn: document.getElementById('tab-infolink'), pane: document.getElementById('bom-infolink-body') },
+  };
+  function show(which){
+    BOM_GROUPS.forEach(g => {
+      const isActive = g === which;
+      tabs[g].pane.classList.toggle('is-hidden', !isActive);
+      tabs[g].btn.classList.toggle('is-active', isActive);
+      tabs[g].btn.setAttribute('aria-selected', String(isActive));
+    });
+  }
+  BOM_GROUPS.forEach(g => tabs[g].btn.addEventListener('click', () => show(g)));
+  show('materiais');
+}
+
+document.addEventListener('input', e => {
+  const role = e.target.dataset.role;
+  if(!role || !['name','note','un','qty','price'].includes(role)) return;
+  const tr = e.target.closest('tr[data-id]');
+  if(!tr) return;
+  const row = findRow(tr.dataset.id);
+  if(!row) return;
+  if(role === 'qty' || role === 'price'){
+    const val = parseFloat(e.target.value);
+    row[role] = isNaN(val) ? 0 : val;
+    tr.querySelector('[data-role="subtotal"]').textContent = fmtBRL(row.qty * row.price);
+    recalc();
+  } else {
+    row[role === 'un' ? 'un' : role] = e.target.value;
+  }
+});
+
+document.addEventListener('click', e => {
+  const del = e.target.closest('button[data-role="del"]');
+  if(del){
+    const tr = del.closest('tr[data-id]');
+    const id = tr.dataset.id;
+    BOM_GROUPS.forEach(g => {
+      bomState[g] = bomState[g].filter(r => r.id !== id);
+    });
+    buildBom();
+    recalc();
+    return;
+  }
+  const add = e.target.closest('button.row-add');
+  if(add){
+    const group = add.dataset.group;
+    bomState[group].push({ id:newId(), name:'Novo item', note:'', un:'un', qty:1, price:0, src:null });
+    buildBom();
+    recalc();
+  }
+});
+
+/* ---------------- Totals ---------------- */
+function groupTotal(rows){ return rows.reduce((s,r)=>s+r.qty*r.price, 0); }
+
+function recalc(){
+  const materiaisTotal = groupTotal(bomState.materiais);
+  const moTotal = groupTotal(bomState.maodeobra);
+  const infolinkTotal = groupTotal(bomState.infolink);
+  const subtotal = materiaisTotal + moTotal + infolinkTotal;
+  const contingPct = parseFloat(document.getElementById('in-conting').value)||0;
+  const bdiPct = parseFloat(document.getElementById('in-bdi').value)||0;
+  const contingVal = subtotal * (contingPct/100);
+  const bdiVal = (subtotal+contingVal) * (bdiPct/100);
+  const grand = subtotal + contingVal + bdiVal;
+
+  document.getElementById('tot-materiais').textContent = fmtBRL(materiaisTotal);
+  document.getElementById('tot-mo').textContent = fmtBRL(moTotal);
+  document.getElementById('tot-infolink').textContent = fmtBRL(infolinkTotal);
+  document.getElementById('tot-conting').textContent = fmtBRL(contingVal + bdiVal);
+  document.getElementById('tot-grand').textContent = fmtBRL(grand);
+  document.getElementById('s-total').textContent = fmtBRL(grand);
+}
+
+function refreshAlcaRow(){
+  const row = bomState.materiais.find(r => r.auto === 'alca');
+  if(!row) return;
+  row.qty = totalAlcas();
+  const tr = document.querySelector('tr[data-id="alca"]');
+  if(!tr) return;
+  tr.querySelector('input[data-role="qty"]').value = row.qty;
+  tr.querySelector('[data-role="subtotal"]').textContent = fmtBRL(row.qty * row.price);
+}
+
+function buildStats(){
+  document.getElementById('s-rotas').textContent = totalRotas();
+  document.getElementById('s-ctos').textContent = fmtInt(totalCTO());
+  document.getElementById('s-ceos').textContent = fmtInt(totalCEO());
+  document.getElementById('s-ceos-sub').textContent = `+ ${totalEmenda()} emendas em rota`;
+  document.getElementById('s-cabo').textContent = fmtKm(totalCabo12()+totalCabo24());
+  document.getElementById('s-cabo-sub').textContent = `${fmtM(totalCabo12())} · 12FO  +  ${fmtM(totalCabo24())} · 24FO`;
+  document.getElementById('note-totals').textContent =
+    `${totalCTO()} CTOs / ${totalCEO()} CEOs conforme nomenclatura das rotas no projeto (RT01–RT07 + backbone); ${fmtM(totalExistente())} de cabo 12FO no backbone já lançado não entram no orçamento.`;
+}
+
+/* ---------------- Concorrência — lista editável (adicionar/editar/
+   excluir), planos digitados à mão, sem fonte automática. ---------------- */
+let concorrentes = []; // [{id,nome,planos}]
+let _concSeedV = 0;
+
+function novoConcorrenteId(){
+  return 'cc' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+}
+
+function renderConcorrentesEditor(){
+  const tbody = document.getElementById('concorrentes-tbody');
+  if(!tbody) return;
+  tbody.innerHTML = concorrentes.map(row => `<tr data-id="${row.id}">
+    <td><input type="text" class="conc-name" value="${esc(row.nome||'')}" placeholder="Nome do provedor"></td>
+    <td><textarea class="planos-input" rows="2" placeholder="Ex: 300MB R$79,90 / 600MB R$99,90">${esc(row.planos||'')}</textarea></td>
+    <td><button class="row-del" type="button" title="Excluir concorrente">&times;</button></td>
+  </tr>`).join('') || `<tr><td colspan="3" style="color:var(--ink-muted);padding:14px;">Nenhum concorrente cadastrado ainda — adicione à mão.</td></tr>`;
+  tbody.querySelectorAll('tr[data-id]').forEach(tr=>{
+    const row = concorrentes.find(r=>r.id===tr.dataset.id);
+    if(!row) return;
+    tr.querySelector('.conc-name').addEventListener('input', e=>{ row.nome = e.target.value; scheduleSave(); });
+    tr.querySelector('.planos-input').addEventListener('input', e=>{ row.planos = e.target.value; scheduleSave(); });
+    tr.querySelector('.row-del').addEventListener('click', ()=>{
+      concorrentes = concorrentes.filter(r=>r.id!==tr.dataset.id);
+      scheduleSave();
+      renderConcorrentesEditor();
+    });
+  });
+}
+
+function initConcorrentes(){
+  renderConcorrentesEditor();
+  const addBtn = document.getElementById('btn-add-concorrente');
+  if(addBtn) addBtn.addEventListener('click', ()=>{
+    concorrentes.push({ id: novoConcorrenteId(), nome:'', planos:'' });
+    scheduleSave();
+    renderConcorrentesEditor();
+    const tbody = document.getElementById('concorrentes-tbody');
+    const inputs = tbody.querySelectorAll('.conc-name');
+    if(inputs.length) inputs[inputs.length-1].focus();
+  });
+}
+
+/* ---------------- Init ---------------- */
+function init(){
+  try { drawNet(); } catch(err) { console.error('Falha ao desenhar o esquema da rede:', err); const note=document.getElementById('map-fallback-note'); if(note) note.hidden=false; }
+  initMapToggle();
+  initConcorrentes();
+  buildLegend();
+  buildStats();
+  buildBom();
+  initBomTabs();
+  recalc();
+
+  document.getElementById('in-conting').addEventListener('input', ()=>{ recalc(); scheduleSave(); });
+  document.getElementById('in-bdi').addEventListener('input', ()=>{ recalc(); scheduleSave(); });
+  document.getElementById('in-vao').addEventListener('input', () => { refreshAlcaRow(); recalc(); scheduleSave(); });
+  document.getElementById('in-city').addEventListener('input', scheduleSave);
+  document.getElementById('in-client').addEventListener('input', scheduleSave);
+}
+init();
+
+// ============================================================
+// Persistência (localStorage + Firestore) — mesmo padrão dos outros
+// relatórios de Expansão Orgânica.
+// ============================================================
+const STORAGE_KEY = 'aquiraz-projeto2-v1';
+
+document.addEventListener('input', e=>{
+  if(e.target.dataset.role) scheduleSave();
+});
+document.addEventListener('click', e=>{
+  if(e.target.closest('button[data-role="del"]') || e.target.closest('button.row-add')) scheduleSave();
+});
+
+function captureState(){
+  return {
+    inCity: document.getElementById('in-city').value,
+    inClient: document.getElementById('in-client').value,
+    inVao: document.getElementById('in-vao').value,
+    inConting: document.getElementById('in-conting').value,
+    inBdi: document.getElementById('in-bdi').value,
+    materiais: bomState.materiais,
+    maodeobra: bomState.maodeobra,
+    infolink: bomState.infolink,
+    concorrentes,
+    concSeedV: _concSeedV,
+    updated: Date.now(),
+  };
+}
+
+function applyState(state){
+  if(!state) return;
+  if(state.inCity!=null) document.getElementById('in-city').value = state.inCity;
+  if(state.inClient!=null) document.getElementById('in-client').value = state.inClient;
+  if(state.inVao!=null) document.getElementById('in-vao').value = state.inVao;
+  if(state.inConting!=null) document.getElementById('in-conting').value = state.inConting;
+  if(state.inBdi!=null) document.getElementById('in-bdi').value = state.inBdi;
+  if(Array.isArray(state.materiais)) bomState.materiais = state.materiais;
+  if(Array.isArray(state.maodeobra)) bomState.maodeobra = state.maodeobra;
+  if(Array.isArray(state.infolink)) bomState.infolink = state.infolink;
+  if(Array.isArray(state.concorrentes)){ concorrentes = state.concorrentes; renderConcorrentesEditor(); }
+  if(state.concSeedV!=null) _concSeedV = state.concSeedV;
+  // Reinicia o contador de IDs novos a partir do maior "row-N" já salvo,
+  // pra nunca gerar um id que colida com um item restaurado.
+  BOM_GROUPS.forEach(g=>{
+    bomState[g].forEach(r=>{
+      const m = /^row-(\d+)$/.exec(r.id||'');
+      if(m) rowSeq = Math.max(rowSeq, parseInt(m[1],10));
+    });
+  });
+  buildBom();
+  recalc();
+}
+
+let _saveTimer = null;
+function scheduleSave(){
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(()=>{
+    const state = captureState();
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    catch(e){ /* armazenamento local indisponível — segue só na sessão */ }
+    syncToCloud(state);
+  }, 500);
+}
+
+let _cloudSyncTimer = null;
+function syncToCloud(state){
+  if(!window._fbUser || !window._cloudSave) return;
+  clearTimeout(_cloudSyncTimer);
+  _cloudSyncTimer = setTimeout(async ()=>{
+    try{ await window._cloudSave(state); }
+    catch(e){ console.error('Falha ao sincronizar Aquiraz Projeto 2 com a nuvem:', e); }
+  }, 1000);
+}
+
+// Aplica atualização recebida em tempo real de outra pessoa logada com a
+// mesma conta (mesmo padrão do resto do site).
+window._applyRemoteState = function(data){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }catch(e){}
+  applyState(data);
+};
+
+let _savedState = null;
+try{ const raw = localStorage.getItem(STORAGE_KEY); if(raw) _savedState = JSON.parse(raw); }catch(e){}
+if(_savedState) applyState(_savedState);
+
+(function seedConcorrentesPortoDasDunas(){
+  if(_concSeedV >= 1) return;
+  concorrentes.push({ id: novoConcorrenteId(), nome:'Giga+', planos: '1 Giga + Globoplay — R$ 104,99/mês no boleto (de R$ 119,99)\n700 Mega + Globoplay — R$ 99,99/mês no boleto (de R$ 114,99 — melhor oferta)\n800 Mega + Globoplay — R$ 109,99/mês no boleto (de R$ 124,99)\nInclui Globoplay + Conta Outra + Ubook Go\n—\n800 Mega + Globoplay (plano padrão c/ anúncios) — R$ 109,99/mês no boleto\n600 Mega + Globoplay — R$ 104,99/mês no boleto\n1 Giga + Globoplay — R$ 149,99/mês no boleto' });
+  concorrentes.push({ id: novoConcorrenteId(), nome:'Brisanet', planos: '700 Mega + Móvel (Brisachip 50GB) — R$ 119,99/mês\n500 Mega + Móvel (Brisachip 20GB) — R$ 99,99/mês (melhor oferta)\n500 Mega (Wi-Fi Plus) — R$ 84,90/mês\nInclui Skeelo em todos os planos' });
+  concorrentes.push({ id: novoConcorrenteId(), nome:'Claro', planos: '600 Mega (Fibra) — R$ 99,90/mês — Wi-Fi Plus, Claro vídeo, Skeelo, Antivírus McAfee\n350 Mega (Fibra) — R$ 89,90/mês — Wi-Fi Plus, Claro vídeo, Skeelo, Antivírus McAfee\n600 Mega + 60GB móvel (Fibra + Pós) — R$ 109,90/mês (6 meses, depois R$ 139,90)\n600 Mega + Claro tv+ box (Netflix/Disney+/Prime Video/Apple TV/HBO Max) — R$ 239,80/mês\n1 Giga + 50GB móvel (Fibra + Pós) — R$ 179,90/mês\nOfertas específicas pra Aquiraz-CE' });
+  concorrentes.push({ id: novoConcorrenteId(), nome:'Nio', planos: 'Nio Fibra Essencial — 600 Mega — R$ 110/mês (R$ 95 no cartão) — preço fixo até jan/2030\nNio Fibra Super — 800 Mega — R$ 135/mês (R$ 120 no cartão) — inclui Globoplay 12 meses + Wi-Fi 6\nNio Fibra Ultra — 1 Giga — R$ 160/mês (R$ 145 no cartão) — inclui Globoplay 12 meses + Wi-Fi 6 + 1 ponto Wi-Fi 6 Mesh' });
+  _concSeedV = 1;
+  renderConcorrentesEditor();
+  scheduleSave();
+})();
+</script>
+</body>
+</html>

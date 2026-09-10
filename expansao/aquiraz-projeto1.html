@@ -415,8 +415,8 @@
   <!-- =========================== ABA CONCORRENTES =========================== -->
   <div id="tab-concorrentes" class="tab-panel">
     <section class="bloco">
-      <div class="bloco-header">Concorrência em PATACAS (CFO)</div>
-      <div class="bloco-sub">Busca automática por "PATACAS" nos dados já importados do Map Marker no painel CFO. O campo "Planos" é digitado à mão (não vem de nenhuma fonte automática), salvo por concorrente.</div>
+      <div class="bloco-header">Concorrência em PATACAS</div>
+      <div class="bloco-sub">Provedores da região — planos e preços levantados à mão, salvo por concorrente.</div>
       <div id="concorrenciaBlock" style="margin:0 22px 22px;"></div>
     </section>
   </div>
@@ -665,65 +665,25 @@ function recalcAll(){
 const STORAGE_KEY = 'aquiraz-projeto1-v1';
 
 // ============================================================
-// Concorrência (CFO) — mesma busca por nome usada no painel Expansão
-// Orgânica, aqui fixa em "PATACAS" (identidade do projeto). Planos são
-// digitados à mão (sem fonte automática) e guardados em concorrentesPlanos.
+// Concorrência — lista editável (adicionar/editar/excluir), planos
+// digitados à mão, sem fonte automática.
 // ============================================================
 let concorrentes = []; // [{id,nome,caixas,clientes,planos}] — lista editável (adicionar/editar/excluir)
-let cfoDataPromise = null;
+let _concSeedV = 0; // trava os seeds de concorrentes (ver seedConcorrentesPatacas) pra rodar só uma vez
 
 function novoConcorrenteId(){
   return 'cc' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 }
 
-function normBairro(s){
-  return (s||'').normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), '').trim().toUpperCase();
-}
-
-function buildBairroIndex(D){
-  const idx = new Map();
-  const add = (municipio, bairroNome, dados) => {
-    const key = normBairro(bairroNome);
-    if(!key) return;
-    if(!idx.has(key)) idx.set(key, []);
-    idx.get(key).push({ municipio, bairro: bairroNome, providers: dados.providers||{}, cx: dados.cx||0, clientes: dados.clientes||0 });
-  };
-  if(D.fortaleza && D.fortaleza.bairros){
-    Object.entries(D.fortaleza.bairros).forEach(([nome, dados])=> add('Fortaleza', nome, dados));
-  }
-  if(D.cidades){
-    Object.values(D.cidades).forEach(cidade=>{
-      if(!cidade.bairros) return;
-      Object.entries(cidade.bairros).forEach(([nome, dados])=> add(cidade.display_name || '—', nome, dados));
-    });
-  }
-  return idx;
-}
-
-function loadCfoIndex(){
-  if(cfoDataPromise) return cfoDataPromise;
-  cfoDataPromise = fetch('../cfo/dashboard.html')
-    .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
-    .then(text=>{
-      const m = text.match(/let D = (\{[\s\S]*?\});\n/);
-      if(!m) throw new Error('Dados não encontrados no CFO.');
-      return buildBairroIndex(JSON.parse(m[1]));
-    })
-    .catch(err=>{ cfoDataPromise = null; throw err; });
-  return cfoDataPromise;
-}
-
 function renderConcorrentesTabela(){
   const linhas = concorrentes.map(row => '<tr data-id="'+row.id+'">'
     + '<td><input type="text" class="conc-in conc-nome" value="'+(row.nome||'')+'" placeholder="Nome do provedor"></td>'
-    + '<td><input type="number" class="conc-in conc-num" data-field="caixas" value="'+(row.caixas||0)+'" min="0"></td>'
-    + '<td><input type="number" class="conc-in conc-num" data-field="clientes" value="'+(row.clientes||0)+'" min="0"></td>'
     + '<td><textarea class="planos-in" rows="2" placeholder="Ex: 300MB R$79,90 / 600MB R$99,90">'+(row.planos||'')+'</textarea></td>'
     + '<td><button class="del-btn" type="button" title="Excluir concorrente">✕</button></td>'
     + '</tr>').join('');
   return '<div class="concorrente-panel">'
-    + '<table><thead><tr><th>Provedor</th><th class="num">Caixas</th><th class="num">Clientes</th><th>Planos</th><th></th></tr></thead>'
-    + '<tbody>' + (linhas || '<tr><td colspan="5" style="color:var(--cinza);padding:14px;">Nenhum concorrente cadastrado ainda — adicione à mão ou importe do CFO abaixo.</td></tr>') + '</tbody></table>'
+    + '<table><thead><tr><th>Provedor</th><th>Planos</th><th></th></tr></thead>'
+    + '<tbody>' + (linhas || '<tr><td colspan="3" style="color:var(--cinza);padding:14px;">Nenhum concorrente cadastrado ainda — adicione à mão.</td></tr>') + '</tbody></table>'
     + '<button class="add-btn" id="addConcorrenteBtn" type="button" style="margin:10px 0 0;">+ Adicionar concorrente</button>'
     + '</div>';
 }
@@ -736,9 +696,6 @@ function renderConcorrentesEditor(){
     const row = concorrentes.find(r=>r.id===tr.dataset.id);
     if(!row) return;
     tr.querySelector('.conc-nome').addEventListener('input', e=>{ row.nome = e.target.value; scheduleSave(); });
-    tr.querySelectorAll('.conc-num').forEach(inp=>{
-      inp.addEventListener('input', e=>{ row[inp.dataset.field] = parseInt(e.target.value,10)||0; scheduleSave(); });
-    });
     tr.querySelector('.planos-in').addEventListener('input', e=>{ row.planos = e.target.value; scheduleSave(); });
     tr.querySelector('.del-btn').addEventListener('click', ()=>{
       concorrentes = concorrentes.filter(r=>r.id!==tr.dataset.id);
@@ -756,64 +713,11 @@ function renderConcorrentesEditor(){
   };
 }
 
-function importarConcorrentesDoCfo(providers, contaComoProvedor){
-  const existentes = new Set(concorrentes.map(r=>normBairro(r.nome)));
-  Object.entries(providers).forEach(([nome,d])=>{
-    if(!contaComoProvedor(nome)) return;
-    const chave = normBairro(nome);
-    if(existentes.has(chave)) return;
-    concorrentes.push({ id: novoConcorrenteId(), nome, caixas: d.cx||0, clientes: d.clientes||0, planos:'' });
-    existentes.add(chave);
-  });
-  scheduleSave();
-}
-
-async function updateConcorrenciaCfo(){
-  const cfoBlock = document.getElementById('concorrenciaCfo');
-  if(!cfoBlock) return;
-  const chave = normBairro('PATACAS');
-  cfoBlock.innerHTML = '<p style="color:var(--cinza);font-size:12.5px;">Buscando "PATACAS" nos dados do CFO...</p>';
-  let idx;
-  try{ idx = await loadCfoIndex(); }
-  catch(err){
-    cfoBlock.innerHTML = '<p style="color:#b91c1c;font-size:12.5px;">Não foi possível carregar os dados do CFO (' + err.message + ').</p>';
-    return;
-  }
-  const matches = idx.get(chave) || [];
-  if(!matches.length){
-    cfoBlock.innerHTML = '<p style="color:var(--cinza);font-size:12.5px;">Nenhum dado de concorrência encontrado no CFO para "PATACAS". Adicione concorrentes manualmente acima.</p>';
-    return;
-  }
-  const contaComoProvedor = nome => !/SEM\s*ID/i.test(nome);
-  cfoBlock.innerHTML = matches.map((m,i)=>{
-    const linhas = Object.entries(m.providers).sort((a,b)=>(b[1].cx||0)-(a[1].cx||0)).map(([nome,d])=>{
-      const ehProvedor = contaComoProvedor(nome);
-      return '<tr'+(ehProvedor?'':' style="color:var(--cinza);"')+'><td class="desc">'+nome+'</td><td class="num">'+d.cx.toLocaleString('pt-BR')+'</td><td class="num">'+d.clientes.toLocaleString('pt-BR')+'</td></tr>';
-    }).join('');
-    return '<div class="concorrente-panel">'
-      + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">'
-      + '<div><b>'+m.bairro+'</b> — '+m.municipio+' <span style="color:var(--cinza);font-size:11.5px;">(fonte: CFO / Map Marker)</span></div>'
-      + '<button class="add-btn" data-idx-import="'+i+'" style="display:inline-block;margin:0;">⬇ Importar provedores pra lista acima</button>'
-      + '</div>'
-      + '<table><thead><tr><th>Provedor</th><th class="num">Caixas</th><th class="num">Clientes</th></tr></thead><tbody>'+linhas+'</tbody></table>'
-      + '<p style="margin:8px 0 0;font-size:11.5px;color:var(--cinza);font-style:italic;">Caixas sem identificação (em cinza) não entram na importação.</p>'
-      + '</div>';
-  }).join('');
-  cfoBlock.querySelectorAll('[data-idx-import]').forEach(btn=>{
-    btn.onclick = ()=>{
-      const m = matches[Number(btn.dataset.idxImport)];
-      importarConcorrentesDoCfo(m.providers, contaComoProvedor);
-      renderConcorrentesEditor();
-    };
-  });
-}
-
-async function updateConcorrencia(){
+function updateConcorrencia(){
   const block = document.getElementById('concorrenciaBlock');
   if(!block) return;
-  block.innerHTML = '<div id="concorrentesEditor"></div><div id="concorrenciaCfo" style="margin-top:18px;"></div>';
+  block.innerHTML = '<div id="concorrentesEditor"></div>';
   renderConcorrentesEditor();
-  await updateConcorrenciaCfo();
 }
 
 function captureState(){
@@ -832,6 +736,7 @@ function captureState(){
     pPortasAtender: document.getElementById('pPortasAtender').value,
     pMargem: document.getElementById('pMargem').value,
     concorrentes,
+    concSeedV: _concSeedV,
     updated: Date.now(),
   };
 }
@@ -842,6 +747,7 @@ function applyState(state){
   else if(state.concorrentesPlanos) concorrentes = Object.entries(state.concorrentesPlanos).map(([nome,planos])=>(
     { id: novoConcorrenteId(), nome, caixas:0, clientes:0, planos }
   ));
+  if(state.concSeedV!=null) _concSeedV = state.concSeedV;
   if(!state.rows || !state.rows.length) return;
   if(state.pPortasPorCto) document.getElementById('pPortasPorCto').value = state.pPortasPorCto;
   if(state.pPortasAtender) document.getElementById('pPortasAtender').value = state.pPortasAtender;
@@ -958,6 +864,24 @@ if(_savedState){
   document.getElementById('pMargem').dispatchEvent(new Event('input'));
   document.getElementById('pPortasAtender').dispatchEvent(new Event('input'));
 }
+
+// Concorrentes já levantados (planos tirados de imagens enviadas pela
+// equipe) — roda só uma vez (_concSeedV trava), não volta se for excluído
+// depois nem duplica em recarregamentos seguintes.
+(function seedConcorrentesPatacas(){
+  if(_concSeedV >= 1) return;
+  concorrentes.push({
+    id: novoConcorrenteId(), nome:'Giga+', caixas:0, clientes:0,
+    planos: '800 Mega + Globoplay (plano padrão c/ anúncios) — R$ 109,99/mês no boleto\n600 Mega + Globoplay — R$ 104,99/mês no boleto\n1 Giga + Globoplay — R$ 149,99/mês no boleto',
+  });
+  concorrentes.push({
+    id: novoConcorrenteId(), nome:'WHG', caixas:0, clientes:0,
+    planos: 'Combo Gamer — 800 Mega + ExitLag + IP fixo — R$ 124,99/mês\nCombo Music — assine 500 Mega, ganhe 100 Mega + Deezer — R$ 109,99/mês\nCombo Família — assine 400 Mega, ganhe 100 Mega + Looke ou PlayKids — R$ 89,99/mês\n(valores com desconto de pontualidade; R$10 a mais em cada plano após o vencimento)',
+  });
+  _concSeedV = 1;
+  scheduleSave();
+})();
+
 updateConcorrencia();
 </script>
 

@@ -321,6 +321,17 @@
     cursor:pointer;
   }
   .add-btn:hover{background:#173e60;}
+  .concorrente-panel{ background:#f7f9fb; border:1px solid var(--borda); border-radius:8px; padding:14px 16px; margin:14px 22px 20px; }
+  input.conc-in{
+    background:#fff; border:1px solid var(--borda); color:#1f2937; font-family:Arial, Helvetica, sans-serif;
+    font-size:12.5px; padding:6px 8px; border-radius:6px; width:100%; min-width:160px;
+  }
+  input.conc-in:focus{ outline:none; border-color:var(--azul); box-shadow:0 0 0 2px rgba(31,78,120,.15); }
+  textarea.planos-in{
+    background:#fff; border:1px solid var(--borda); color:#1f2937; font-family:Arial, Helvetica, sans-serif;
+    font-size:12.5px; padding:6px 8px; border-radius:6px; width:100%; min-width:220px; resize:vertical;
+  }
+  textarea.planos-in:focus{ outline:none; border-color:var(--azul); box-shadow:0 0 0 2px rgba(31,78,120,.15); }
   td[contenteditable]{outline:none;}
   td[contenteditable]:focus{background:#fffbe6;}
   @media (max-width:720px){
@@ -345,6 +356,7 @@
 
   <div class="tabs">
     <button class="tab-btn active" onclick="showTab('mapa')">🗺️ Mapa da Rede</button>
+    <button class="tab-btn" onclick="showTab('concorrentes')">🥊 Concorrentes</button>
     <button class="tab-btn" onclick="showTab('orcamento')">💰 Orçamento</button>
   </div>
 
@@ -391,6 +403,15 @@
         • Investimento por município cobre infraestrutura externa (cabo, CTO, CEO, splitters, poste, BAP, SUPA, alça, acoplador, arame, tubete, raquete CEO). O CPD (R$42.533,90) é investimento único do POP central, não dividido por município.<br>
         • Poste, BAP, SUPA, alça, arame e tubete foram informados só em total do projeto — distribuídos proporcionalmente ao comprimento de cabo de cada município, com arredondamento ajustado para bater exatamente com o total geral.
       </div>
+    </section>
+  </div>
+
+  <!-- =========================== ABA CONCORRENTES =========================== -->
+  <div id="tab-concorrentes" class="tab-panel">
+    <section class="bloco">
+      <div class="bloco-header">Concorrência</div>
+      <div class="bloco-sub">Provedores da região — planos e preços levantados à mão, salvo por concorrente.</div>
+      <div id="concorrenciaBlock"></div>
     </section>
   </div>
 
@@ -692,6 +713,59 @@ function recalcAll(){
 // ============================================================
 const STORAGE_KEY = 'beberibe-projeto1-v1';
 
+// ============================================================
+// Concorrência — lista editável (adicionar/editar/excluir), planos
+// digitados à mão, sem fonte automática.
+// ============================================================
+let concorrentes = []; // [{id,nome,planos}]
+let _concSeedV = 0; // trava os seeds de concorrentes (ver seedConcorrentesBeberibe) pra rodar só uma vez
+
+function novoConcorrenteId(){
+  return 'cc' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+}
+
+function renderConcorrentesTabela(){
+  const linhas = concorrentes.map(row => '<tr data-id="'+row.id+'">'
+    + '<td><input type="text" class="conc-in conc-nome" value="'+(row.nome||'')+'" placeholder="Nome do provedor"></td>'
+    + '<td><textarea class="planos-in" rows="2" placeholder="Ex: 300MB R$79,90 / 600MB R$99,90">'+(row.planos||'')+'</textarea></td>'
+    + '<td><button class="del-btn" type="button" title="Excluir concorrente">✕</button></td>'
+    + '</tr>').join('');
+  return '<div class="concorrente-panel">'
+    + '<table><thead><tr><th>Provedor</th><th>Planos</th><th></th></tr></thead>'
+    + '<tbody>' + (linhas || '<tr><td colspan="3" style="color:var(--cinza);padding:14px;">Nenhum concorrente cadastrado ainda — adicione à mão.</td></tr>') + '</tbody></table>'
+    + '<button class="add-btn" id="addConcorrenteBtn" type="button" style="margin:10px 0 0;">+ Adicionar concorrente</button>'
+    + '</div>';
+}
+
+function renderConcorrentesEditor(){
+  const editor = document.getElementById('concorrenciaBlock');
+  if(!editor) return;
+  editor.innerHTML = renderConcorrentesTabela();
+  editor.querySelectorAll('tr[data-id]').forEach(tr=>{
+    const row = concorrentes.find(r=>r.id===tr.dataset.id);
+    if(!row) return;
+    tr.querySelector('.conc-nome').addEventListener('input', e=>{ row.nome = e.target.value; scheduleSave(); });
+    tr.querySelector('.planos-in').addEventListener('input', e=>{ row.planos = e.target.value; scheduleSave(); });
+    tr.querySelector('.del-btn').addEventListener('click', ()=>{
+      concorrentes = concorrentes.filter(r=>r.id!==tr.dataset.id);
+      scheduleSave();
+      renderConcorrentesEditor();
+    });
+  });
+  const addBtn = editor.querySelector('#addConcorrenteBtn');
+  if(addBtn) addBtn.onclick = ()=>{
+    concorrentes.push({ id: novoConcorrenteId(), nome:'', planos:'' });
+    scheduleSave();
+    renderConcorrentesEditor();
+    const inputs = editor.querySelectorAll('.conc-nome');
+    if(inputs.length) inputs[inputs.length-1].focus();
+  };
+}
+
+function updateConcorrencia(){
+  renderConcorrentesEditor();
+}
+
 function serializeTbody(tbodyId){
   return [...document.querySelectorAll('#'+tbodyId+' tr[data-row]')].map(tr=>({
     cls: tr.className,
@@ -704,7 +778,13 @@ function serializeTbody(tbodyId){
 }
 
 function captureState(){
-  return { infra: serializeTbody('tbody-infra'), cpd: serializeTbody('tbody-cpd'), updated: Date.now() };
+  return {
+    infra: serializeTbody('tbody-infra'),
+    cpd: serializeTbody('tbody-cpd'),
+    concorrentes,
+    concSeedV: _concSeedV,
+    updated: Date.now(),
+  };
 }
 
 function rowFromData(r){
@@ -724,6 +804,9 @@ function rowFromData(r){
 
 function applyState(state){
   if(!state) return;
+  if(Array.isArray(state.concorrentes)) concorrentes = state.concorrentes;
+  if(state.concSeedV!=null) _concSeedV = state.concSeedV;
+  renderConcorrentesEditor();
   if(state.infra && state.infra.length){
     const tbody = document.getElementById('tbody-infra');
     tbody.innerHTML = '';
@@ -816,6 +899,24 @@ let _savedState = null;
 try{ const raw = localStorage.getItem(STORAGE_KEY); if(raw) _savedState = JSON.parse(raw); }catch(e){}
 if(_savedState){ applyState(_savedState); }
 else { recalcAll(); }
+
+// Concorrentes já levantados (planos tirados de imagens enviadas pela
+// equipe) — roda só uma vez (_concSeedV trava), não volta se for excluído
+// depois nem duplica em recarregamentos seguintes.
+(function seedConcorrentesBeberibe(){
+  if(_concSeedV >= 1) return;
+  concorrentes.push({
+    id: novoConcorrenteId(), nome:'Netonda',
+    planos: '300 Mega + NPlay TV, Wi-Fi Premium — R$ 79,90/mês (Residencial)\n500 Mega + WATCH TV e Filmes, Wi-Fi Premium — R$ 89,90/mês (Residencial)\n700 Mega + WATCH TV & Filmes, Wi-Fi 6 — R$ 99,90/mês (Residencial)',
+  });
+  concorrentes.push({
+    id: novoConcorrenteId(), nome:'(nome a confirmar — planos Mais Smart/Total/Alcance/Gamer PRO)',
+    planos: 'Mais Smart PRO — 600 Mega + Wi-Fi 6 + 18 canais de TV — R$ 119,90/mês\nMais Total PRO — 700 Mega + Wi-Fi 6 + 18 canais de TV (Conecta+) — R$ 129,90/mês\nMais Alcance — 500 Mega + 2 roteadores Wi-Fi 6 Mesh (Conecta+) — R$ 139,90/mês (mais vendido)\nMais Gamer — 800 Mega + Wi-Fi 6 (Conecta+) — R$ 149,90/mês\n(a marca não aparecia no print — só o selo "Conecta+" em 3 dos 4 planos)',
+  });
+  _concSeedV = 1;
+  scheduleSave();
+})();
+updateConcorrencia();
 </script>
 
 </body>
