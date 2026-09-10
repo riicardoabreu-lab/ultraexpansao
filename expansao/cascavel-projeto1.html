@@ -156,12 +156,12 @@ a{ color:var(--accent); }
 
 .field{ display:flex; flex-direction:column; gap:3px; }
 .field label{ font-size:10px; text-transform:uppercase; letter-spacing:.09em; color:var(--text-muted); font-weight:600;}
-.field input{
+.field input, .field select{
   font-family:'IBM Plex Mono', monospace; font-size:12.5px; color:var(--text);
   background:var(--surface-2); border:1px solid var(--border); border-radius:7px;
   padding:6px 9px; width:118px; outline:none; transition:border-color .15s, background .15s;
 }
-.field input:focus{ border-color:var(--accent); background:var(--surface); }
+.field input:focus, .field select:focus{ border-color:var(--accent); background:var(--surface); }
 .field.num input{ width:64px; text-align:right; }
 .field-row{ display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end; }
 
@@ -320,6 +320,13 @@ footer{ max-width:1180px; margin:0 auto; padding:0 24px 40px; color:var(--text-m
       <div class="field">
         <label for="in-cliente">Cliente / projeto</label>
         <input id="in-cliente" type="text" placeholder="—" style="width:150px">
+      </div>
+      <div class="field">
+        <label for="in-splitter">Splitter (portas/CTO)</label>
+        <select id="in-splitter">
+          <option value="8">1x8</option>
+          <option value="16" selected>1x16</option>
+        </select>
       </div>
       <div class="field num">
         <label for="in-vao">Vão médio (m)</label>
@@ -493,17 +500,24 @@ NETWORK.forEach(r => {
 });
 
 // ---- stat tiles ----
-const PORTAS_POR_CTO = 16; // mesma referência do item "CTO/CX 16 portas completa"
-const totalPortas = totalCX * PORTAS_POR_CTO;
-const stats = [
-  {n: totalRoutesN, l: 'Rotas de distribuição'},
-  {n: totalCX, l: 'Caixas CX (CTO)'},
-  {n: totalCEO + totalEmenda, l: 'CEO / emendas'},
-  {n: (totalCabo/1000).toLocaleString('pt-BR',{maximumFractionDigits:1}) + ' km', l: 'Cabo 12FO total'},
-  {n: 3, l: 'Setores'},
-  {n: totalPortas.toLocaleString('pt-BR'), l: 'Portas a atender'},
-];
-document.getElementById('stats-grid').innerHTML = stats.map(s => `<div class="stat"><span class="n mono">${s.n}</span><span class="l">${s.l}</span></div>`).join('');
+// "Portas a atender" depende do splitter escolhido (1x8 ou 1x16) e "Cabo
+// 12FO total" reflete a quantidade que está na tabela de Materiais (que é
+// editável) em vez da metragem bruta do KMZ — por isso vira uma função,
+// chamada de novo sempre que um dos dois muda, e não só na carga da página.
+function renderStats(){
+  const splitterVal = parseInt(document.getElementById('in-splitter').value, 10) || 16;
+  const portas = totalCX * splitterVal;
+  const caboKm = ((qty.cabo12fo||0)/1000).toLocaleString('pt-BR',{maximumFractionDigits:1});
+  const stats = [
+    {n: totalRoutesN, l: 'Rotas de distribuição'},
+    {n: totalCX, l: 'Caixas CX (CTO)'},
+    {n: totalCEO + totalEmenda, l: 'CEO / emendas'},
+    {n: caboKm + ' km', l: 'Cabo 12FO total'},
+    {n: 3, l: 'Setores'},
+    {n: portas.toLocaleString('pt-BR'), l: 'Portas a atender (1x'+splitterVal+')'},
+  ];
+  document.getElementById('stats-grid').innerHTML = stats.map(s => `<div class="stat"><span class="n mono">${s.n}</span><span class="l">${s.l}</span></div>`).join('');
+}
 
 // ---- network diagram (SVG, drawn from real KML geometry) ----
 (function drawNet(){
@@ -753,6 +767,7 @@ function addItem(list, tbodyId){
   price[key] = 0;
   renderTables();
   recompute();
+  renderStats();
   scheduleSave();
   const tbody = document.getElementById(tbodyId);
   const input = tbody.querySelector(`tr[data-key="${key}"] .name-input`);
@@ -766,6 +781,7 @@ function delItem(list, key){
   delete price[key];
   renderTables();
   recompute();
+  renderStats();
   scheduleSave();
 }
 function findItem(key){
@@ -781,7 +797,7 @@ function renderTables(){
 }
 function bindQtyPriceInputs(){
   document.querySelectorAll('.qty-input').forEach(inp=>{
-    inp.addEventListener('input', e=>{ qty[e.target.dataset.key] = parseFloat(e.target.value)||0; recompute(); scheduleSave(); });
+    inp.addEventListener('input', e=>{ qty[e.target.dataset.key] = parseFloat(e.target.value)||0; recompute(); renderStats(); scheduleSave(); });
   });
   document.querySelectorAll('.price-input').forEach(inp=>{
     inp.addEventListener('input', e=>{ price[e.target.dataset.key] = parseFloat(e.target.value)||0; recompute(); scheduleSave(); });
@@ -802,9 +818,11 @@ function bindRowDelButtons(tbodyId, list){
   });
 }
 renderTables();
+renderStats();
 
 document.getElementById('btn-add-material').addEventListener('click', ()=> addItem(MATERIALS, 'materials-tbody'));
 document.getElementById('btn-add-labor').addEventListener('click', ()=> addItem(LABOR, 'labor-tbody'));
+document.getElementById('in-splitter').addEventListener('change', ()=>{ renderStats(); scheduleSave(); });
 
 // ---- routes table ----
 const ROUTE_ROWS = NETWORK.map(r => ({...r, sectorLabel: SECTOR_LABEL[r.sector]}));
@@ -918,6 +936,7 @@ function captureState(){
   return {
     inCidade: document.getElementById('in-cidade').value,
     inCliente: document.getElementById('in-cliente').value,
+    inSplitter: document.getElementById('in-splitter').value,
     inVao: document.getElementById('in-vao').value,
     inConting: document.getElementById('in-conting').value,
     inBdi: document.getElementById('in-bdi').value,
@@ -933,6 +952,7 @@ function applyState(state){
   if(!state) return;
   if(state.inCidade!=null) document.getElementById('in-cidade').value = state.inCidade;
   if(state.inCliente!=null) document.getElementById('in-cliente').value = state.inCliente;
+  if(state.inSplitter!=null) document.getElementById('in-splitter').value = state.inSplitter;
   if(state.inVao!=null) document.getElementById('in-vao').value = state.inVao;
   if(state.inConting!=null) document.getElementById('in-conting').value = state.inConting;
   if(state.inBdi!=null) document.getElementById('in-bdi').value = state.inBdi;
@@ -944,6 +964,7 @@ function applyState(state){
   if(state.price){ Object.keys(price).forEach(k=>delete price[k]); Object.assign(price, state.price); }
   renderTables();
   recompute();
+  renderStats();
 }
 
 let _saveTimer = null;
