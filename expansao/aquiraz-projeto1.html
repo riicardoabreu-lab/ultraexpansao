@@ -670,6 +670,7 @@ const STORAGE_KEY = 'aquiraz-projeto1-v1';
 // digitados à mão (sem fonte automática) e guardados em concorrentesPlanos.
 // ============================================================
 let concorrentes = []; // [{id,nome,caixas,clientes,planos}] — lista editável (adicionar/editar/excluir)
+let _concSeedV = 0; // trava os seeds de concorrentes (ver seedConcorrentesPatacas) pra rodar só uma vez
 let cfoDataPromise = null;
 
 function novoConcorrenteId(){
@@ -832,6 +833,7 @@ function captureState(){
     pPortasAtender: document.getElementById('pPortasAtender').value,
     pMargem: document.getElementById('pMargem').value,
     concorrentes,
+    concSeedV: _concSeedV,
     updated: Date.now(),
   };
 }
@@ -842,6 +844,7 @@ function applyState(state){
   else if(state.concorrentesPlanos) concorrentes = Object.entries(state.concorrentesPlanos).map(([nome,planos])=>(
     { id: novoConcorrenteId(), nome, caixas:0, clientes:0, planos }
   ));
+  if(state.concSeedV!=null) _concSeedV = state.concSeedV;
   if(!state.rows || !state.rows.length) return;
   if(state.pPortasPorCto) document.getElementById('pPortasPorCto').value = state.pPortasPorCto;
   if(state.pPortasAtender) document.getElementById('pPortasAtender').value = state.pPortasAtender;
@@ -958,6 +961,24 @@ if(_savedState){
   document.getElementById('pMargem').dispatchEvent(new Event('input'));
   document.getElementById('pPortasAtender').dispatchEvent(new Event('input'));
 }
+
+// Concorrentes já levantados (planos tirados de imagens enviadas pela
+// equipe) — roda só uma vez (_concSeedV trava), não volta se for excluído
+// depois nem duplica em recarregamentos seguintes.
+(function seedConcorrentesPatacas(){
+  if(_concSeedV >= 1) return;
+  concorrentes.push({
+    id: novoConcorrenteId(), nome:'Giga+', caixas:0, clientes:0,
+    planos: '800 Mega + Globoplay (plano padrão c/ anúncios) — R$ 109,99/mês no boleto\n600 Mega + Globoplay — R$ 104,99/mês no boleto\n1 Giga + Globoplay — R$ 149,99/mês no boleto',
+  });
+  concorrentes.push({
+    id: novoConcorrenteId(), nome:'WHG', caixas:0, clientes:0,
+    planos: 'Combo Gamer — 800 Mega + ExitLag + IP fixo — R$ 124,99/mês\nCombo Music — assine 500 Mega, ganhe 100 Mega + Deezer — R$ 109,99/mês\nCombo Família — assine 400 Mega, ganhe 100 Mega + Looke ou PlayKids — R$ 89,99/mês\n(valores com desconto de pontualidade; R$10 a mais em cada plano após o vencimento)',
+  });
+  _concSeedV = 1;
+  scheduleSave();
+})();
+
 updateConcorrencia();
 </script>
 
