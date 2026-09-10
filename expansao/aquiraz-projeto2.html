@@ -282,6 +282,16 @@
     font-size: 12px; color: var(--sand); background: var(--sand-soft); border: 1px solid color-mix(in srgb, var(--sand) 35%, transparent);
     border-radius: 8px; padding: 8px 12px; margin: 0 4px;
   }
+  .sat-wrap { position: relative; }
+  .sat-map { width: 100%; height: 540px; border-radius: 10px; background: var(--bg-surface-alt); }
+  .sat-note {
+    font-size: 12px; color: var(--sand); background: var(--sand-soft); border: 1px solid color-mix(in srgb, var(--sand) 35%, transparent);
+    border-radius: 8px; padding: 8px 12px; margin: 8px 4px 0;
+  }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--bg-surface); color: var(--ink-primary); }
+  .leaflet-tooltip { font-family: var(--body); font-size: 12.5px; background: var(--bg-hero); color: var(--ink-on-hero); border: none; box-shadow: var(--shadow-card); }
+  .leaflet-control-attribution { background: color-mix(in srgb, var(--bg-surface) 78%, transparent) !important; color: var(--ink-muted) !important; font-size: 10px !important; }
+  .leaflet-control-attribution a { color: var(--ink-muted) !important; }
   .map-caption { display: flex; justify-content: space-between; gap: 12px; padding: 4px 10px 4px; font-size: 12px; color: var(--ink-muted); }
   .legend-card { padding: 6px; display: flex; flex-direction: column; }
   .legend-row {
@@ -352,6 +362,17 @@
   }
   input.qty-input { max-width: 92px; }
   input.price-input { max-width: 110px; }
+  input.conc-name {
+    font-family: var(--body); font-weight: 600; font-size: 13.5px; width: 100%;
+    border: 1px solid var(--border-strong); border-radius: 7px; background: var(--bg-surface); color: var(--ink-primary);
+    padding: 6px 8px;
+  }
+  textarea.planos-input {
+    font-family: var(--body); font-size: 13px; width: 100%; min-height: 56px; resize: vertical;
+    border: 1px solid var(--border-strong); border-radius: 7px; background: var(--bg-surface); color: var(--ink-primary);
+    padding: 6px 8px;
+  }
+  input.conc-name:focus-visible, textarea.planos-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   input.qty-input:focus-visible, input.price-input:focus-visible, input.unit-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .src-tag {
     display: inline-block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.03em;
@@ -372,6 +393,12 @@
     border-radius: 8px; padding: 8px 14px; cursor: pointer; width: 100%; text-align: left;
   }
   .row-add:hover { background: color-mix(in srgb, var(--accent) 16%, var(--accent-soft)); }
+  .conc-add {
+    font-family: var(--body); font-weight: 700; font-size: 13px; color: var(--accent-strong);
+    background: var(--accent-soft); border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 8px; padding: 8px 14px; cursor: pointer; width: 100%; text-align: left;
+  }
+  .conc-add:hover { background: color-mix(in srgb, var(--accent) 16%, var(--accent-soft)); }
 
   .totals-band {
     display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px;
@@ -403,6 +430,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 </head>
 <body>
 <div style="max-width:1180px;margin:0 auto;padding:14px 24px 0;">
@@ -473,14 +501,25 @@
     </div>
     <div class="map-grid">
       <div class="card map-card">
-        <div class="shape-legend">
-          <span><i class="sq"></i> CTO</span>
-          <span><i class="dia"></i> Ponto de emenda</span>
-          <span><i class="tri"></i> CEO</span>
-          <span><i class="circ"></i> POP</span>
+        <div class="map-toolbar">
+          <div class="shape-legend">
+            <span><i class="sq"></i> CTO</span>
+            <span><i class="dia"></i> Ponto de emenda</span>
+            <span><i class="tri"></i> CEO</span>
+            <span><i class="circ"></i> POP</span>
+          </div>
+          <div class="seg-toggle" role="group" aria-label="Modo de visualização">
+            <button id="btn-esquema" type="button" class="is-active">Esquema</button>
+            <button id="btn-satelite" type="button">Satélite</button>
+          </div>
         </div>
         <svg id="net-svg" class="net-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="sat-wrap" id="sat-wrap" hidden>
+          <div class="sat-map" id="sat-map"></div>
+        </div>
         <div id="map-fallback-note" class="map-fallback-note" hidden>Não foi possível desenhar o esquema da rede — recarregue a página.</div>
+        <div class="sat-note" id="sat-fail-note" hidden>Satélite indisponível agora (sem conexão com o servidor de mapas) — mostrando o esquema offline. Clique em "Satélite" para tentar de novo.</div>
+        <div class="sat-note" id="sat-tile-note" hidden>Imagem de satélite não carregou completamente (conexão instável) — os pontos e rotas continuam plotados corretamente.</div>
         <div class="map-caption">
           <span>Fonte: <code class="mono">doc.kml</code> — 128 elementos (rotas, caixas e cabos)</span>
         </div>
@@ -559,6 +598,24 @@
         <div class="t-label">Total do projeto</div>
         <div class="t-value" id="tot-grand">—</div>
       </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="block-head">
+      <div>
+        <h2>Concorrência</h2>
+        <p>Provedores da região — planos e preços levantados à mão, salvo por concorrente.</p>
+      </div>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th style="width:200px;">Provedor</th><th>Planos</th><th></th></tr></thead>
+        <tbody id="concorrentes-tbody"></tbody>
+      </table>
+    </div>
+    <div class="row-add-wrap">
+      <button class="conc-add" id="btn-add-concorrente" type="button">+ Adicionar concorrente</button>
     </div>
   </section>
 
@@ -703,6 +760,100 @@ function drawNet(){
     el.addEventListener('mousemove', e => showTip(e, it.label));
     el.addEventListener('mouseleave', hideTip);
     svg.appendChild(el);
+  });
+}
+
+/* ---------------- Satélite (mapa real, carregado sob demanda — volta pro
+   esquema offline se não conseguir carregar) ---------------- */
+let leafletState = 'idle'; // idle | loading | ready | failed
+let satMap = null, satInited = false;
+
+function loadLeaflet(onReady, onFail){
+  if (leafletState === 'ready') { onReady(); return; }
+  if (leafletState === 'failed') { onFail(); return; }
+  if (leafletState === 'loading') { setTimeout(()=>loadLeaflet(onReady,onFail), 200); return; }
+  leafletState = 'loading';
+  const timer = setTimeout(()=>{ leafletState = 'failed'; onFail(); }, 8000);
+  const script = document.createElement('script');
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+  script.onload = () => { clearTimeout(timer); leafletState = 'ready'; onReady(); };
+  script.onerror = () => { clearTimeout(timer); leafletState = 'failed'; onFail(); };
+  document.head.appendChild(script);
+}
+
+function initSatMap(){
+  if (satInited) { satMap.invalidateSize(); return; }
+  satInited = true;
+  satMap = L.map('sat-map', { scrollWheelZoom: true });
+  const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19, attribution: 'Imagens &copy; Esri, Maxar, Earthstar Geographics'
+  }).addTo(satMap);
+  let tileFailed = false;
+  sat.on('tileerror', () => { if (!tileFailed) { tileFailed = true; const n = document.getElementById('sat-tile-note'); if(n) n.hidden = false; } });
+
+  const bounds = [];
+  ROUTES.forEach((r,i) => {
+    const color = cssVar(ROUTE_COLORS[i % ROUTE_COLORS.length]);
+    const emendaColor = cssVar('--critical');
+    r.lines.forEach(l => {
+      const ll = l.c.map(([lon,lat]) => [lat,lon]);
+      ll.forEach(x => bounds.push(x));
+      L.polyline(ll, { color, weight: r.label==='Backbone' ? 5 : 3, opacity: 0.9, lineCap: 'round' })
+        .addTo(satMap).bindTooltip(r.label, { sticky: true });
+    });
+    r.ctos.forEach(p => {
+      const [lon,lat] = p.c; bounds.push([lat,lon]);
+      L.circleMarker([lat,lon], { radius: p.emenda?6:5, color:'#fff', weight:1.5, fillColor: p.emenda?emendaColor:color, fillOpacity:1 })
+        .addTo(satMap).bindTooltip(`${p.n} — ${r.label}`);
+    });
+    r.ceo.forEach(p => {
+      const [lon,lat] = p.c; bounds.push([lat,lon]);
+      L.circleMarker([lat,lon], { radius:7.5, color:'#fff', weight:2, fillColor: color, fillOpacity:1 })
+        .addTo(satMap).bindTooltip(`${p.n} — ${r.label}`);
+    });
+    r.pop.forEach(p => {
+      const [lon,lat] = p.c; bounds.push([lat,lon]);
+      L.circleMarker([lat,lon], { radius:9, color, weight:2, fillColor:'#fff', fillOpacity:1 })
+        .addTo(satMap).bindTooltip(`${p.n} — ponto de presença`);
+    });
+    r.reserva.forEach(p => {
+      const [lon,lat] = p.c; bounds.push([lat,lon]);
+      L.circleMarker([lat,lon], { radius:5, color:'#fff', weight:1.5, fillColor: color, fillOpacity:0.6 })
+        .addTo(satMap).bindTooltip(`${p.n} — reserva — ${r.label}`);
+    });
+  });
+  if (bounds.length) satMap.fitBounds(bounds, { padding: [24,24] });
+}
+
+function setDiagramMode(mode){
+  const svg = document.getElementById('net-svg');
+  const satWrap = document.getElementById('sat-wrap');
+  const btnEsq = document.getElementById('btn-esquema');
+  const btnSat = document.getElementById('btn-satelite');
+  if (mode === 'esquema'){
+    // svg é um elemento SVG — .hidden não existe/não reflete em elementos
+    // SVG (só em HTMLElement), então usa style.display direto, que
+    // funciona independente do tipo de elemento.
+    svg.style.display = ''; satWrap.hidden = true;
+    btnEsq.classList.add('is-active'); btnSat.classList.remove('is-active');
+  } else {
+    svg.style.display = 'none'; satWrap.hidden = false;
+    btnSat.classList.add('is-active'); btnEsq.classList.remove('is-active');
+  }
+}
+
+function initMapToggle(){
+  document.getElementById('btn-esquema').addEventListener('click', () => setDiagramMode('esquema'));
+  document.getElementById('btn-satelite').addEventListener('click', () => {
+    setDiagramMode('satelite');
+    const failNote = document.getElementById('sat-fail-note');
+    if(failNote) failNote.hidden = true;
+    requestAnimationFrame(() => {
+      loadLeaflet(
+        () => { try { initSatMap(); } catch(err) { console.error(err); setDiagramMode('esquema'); if(failNote) failNote.hidden = false; } },
+        () => { setDiagramMode('esquema'); if(failNote) failNote.hidden = false; }
+      );
+    });
   });
 }
 
@@ -904,9 +1055,53 @@ function buildStats(){
     `${totalCTO()} CTOs / ${totalCEO()} CEOs conforme nomenclatura das rotas no projeto (RT01–RT07 + backbone); ${fmtM(totalExistente())} de cabo 12FO no backbone já lançado não entram no orçamento.`;
 }
 
+/* ---------------- Concorrência — lista editável (adicionar/editar/
+   excluir), planos digitados à mão, sem fonte automática. ---------------- */
+let concorrentes = []; // [{id,nome,planos}]
+
+function novoConcorrenteId(){
+  return 'cc' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+}
+
+function renderConcorrentesEditor(){
+  const tbody = document.getElementById('concorrentes-tbody');
+  if(!tbody) return;
+  tbody.innerHTML = concorrentes.map(row => `<tr data-id="${row.id}">
+    <td><input type="text" class="conc-name" value="${esc(row.nome||'')}" placeholder="Nome do provedor"></td>
+    <td><textarea class="planos-input" rows="2" placeholder="Ex: 300MB R$79,90 / 600MB R$99,90">${esc(row.planos||'')}</textarea></td>
+    <td><button class="row-del" type="button" title="Excluir concorrente">&times;</button></td>
+  </tr>`).join('') || `<tr><td colspan="3" style="color:var(--ink-muted);padding:14px;">Nenhum concorrente cadastrado ainda — adicione à mão.</td></tr>`;
+  tbody.querySelectorAll('tr[data-id]').forEach(tr=>{
+    const row = concorrentes.find(r=>r.id===tr.dataset.id);
+    if(!row) return;
+    tr.querySelector('.conc-name').addEventListener('input', e=>{ row.nome = e.target.value; scheduleSave(); });
+    tr.querySelector('.planos-input').addEventListener('input', e=>{ row.planos = e.target.value; scheduleSave(); });
+    tr.querySelector('.row-del').addEventListener('click', ()=>{
+      concorrentes = concorrentes.filter(r=>r.id!==tr.dataset.id);
+      scheduleSave();
+      renderConcorrentesEditor();
+    });
+  });
+}
+
+function initConcorrentes(){
+  renderConcorrentesEditor();
+  const addBtn = document.getElementById('btn-add-concorrente');
+  if(addBtn) addBtn.addEventListener('click', ()=>{
+    concorrentes.push({ id: novoConcorrenteId(), nome:'', planos:'' });
+    scheduleSave();
+    renderConcorrentesEditor();
+    const tbody = document.getElementById('concorrentes-tbody');
+    const inputs = tbody.querySelectorAll('.conc-name');
+    if(inputs.length) inputs[inputs.length-1].focus();
+  });
+}
+
 /* ---------------- Init ---------------- */
 function init(){
   try { drawNet(); } catch(err) { console.error('Falha ao desenhar o esquema da rede:', err); const note=document.getElementById('map-fallback-note'); if(note) note.hidden=false; }
+  initMapToggle();
+  initConcorrentes();
   buildLegend();
   buildStats();
   buildBom();
@@ -944,6 +1139,7 @@ function captureState(){
     materiais: bomState.materiais,
     maodeobra: bomState.maodeobra,
     infolink: bomState.infolink,
+    concorrentes,
     updated: Date.now(),
   };
 }
@@ -958,6 +1154,7 @@ function applyState(state){
   if(Array.isArray(state.materiais)) bomState.materiais = state.materiais;
   if(Array.isArray(state.maodeobra)) bomState.maodeobra = state.maodeobra;
   if(Array.isArray(state.infolink)) bomState.infolink = state.infolink;
+  if(Array.isArray(state.concorrentes)){ concorrentes = state.concorrentes; renderConcorrentesEditor(); }
   // Reinicia o contador de IDs novos a partir do maior "row-N" já salvo,
   // pra nunca gerar um id que colida com um item restaurado.
   BOM_GROUPS.forEach(g=>{
