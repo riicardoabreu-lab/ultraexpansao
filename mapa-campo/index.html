@@ -758,13 +758,22 @@ document.getElementById('btnSincronizar').addEventListener('click', async () => 
   try {
     for (let i = 0; i < tipos.length; i++) {
       const tipo = tipos[i];
-      btn.textContent = `🔄 Sincronizando (${i + 1}/${tipos.length})…`;
-      const res = await fetch(`/api/geogrid-manual-sync?tipo=${tipo}`, {
-        headers: {'x-mapa-campo-token': window._MAPA_CAMPO_TOKEN},
-      });
-      const dados = await res.json();
-      if (!res.ok || !dados.ok) throw new Error(dados.erro || `HTTP ${res.status}`);
-      totalGravados += dados.totalGravados;
+      // Cada tipo pode ter várias páginas (500 itens cada) - a conta
+      // cresceu muito (Jebnet + Infolink juntas), então busca de novo até
+      // "temMais" vir false, senão uma chamada só estoura o tempo de
+      // execução da função no meio do caminho, sem gravar nada.
+      let pagina = 1;
+      for (;;) {
+        btn.textContent = `🔄 Sincronizando ${tipo} (${i + 1}/${tipos.length}, pág. ${pagina})…`;
+        const res = await fetch(`/api/geogrid-manual-sync?tipo=${tipo}&pagina=${pagina}`, {
+          headers: {'x-mapa-campo-token': window._MAPA_CAMPO_TOKEN},
+        });
+        const dados = await res.json();
+        if (!res.ok || !dados.ok) throw new Error(dados.erro || `HTTP ${res.status}`);
+        totalGravados += dados.gravados || 0;
+        if (!dados.temMais) break;
+        pagina++;
+      }
     }
     btn.textContent = `✅ ${totalGravados.toLocaleString('pt-BR')} itens`;
   } catch (e) {
