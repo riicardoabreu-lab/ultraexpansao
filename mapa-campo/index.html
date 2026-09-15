@@ -250,7 +250,11 @@
   </div>
 </header>
 
-<div id="diagSiglasPainel" style="display:none;position:absolute;top:56px;left:14px;right:14px;max-height:70vh;overflow:auto;z-index:1200;background:#fdf1de;color:#1a1625;border:1px solid #d98c2b;border-radius:10px;padding:14px 16px;font-family:monospace;font-size:12px;white-space:pre-wrap;"></div>
+<div id="diagSiglasPainel" style="display:none;position:absolute;top:56px;left:14px;right:14px;max-height:70vh;overflow:auto;z-index:1200;background:#fdf1de;color:#1a1625;border:1px solid #d98c2b;border-radius:10px;padding:14px 16px;">
+  <input type="text" id="diagBuscaInput" placeholder="Buscar sigla em TUDO que está carregado (ex.: RT-PT2008720)" style="width:100%;padding:8px 10px;border:1.5px solid #d98c2b;border-radius:8px;font-size:13px;margin-bottom:10px;box-sizing:border-box;">
+  <div id="diagBuscaResultado" style="font-family:monospace;font-size:12px;white-space:pre-wrap;margin-bottom:10px;"></div>
+  <div id="diagAmostraTexto" style="font-family:monospace;font-size:12px;white-space:pre-wrap;"></div>
+</div>
 
 <div class="search-bar">
   <button class="pastas-toggle" id="btnAbrirPastas" title="Municípios">📁</button>
@@ -842,8 +846,31 @@ document.getElementById('btnDiagSiglas').addEventListener('click', () => {
     texto += amostra.map(l => '  ' + l).join('\n');
     texto += '\n\n';
   }
-  painel.textContent = texto;
+  document.getElementById('diagAmostraTexto').textContent = texto;
+  document.getElementById('diagBuscaResultado').textContent = '';
+  document.getElementById('diagBuscaInput').value = '';
   painel.style.display = 'block';
+  document.getElementById('diagBuscaInput').focus();
+});
+
+// Busca de verdade em TUDO que está carregado (a amostra acima só mostra os
+// 15 primeiros de cada tipo - não achar ali não prova que o item não
+// sincronizou). Cobre tanto item visível quanto "oculta" (reserva escondida
+// por ter caixa perto) - mostra os dois casos com clareza.
+document.getElementById('diagBuscaInput').addEventListener('input', (e) => {
+  const termo = e.target.value.trim().toLowerCase();
+  const resultadoEl = document.getElementById('diagBuscaResultado');
+  if (!termo) { resultadoEl.textContent = ''; return; }
+  const achados = [];
+  for (const {marker, tipo, oculta} of markersById.values()) {
+    const d = marker._dados || {};
+    if ((d.sigla || '').toLowerCase().includes(termo)) {
+      achados.push(`✓ "${d.sigla}" — tipo: ${TIPOS[tipo] ? TIPOS[tipo].label : tipo} — ${d.municipio || '(sem município)'} / ${d.localidade || '—'}${oculta ? '  [OCULTA: tem caixa/terminal a menos de 20m]' : ''}`);
+    }
+  }
+  resultadoEl.textContent = achados.length
+    ? `${achados.length} resultado(s) em TODOS os ${markersById.size.toLocaleString('pt-BR')} itens carregados:\n` + achados.join('\n')
+    : `Nenhum item com "${termo}" na sigla, entre os ${markersById.size.toLocaleString('pt-BR')} itens carregados agora — não sincronizou (ou o nome está diferente do que foi digitado).`;
 });
 </script>
 </body>
