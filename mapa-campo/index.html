@@ -379,7 +379,7 @@ function reavaliarReservasPerto(latlng){
 // ...") - o sinal confiável é a CIDADE: a Jebnet só atua na região de
 // Itapipoca (ver amostra tirada em campo via botão "🔍 Amostra"). Qualquer
 // item fora dessas cidades (ou na pasta "CLIENTES-LINKS") não é da Jebnet.
-const MUNICIPIOS_JEBNET = ['itapipoca', 'miraima', 'tururu', 'baleia', 'amontada', 'caucaia'];
+const MUNICIPIOS_JEBNET = ['itapipoca', 'miraima', 'tururu', 'baleia', 'amontada'];
 function normalizar(txt){
   return (txt || '').toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
