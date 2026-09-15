@@ -369,8 +369,15 @@ function reavaliarReservasPerto(latlng){
   }
 }
 
+// A conta do GeoGrid passou a trazer também a rede da Infolink (sigla
+// "CX...") e pelo menos mais um outro cliente misturado ali - esse mapa é
+// só da Jebnet, então qualquer item com sigla "CX..." fica de fora (mesmo
+// critério já usado no numeracao-ctos, ver ehInfolink lá).
+function ehInfolinkSigla(sigla){ return /^cx\d/i.test((sigla || '').trim()); }
+
 function upsertMarker(id, data){
   if (data.latitude == null || data.longitude == null || !TIPOS[data.item]) return;
+  if (ehInfolinkSigla(data.sigla)) { removeMarker(id); return; }
   const existente = markersById.get(id);
 
   if (existente && existente.tipo !== data.item) {
