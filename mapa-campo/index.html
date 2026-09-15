@@ -369,15 +369,25 @@ function reavaliarReservasPerto(latlng){
   }
 }
 
-// A conta do GeoGrid passou a trazer também a rede da Infolink (sigla
-// "CX...") e pelo menos mais um outro cliente misturado ali - esse mapa é
-// só da Jebnet, então qualquer item com sigla "CX..." fica de fora (mesmo
-// critério já usado no numeracao-ctos, ver ehInfolink lá).
-function ehInfolinkSigla(sigla){ return /^cx\d/i.test((sigla || '').trim()); }
+// A conta do GeoGrid passou a trazer outras redes misturadas depois da
+// troca de token: Infolink (sigla "CX12345", sem espaço) e pelo menos mais
+// um cliente diferente, "Dnet" (sigla "CX 12345", COM espaço, pasta "Dnet -
+// Fortaleza..."). Esse mapa é só da Jebnet, então qualquer sigla "CX..."
+// (com ou sem espaço) fica de fora - a Jebnet nunca usa esse prefixo.
+function ehOutraRedeSigla(sigla){ return /^cx[\s-]*\d/i.test((sigla || '').trim()); }
+// Terminal (CTO) da Jebnet de verdade é "CTO-" seguido direto de dígito E
+// numeração >= 20000 (mesmo critério do numeracao-ctos) - existe pelo menos
+// mais um cliente com sigla "CTO-01 Iparana" (número baixo) que não é da
+// Jebnet, mesmo sem cair no filtro "CX" acima.
+function ehJebnetTerminal(data){
+  const sigla = (data.sigla || '').trim();
+  return /^cto-\d/i.test(sigla) && Number(data.numero) >= 20000;
+}
 
 function upsertMarker(id, data){
   if (data.latitude == null || data.longitude == null || !TIPOS[data.item]) return;
-  if (ehInfolinkSigla(data.sigla)) { removeMarker(id); return; }
+  if (ehOutraRedeSigla(data.sigla)) { removeMarker(id); return; }
+  if (data.item === 'terminal' && !ehJebnetTerminal(data)) { removeMarker(id); return; }
   const existente = markersById.get(id);
 
   if (existente && existente.tipo !== data.item) {
