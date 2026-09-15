@@ -245,9 +245,12 @@
   </div>
   <div class="header-actions">
     <button class="btn-ghost-sm" id="btnSincronizar">🔄 Sincronizar</button>
+    <button class="btn-ghost-sm" id="btnDiagSiglas" title="Mostra amostra de sigla por tipo, pra achar padrão de outras redes misturadas">🔍 Amostra</button>
     <button class="btn-ghost-sm" id="btnSair">Sair</button>
   </div>
 </header>
+
+<div id="diagSiglasPainel" style="display:none;position:absolute;top:56px;left:14px;right:14px;max-height:70vh;overflow:auto;z-index:1200;background:#fdf1de;color:#1a1625;border:1px solid #d98c2b;border-radius:10px;padding:14px 16px;font-family:monospace;font-size:12px;white-space:pre-wrap;"></div>
 
 <div class="search-bar">
   <button class="pastas-toggle" id="btnAbrirPastas" title="Municípios">📁</button>
@@ -799,6 +802,35 @@ document.getElementById('btnSincronizar').addEventListener('click', async () => 
   } finally {
     setTimeout(() => { btn.textContent = textoOriginal; btn.disabled = false; }, 4000);
   }
+});
+
+// Mostra na própria tela (sem precisar de DevTools) uma amostra real de
+// sigla + pasta por tipo de item, pra achar o padrão de outras redes
+// misturadas na conta (Infolink, Dnet, etc.) sem precisar ficar adivinhando
+// regex às cegas. Lê direto de markersById (o que já está carregado).
+document.getElementById('btnDiagSiglas').addEventListener('click', () => {
+  const painel = document.getElementById('diagSiglasPainel');
+  if (painel.style.display === 'block') { painel.style.display = 'none'; return; }
+
+  const porTipo = {};
+  for (const {marker, tipo} of markersById.values()) {
+    const d = marker._dados || {};
+    if (!porTipo[tipo]) porTipo[tipo] = [];
+    if (porTipo[tipo].length < 15) {
+      porTipo[tipo].push(`"${d.sigla || '(sem sigla)'}" — ${d.municipio || '(sem município)'} / ${d.localidade || '—'}`);
+    }
+  }
+
+  let texto = `AMOSTRA DE SIGLA POR TIPO (até 15 de cada, do que está carregado agora)\n`;
+  texto += `Total carregado: ${markersById.size.toLocaleString('pt-BR')} itens\n\n`;
+  for (const tipo of Object.keys(TIPOS)) {
+    const amostra = porTipo[tipo] || [];
+    texto += `── ${TIPOS[tipo].label} (${tipo}) — ${amostra.length ? '' : '0 carregado(s)'}\n`;
+    texto += amostra.map(l => '  ' + l).join('\n');
+    texto += '\n\n';
+  }
+  painel.textContent = texto;
+  painel.style.display = 'block';
 });
 </script>
 </body>
