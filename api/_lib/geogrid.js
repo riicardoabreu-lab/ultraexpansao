@@ -41,14 +41,19 @@ function getDb() {
   return dbSingleton;
 }
 
-// Tenta de novo (backoff curto) só em 429 (limite de requisições por minuto
-// da API do GeoGrid) - erro passageiro, diferente de um 4xx/5xx "de verdade".
+// Tenta de novo (backoff bem curto) só em 429 (limite de requisições por
+// minuto da API do GeoGrid) - erro passageiro, diferente de um 4xx/5xx "de
+// verdade". Backoff precisa ficar pequeno: a função roda na Vercel com um
+// teto de tempo de execução (maxDuration é ignorado/limitado em planos sem
+// Pro) - um backoff longo (ex.: 1.5s/3s/4.5s) já estourava esse teto sozinho
+// e a função morria com a própria página de erro da Vercel (HTML, não JSON),
+// em vez do erro do GeoGrid aparecer no log do sincronizador.
 async function geogridFetch(path, tentativa = 1) {
   const res = await fetch(`${GEOGRID_BASE}${path}`, {
     headers: {'api-key': process.env.GEOGRID_API_KEY},
   });
-  if (res.status === 429 && tentativa <= 3) {
-    await new Promise(r => setTimeout(r, tentativa * 1500));
+  if (res.status === 429 && tentativa <= 2) {
+    await new Promise(r => setTimeout(r, tentativa * 400));
     return geogridFetch(path, tentativa + 1);
   }
   if (!res.ok) {
