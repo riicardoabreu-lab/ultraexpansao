@@ -41,10 +41,16 @@ function getDb() {
   return dbSingleton;
 }
 
-async function geogridFetch(path) {
+// Tenta de novo (backoff curto) só em 429 (limite de requisições por minuto
+// da API do GeoGrid) - erro passageiro, diferente de um 4xx/5xx "de verdade".
+async function geogridFetch(path, tentativa = 1) {
   const res = await fetch(`${GEOGRID_BASE}${path}`, {
     headers: {'api-key': process.env.GEOGRID_API_KEY},
   });
+  if (res.status === 429 && tentativa <= 3) {
+    await new Promise(r => setTimeout(r, tentativa * 1500));
+    return geogridFetch(path, tentativa + 1);
+  }
   if (!res.ok) {
     throw new Error(`GeoGrid ${path} -> HTTP ${res.status}`);
   }
@@ -53,7 +59,17 @@ async function geogridFetch(path) {
 
 // Busca todas as pastas (só 75 hoje) e monta id -> {nome, nomePai}, pra resolver
 // localidade (pasta do item) e município (pasta-mãe) sem precisar de outra chamada.
+// Cacheada em memória por alguns minutos: o botão "Sincronizar" chama isso uma
+// vez por página/tipo (dezenas de vezes por clique, 7 tipos x várias páginas),
+// e pastas raramente mudam - sem cache isso sozinho já esgota o limite de
+// requisições por minuto da API do GeoGrid (HTTP 429), mesmo sem nada de
+// errado na sincronização em si. O cache vive na instância "quente" da função
+// da Vercel (não sobrevive a cold start, e nem precisa).
+const PASTAS_CACHE_MS = 5 * 60 * 1000;
+let pastasCache = null; // {mapa, expiraEm}
 async function carregarPastas() {
+  if (pastasCache && pastasCache.expiraEm > Date.now()) return pastasCache.mapa;
+
   const mapa = new Map();
   let pagina = 1;
   for (;;) {
@@ -65,6 +81,7 @@ async function carregarPastas() {
     if (pagina * 200 >= total || !dados.registros || dados.registros.length === 0) break;
     pagina++;
   }
+  pastasCache = {mapa, expiraEm: Date.now() + PASTAS_CACHE_MS};
   return mapa;
 }
 
