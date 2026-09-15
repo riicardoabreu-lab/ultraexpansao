@@ -1,4 +1,4 @@
-const {getDb, geogridFetch, carregarPastas, montarDoc} = require('./_lib/geogrid');
+const {geogridFetch, carregarPastas, montarDoc, upsertItemPacote, removerItemPacote} = require('./_lib/geogrid');
 
 // Recebe o POST que o GeoGrid dispara quando um item muda (configurado em
 // Menu -> Configuração integração, dentro do GeoGrid). O formato exato do corpo
@@ -23,16 +23,15 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const db = getDb();
     const item = await geogridFetch(`/itensRede/${id}/mapa`);
 
     if (!item || item === false || !item.dados) {
-      await db.collection('mapa_rede').doc(String(id)).delete();
-      console.log(`Item ${id} removido de mapa_rede (não existe mais no GeoGrid)`);
+      await removerItemPacote(id);
+      console.log(`Item ${id} removido do pacote (não existe mais no GeoGrid)`);
     } else {
       const pastaInfo = await carregarPastas();
-      await db.collection('mapa_rede').doc(String(id)).set(montarDoc(item, pastaInfo), {merge: true});
-      console.log(`Item ${id} atualizado em mapa_rede`);
+      await upsertItemPacote(id, montarDoc(item, pastaInfo));
+      console.log(`Item ${id} atualizado no pacote`);
     }
     res.status(200).send('ok');
   } catch (e) {

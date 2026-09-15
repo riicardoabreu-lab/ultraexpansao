@@ -119,8 +119,34 @@ function montarDoc(item, pastaInfo) {
   return doc;
 }
 
-// Varre os tipos informados na API do GeoGrid e grava cada item em mapa_rede/{id}.
-// Usada tanto pelo endpoint manual (geogrid-full-sync) quanto pelo cron diário.
+// ---- Armazenamento em "pacotes" (poucos documentos grandes) ----
+// Guardar 1 documento por item (13700+ só de terminal) estourava a cota
+// gratuita de gravação do Firestore (20 mil/dia) numa sincronização só.
+// Em vez disso, TODOS os itens (qualquer tipo) são agrupados num pool único
+// de N_PACOTES "pacotes" fixos (mapa_rede_pacotes/pacote_{indice}), cada um
+// um objeto {id: doc} - uma sincronização inteira agora usa umas centenas de
+// gravações, não dezenas de milhares. O índice do pacote de um item é
+// sempre o mesmo (baseado só no id, sem depender do tipo) - importante pro
+// webhook de REMOÇÃO: quando um item some do GeoGrid, só se sabe o id (não
+// dá mais pra consultar o tipo dele), então o pacote precisa ser achável só
+// com o id. O tipo de cada item fica dentro do próprio doc (campo "item",
+// já gravado por montarDoc), não no nome do pacote.
+const N_PACOTES = 24;
+function indicePacote(id) {
+  const n = parseInt(id, 10);
+  if (Number.isFinite(n)) return Math.abs(n) % N_PACOTES;
+  // fallback pra id não-numérico (não deveria acontecer, mas por segurança)
+  let h = 0;
+  for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % N_PACOTES;
+}
+function nomePacote(indice) { return `pacote_${indice}`; }
+
+// Varre os tipos informados na API do GeoGrid e grava cada item agrupado em
+// pacotes. Usada tanto pelo endpoint manual (geogrid-full-sync) quanto pelo
+// cron diário. Não remove pacotes/itens que sumiram do GeoGrid (isso já não
+// acontecia na versão antiga tampouco - só o webhook cuida de remoção,
+// item a item, na hora que o GeoGrid avisa que sumiu).
 async function sincronizarTipos(tipos) {
   const db = getDb();
   const pastaInfo = await carregarPastas();
@@ -137,16 +163,20 @@ async function sincronizarTipos(tipos) {
       const registros = dados.registros || [];
       totalTipo = parseInt(dados.totalRegistros, 10) || 0;
 
-      for (let i = 0; i < registros.length; i += 500) {
-        const lote = registros.slice(i, i + 500);
-        const batch = db.batch();
-        for (const item of lote) {
-          const id = item.dados && item.dados.id;
-          if (!id) continue;
-          batch.set(db.collection('mapa_rede').doc(String(id)), montarDoc(item, pastaInfo), {merge: true});
-          totalGravados++;
-        }
-        await batch.commit();
+      const porPacote = new Map(); // indice -> {id: doc}
+      for (const item of registros) {
+        const id = item.dados && item.dados.id;
+        if (!id) continue;
+        const idx = indicePacote(id);
+        if (!porPacote.has(idx)) porPacote.set(idx, {});
+        porPacote.get(idx)[String(id)] = montarDoc(item, pastaInfo);
+        totalGravados++;
+      }
+      for (const [idx, itens] of porPacote) {
+        const patch = {};
+        for (const [id, doc] of Object.entries(itens)) patch[`itens.${id}`] = doc;
+        patch.atualizadoEm = admin.firestore.FieldValue.serverTimestamp();
+        await db.collection('mapa_rede_pacotes').doc(nomePacote(idx)).set(patch, {merge: true});
       }
 
       if (registros.length === 0 || pagina * 500 >= totalTipo) break;
@@ -163,9 +193,9 @@ async function sincronizarTipos(tipos) {
 // inteiro de uma vez. Criado porque a conta cresceu muito (Jebnet + Infolink
 // juntas, ~13700 terminais = 28 páginas) e sincronizarTipos([tipo]) inteiro
 // não cabe mais no tempo de execução de uma função da Vercel (timeout
-// silencioso no meio do caminho - nada é gravado, ou só um pedaço). O
-// chamador (endpoint) itera página a página; cada chamada é curta e sempre
-// termina dentro do limite.
+// silencioso no meio do caminho). O chamador (endpoint) itera página a
+// página; cada chamada é curta e sempre termina dentro do limite. Grava em
+// pacotes (ver acima), não mais 1 documento por item.
 async function sincronizarPaginaTipo(tipo, pagina, pastaInfo) {
   const db = getDb();
   const dados = await geogridFetch(`/itensRede?item[]=${tipo}&pagina=${pagina}&registrosPorPagina=500`);
@@ -177,20 +207,48 @@ async function sincronizarPaginaTipo(tipo, pagina, pastaInfo) {
   // Infolink) está sendo descartado aqui em vez de gravado.
   let gravados = 0;
   let semId = 0;
-  for (let i = 0; i < registros.length; i += 500) {
-    const lote = registros.slice(i, i + 500);
-    const batch = db.batch();
-    for (const item of lote) {
-      const id = item.dados && item.dados.id;
-      if (!id) { semId++; continue; }
-      batch.set(db.collection('mapa_rede').doc(String(id)), montarDoc(item, pastaInfo), {merge: true});
-      gravados++;
-    }
-    await batch.commit();
+  const porPacote = new Map(); // indice -> {id: doc}
+  for (const item of registros) {
+    const id = item.dados && item.dados.id;
+    if (!id) { semId++; continue; }
+    const idx = indicePacote(id);
+    if (!porPacote.has(idx)) porPacote.set(idx, {});
+    porPacote.get(idx)[String(id)] = montarDoc(item, pastaInfo);
+    gravados++;
+  }
+  for (const [idx, itens] of porPacote) {
+    const patch = {};
+    for (const [id, doc] of Object.entries(itens)) patch[`itens.${id}`] = doc;
+    patch.atualizadoEm = admin.firestore.FieldValue.serverTimestamp();
+    await db.collection('mapa_rede_pacotes').doc(nomePacote(idx)).set(patch, {merge: true});
   }
 
   const temMais = registros.length > 0 && pagina * 500 < totalTipo;
   return {totalTipo, recebidos: registros.length, gravados, semId, temMais};
 }
 
-module.exports = {admin, getDb, geogridFetch, carregarPastas, montarDoc, sincronizarTipos, sincronizarPaginaTipo, TIPOS_SINCRONIZADOS};
+// Upsert/remoção de UM item só (usado pelo webhook) - acha o pacote certo
+// só com o id (não precisa saber o tipo, nem escanear nada) e só mexe
+// naquele campo específico dentro dele.
+async function upsertItemPacote(id, doc) {
+  const db = getDb();
+  const idx = indicePacote(id);
+  await db.collection('mapa_rede_pacotes').doc(nomePacote(idx)).set({
+    [`itens.${id}`]: doc,
+    atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  }, {merge: true});
+}
+async function removerItemPacote(id) {
+  const db = getDb();
+  const idx = indicePacote(id);
+  await db.collection('mapa_rede_pacotes').doc(nomePacote(idx)).set({
+    [`itens.${id}`]: admin.firestore.FieldValue.delete(),
+    atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+  }, {merge: true});
+}
+
+module.exports = {
+  admin, getDb, geogridFetch, carregarPastas, montarDoc,
+  sincronizarTipos, sincronizarPaginaTipo, TIPOS_SINCRONIZADOS,
+  N_PACOTES, indicePacote, nomePacote, upsertItemPacote, removerItemPacote,
+};
