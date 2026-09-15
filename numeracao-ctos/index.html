@@ -669,15 +669,26 @@ document.getElementById('btnSyncNow').addEventListener('click', async ()=>{
     // função na Vercel, sem gravar nada. Cada chamada aqui é curta. O log
     // fica na tela (não some sozinho) pra dar pra conferir com calma depois.
     let pagina = 1;
+    // tentativas conta falhas seguidas NA MESMA página - cold start da função
+    // (primeira chamada depois de um deploy/tempo parada) pode estourar o
+    // tempo de execução sozinho, sem ser erro de verdade. Tenta de novo (até
+    // 2x) antes de desistir de vez.
+    let tentativas = 0;
     for (;;) {
       btn.textContent = `🔄 Sincronizando (página ${pagina})...`;
       const resp = await fetch(`/api/geogrid-sync-now?pagina=${pagina}`, { method:'POST' });
       const data = await resp.json().catch(()=>({}));
       if (!resp.ok || !data.ok) {
+        if (tentativas < 2) {
+          tentativas++;
+          logEl.textContent += `página ${pagina}: erro (${data.erro || `HTTP ${resp.status}`}), tentando de novo (${tentativas}/2)…\n`;
+          continue;
+        }
         btn.textContent = '✕ falha ao sincronizar';
         logEl.textContent += `\npágina ${pagina}: ERRO — ${data.erro || `HTTP ${resp.status}`}`;
         break;
       }
+      tentativas = 0;
       totalGravados += data.gravados || 0;
       totalSemId += data.semId || 0;
       logEl.textContent += `página ${data.pagina}: ${data.recebidos} recebidos, ${data.gravados} gravados${data.semId ? `, ${data.semId} SEM ID (descartados!)` : ''} — total do tipo na API: ${data.totalTipo}\n`;

@@ -833,6 +833,12 @@ document.getElementById('btnSincronizar').addEventListener('click', async () => 
       // algum tipo falhar (ex.: cota do Firestore) sem derrubar os outros.
       let pagina = 1;
       let gravadosDoTipo = 0;
+      // tentativasPagina conta falhas seguidas NA MESMA página - cold start da
+      // função (primeira chamada depois de um deploy, ou depois de um tempo
+      // sem uso) já é suficiente pra estourar o tempo de execução sozinho,
+      // sem precisar de 429 nenhum. Tenta a mesma página de novo (até 2x) em
+      // vez de desistir do tipo inteiro na primeira falha.
+      let tentativasPagina = 0;
       for (;;) {
         btn.textContent = `🔄 Sincronizando ${tipo} (${i + 1}/${tipos.length}, pág. ${pagina})…`;
         try {
@@ -841,9 +847,15 @@ document.getElementById('btnSincronizar').addEventListener('click', async () => 
           });
           const dados = await res.json();
           if (!res.ok || !dados.ok) {
+            if (tentativasPagina < 2) {
+              tentativasPagina++;
+              logEl.textContent += `${tipo}: erro na página ${pagina} (${dados.erro || `HTTP ${res.status}`}), tentando de novo (${tentativasPagina}/2)…\n`;
+              continue;
+            }
             logEl.textContent += `${tipo}: ERRO na página ${pagina} — ${dados.erro || `HTTP ${res.status}`} (parou aqui, ${gravadosDoTipo} gravados antes de falhar)\n`;
             break;
           }
+          tentativasPagina = 0;
           gravadosDoTipo += dados.gravados || 0;
           totalGravados += dados.gravados || 0;
           if (!dados.temMais) {
@@ -852,6 +864,11 @@ document.getElementById('btnSincronizar').addEventListener('click', async () => 
           }
           pagina++;
         } catch (e) {
+          if (tentativasPagina < 2) {
+            tentativasPagina++;
+            logEl.textContent += `${tipo}: erro de rede na página ${pagina} (${e.message}), tentando de novo (${tentativasPagina}/2)…\n`;
+            continue;
+          }
           logEl.textContent += `${tipo}: ERRO DE REDE na página ${pagina} — ${e.message} (parou aqui, ${gravadosDoTipo} gravados antes de falhar)\n`;
           break;
         }
