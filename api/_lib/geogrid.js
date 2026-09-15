@@ -55,32 +55,40 @@ function getDb() {
 // própria Vercel matar a função sozinha 300s depois (timeout da plataforma,
 // não erro nosso) - sem isso, um travamento do lado do GeoGrid consumia todo
 // o orçamento de execução da função de uma vez, sem chance de retry nenhum.
+// IMPORTANTE: o timer precisa cobrir também o res.json() (leitura do corpo),
+// não só o fetch() em si - uma primeira versão cancelava o timer assim que
+// os cabeçalhos chegavam (fetch() resolvido) e só DEPOIS chamava res.json(),
+// deixando a leitura do corpo (potencialmente grande, até 500 registros) sem
+// proteção nenhuma - continuou travando os mesmos 300s mesmo com o timeout
+// "ativo".
 const TIMEOUT_MS = 8000;
 async function geogridFetch(path, tentativa = 1) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  let res;
   try {
-    res = await fetch(`${GEOGRID_BASE}${path}`, {
+    const res = await fetch(`${GEOGRID_BASE}${path}`, {
       headers: {'api-key': process.env.GEOGRID_API_KEY},
       signal: controller.signal,
     });
+    if (res.status === 429 && tentativa <= 2) {
+      clearTimeout(timer);
+      await new Promise(r => setTimeout(r, tentativa * 400));
+      return geogridFetch(path, tentativa + 1);
+    }
+    if (!res.ok) {
+      throw new Error(`GeoGrid ${path} -> HTTP ${res.status}`);
+    }
+    return await res.json(); // ainda dentro do try - continua coberto pelo mesmo signal/timer
   } catch (e) {
     if (e.name === 'AbortError' && tentativa <= 2) {
       return geogridFetch(path, tentativa + 1);
     }
-    throw new Error(`GeoGrid ${path} -> ${e.name === 'AbortError' ? 'sem resposta em ' + TIMEOUT_MS + 'ms' : e.message}`);
+    throw e.message && e.message.startsWith('GeoGrid ')
+      ? e
+      : new Error(`GeoGrid ${path} -> ${e.name === 'AbortError' ? 'sem resposta em ' + TIMEOUT_MS + 'ms' : e.message}`);
   } finally {
     clearTimeout(timer);
   }
-  if (res.status === 429 && tentativa <= 2) {
-    await new Promise(r => setTimeout(r, tentativa * 400));
-    return geogridFetch(path, tentativa + 1);
-  }
-  if (!res.ok) {
-    throw new Error(`GeoGrid ${path} -> HTTP ${res.status}`);
-  }
-  return res.json();
 }
 
 // Busca todas as pastas (só 75 hoje) e monta id -> {nome, nomePai}, pra resolver
