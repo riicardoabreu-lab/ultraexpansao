@@ -256,6 +256,8 @@
   <div id="diagAmostraTexto" style="font-family:monospace;font-size:12px;white-space:pre-wrap;"></div>
 </div>
 
+<div id="syncLogPainel" style="display:none;position:absolute;top:56px;left:14px;right:14px;max-height:50vh;overflow:auto;z-index:1200;background:#fdf1de;color:#1a1625;border:1px solid #d98c2b;border-radius:10px;padding:14px 16px;font-family:monospace;font-size:12px;white-space:pre-wrap;"></div>
+
 <div class="search-bar">
   <button class="pastas-toggle" id="btnAbrirPastas" title="Municípios">📁</button>
   <input type="text" id="searchInput" placeholder="Buscar CTO por número (ex.: 20031)" inputmode="numeric">
@@ -789,7 +791,10 @@ document.getElementById('btnSair').addEventListener('click', () => {
 document.getElementById('btnSincronizar').addEventListener('click', async () => {
   const btn = document.getElementById('btnSincronizar');
   const textoOriginal = btn.textContent;
+  const logEl = document.getElementById('syncLogPainel');
   btn.disabled = true;
+  logEl.style.display = 'block';
+  logEl.textContent = '';
   const tipos = Object.keys(TIPOS); // mesmos tipos de TIPOS_SINCRONIZADOS (api/_lib/geogrid.js)
   let totalGravados = 0;
   try {
@@ -798,26 +803,44 @@ document.getElementById('btnSincronizar').addEventListener('click', async () => 
       // Cada tipo pode ter várias páginas (500 itens cada) - a conta
       // cresceu muito (Jebnet + Infolink juntas), então busca de novo até
       // "temMais" vir false, senão uma chamada só estoura o tempo de
-      // execução da função no meio do caminho, sem gravar nada.
+      // execução da função no meio do caminho, sem gravar nada. O log fica
+      // na tela (não some sozinho) pra dar pra ver exatamente onde parou se
+      // algum tipo falhar (ex.: cota do Firestore) sem derrubar os outros.
       let pagina = 1;
+      let gravadosDoTipo = 0;
       for (;;) {
         btn.textContent = `🔄 Sincronizando ${tipo} (${i + 1}/${tipos.length}, pág. ${pagina})…`;
-        const res = await fetch(`/api/geogrid-manual-sync?tipo=${tipo}&pagina=${pagina}`, {
-          headers: {'x-mapa-campo-token': window._MAPA_CAMPO_TOKEN},
-        });
-        const dados = await res.json();
-        if (!res.ok || !dados.ok) throw new Error(dados.erro || `HTTP ${res.status}`);
-        totalGravados += dados.gravados || 0;
-        if (!dados.temMais) break;
-        pagina++;
+        try {
+          const res = await fetch(`/api/geogrid-manual-sync?tipo=${tipo}&pagina=${pagina}`, {
+            headers: {'x-mapa-campo-token': window._MAPA_CAMPO_TOKEN},
+          });
+          const dados = await res.json();
+          if (!res.ok || !dados.ok) {
+            logEl.textContent += `${tipo}: ERRO na página ${pagina} — ${dados.erro || `HTTP ${res.status}`} (parou aqui, ${gravadosDoTipo} gravados antes de falhar)\n`;
+            break;
+          }
+          gravadosDoTipo += dados.gravados || 0;
+          totalGravados += dados.gravados || 0;
+          if (!dados.temMais) {
+            logEl.textContent += `${tipo}: OK — ${gravadosDoTipo} gravados em ${pagina} página(s)\n`;
+            break;
+          }
+          pagina++;
+        } catch (e) {
+          logEl.textContent += `${tipo}: ERRO DE REDE na página ${pagina} — ${e.message} (parou aqui, ${gravadosDoTipo} gravados antes de falhar)\n`;
+          break;
+        }
       }
     }
     btn.textContent = `✅ ${totalGravados.toLocaleString('pt-BR')} itens`;
+    logEl.textContent += `\nFIM: ${totalGravados.toLocaleString('pt-BR')} itens gravados no total.`;
   } catch (e) {
     console.error('Falha ao sincronizar GeoGrid:', e);
     btn.textContent = '⚠️ Falha ao sincronizar';
+    logEl.textContent += `\nFalha geral: ${e.message}`;
   } finally {
-    setTimeout(() => { btn.textContent = textoOriginal; btn.disabled = false; }, 4000);
+    btn.disabled = false;
+    setTimeout(() => { btn.textContent = textoOriginal; }, 4000);
   }
 });
 
