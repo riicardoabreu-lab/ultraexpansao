@@ -44,14 +44,35 @@ function getDb() {
 // Tenta de novo (backoff bem curto) só em 429 (limite de requisições por
 // minuto da API do GeoGrid) - erro passageiro, diferente de um 4xx/5xx "de
 // verdade". Backoff precisa ficar pequeno: a função roda na Vercel com um
-// teto de tempo de execução (maxDuration é ignorado/limitado em planos sem
-// Pro) - um backoff longo (ex.: 1.5s/3s/4.5s) já estourava esse teto sozinho
-// e a função morria com a própria página de erro da Vercel (HTML, não JSON),
-// em vez do erro do GeoGrid aparecer no log do sincronizador.
+// teto de tempo de execução - um backoff longo (ex.: 1.5s/3s/4.5s) já
+// estourava esse teto sozinho e a função morria com a própria página de
+// erro da Vercel (HTML, não JSON), em vez do erro do GeoGrid aparecer no
+// log do sincronizador.
+//
+// TIMEOUT_MS corta a chamada se o GeoGrid simplesmente não responder (em vez
+// de devolver um 429 rápido) - visto na prática: depois de várias
+// sincronizações seguidas em pouco tempo, uma chamada ficou pendurada até a
+// própria Vercel matar a função sozinha 300s depois (timeout da plataforma,
+// não erro nosso) - sem isso, um travamento do lado do GeoGrid consumia todo
+// o orçamento de execução da função de uma vez, sem chance de retry nenhum.
+const TIMEOUT_MS = 8000;
 async function geogridFetch(path, tentativa = 1) {
-  const res = await fetch(`${GEOGRID_BASE}${path}`, {
-    headers: {'api-key': process.env.GEOGRID_API_KEY},
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(`${GEOGRID_BASE}${path}`, {
+      headers: {'api-key': process.env.GEOGRID_API_KEY},
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e.name === 'AbortError' && tentativa <= 2) {
+      return geogridFetch(path, tentativa + 1);
+    }
+    throw new Error(`GeoGrid ${path} -> ${e.name === 'AbortError' ? 'sem resposta em ' + TIMEOUT_MS + 'ms' : e.message}`);
+  } finally {
+    clearTimeout(timer);
+  }
   if (res.status === 429 && tentativa <= 2) {
     await new Promise(r => setTimeout(r, tentativa * 400));
     return geogridFetch(path, tentativa + 1);
