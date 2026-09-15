@@ -35,5 +35,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Sucessora de mapa_rede: mesmos itens, agrupados em poucos documentos
+    // "pacote" pra caber na cota gratuita de gravações do Firestore (ver
+    // api/_lib/geogrid.js). Mesmo trade-off de leitura pública acima.
+    match /mapa_rede_pacotes/{document=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
   }
 }
