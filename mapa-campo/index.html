@@ -379,7 +379,10 @@ function reavaliarReservasPerto(latlng){
 // ...") - o sinal confiável é a CIDADE: a Jebnet só atua na região de
 // Itapipoca (ver amostra tirada em campo via botão "🔍 Amostra"). Qualquer
 // item fora dessas cidades (ou na pasta "CLIENTES-LINKS") não é da Jebnet.
-const MUNICIPIOS_JEBNET = ['itapipoca', 'miraima', 'tururu', 'baleia', 'amontada'];
+// Lista conferida batendo com as pastas do export "Jebnet - Itapipoca" do
+// GeoGrid (KMZ 15/09/2026): Itapipoca, Miraíma, Tururu, Baleia, Amontada,
+// Trairí, Uruburetama - as duas últimas faltavam antes e sumiam do mapa.
+const MUNICIPIOS_JEBNET = ['itapipoca', 'miraima', 'tururu', 'baleia', 'amontada', 'trairi', 'uruburetama'];
 function normalizar(txt){
   return (txt || '').toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
