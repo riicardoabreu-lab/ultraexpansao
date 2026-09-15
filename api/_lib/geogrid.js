@@ -30,6 +30,19 @@ function carregarCredencial() {
   };
 }
 
+// Envolve qualquer promise (usado nas gravações do Firestore) com um prazo -
+// sem isso, uma gravação que trave (índice/conexão) consome os 300s inteiros
+// da execução até a própria Vercel matar a função à força, sem erro nenhum
+// aparecer no log do sincronizador (mesma classe de bug já corrigida em
+// geogridFetch, aplicada aqui como reforço).
+const FIRESTORE_TIMEOUT_MS = 15000;
+function comTimeout(promise, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`Firestore ${label} -> sem resposta em ${FIRESTORE_TIMEOUT_MS}ms`)), FIRESTORE_TIMEOUT_MS)),
+  ]);
+}
+
 let dbSingleton = null;
 function getDb() {
   if (!dbSingleton) {
@@ -227,7 +240,7 @@ async function sincronizarTipos(tipos) {
         const patch = {};
         for (const [id, doc] of Object.entries(itens)) patch[`itens.${id}`] = doc;
         patch.atualizadoEm = admin.firestore.FieldValue.serverTimestamp();
-        await db.collection('mapa_rede_pacotes').doc(nomePacote(idx)).set(patch, {merge: true});
+        await comTimeout(db.collection('mapa_rede_pacotes').doc(nomePacote(idx)).set(patch, {merge: true}), `set ${nomePacote(idx)}`);
       }
 
       if (registros.length === 0 || pagina * 500 >= totalTipo) break;
@@ -271,7 +284,7 @@ async function sincronizarPaginaTipo(tipo, pagina, pastaInfo) {
     const patch = {};
     for (const [id, doc] of Object.entries(itens)) patch[`itens.${id}`] = doc;
     patch.atualizadoEm = admin.firestore.FieldValue.serverTimestamp();
-    await db.collection('mapa_rede_pacotes').doc(nomePacote(idx)).set(patch, {merge: true});
+    await comTimeout(db.collection('mapa_rede_pacotes').doc(nomePacote(idx)).set(patch, {merge: true}), `set ${nomePacote(idx)}`);
   }
 
   const temMais = registros.length > 0 && pagina * 500 < totalTipo;
@@ -284,18 +297,18 @@ async function sincronizarPaginaTipo(tipo, pagina, pastaInfo) {
 async function upsertItemPacote(id, doc) {
   const db = getDb();
   const idx = indicePacote(id);
-  await db.collection('mapa_rede_pacotes').doc(nomePacote(idx)).set({
+  await comTimeout(db.collection('mapa_rede_pacotes').doc(nomePacote(idx)).set({
     [`itens.${id}`]: doc,
     atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-  }, {merge: true});
+  }, {merge: true}), `set ${nomePacote(idx)}`);
 }
 async function removerItemPacote(id) {
   const db = getDb();
   const idx = indicePacote(id);
-  await db.collection('mapa_rede_pacotes').doc(nomePacote(idx)).set({
+  await comTimeout(db.collection('mapa_rede_pacotes').doc(nomePacote(idx)).set({
     [`itens.${id}`]: admin.firestore.FieldValue.delete(),
     atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-  }, {merge: true});
+  }, {merge: true}), `set ${nomePacote(idx)}`);
 }
 
 module.exports = {
