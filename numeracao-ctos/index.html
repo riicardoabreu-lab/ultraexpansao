@@ -12,7 +12,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, doc, setDoc, onSnapshot, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   const fb = initializeApp({
     apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
     authDomain: "isp-manager-ce.firebaseapp.com",
@@ -44,19 +44,24 @@
   });
 
   // ---- Base "ativo": sincronizada em tempo real com o GeoGrid ----
-  // TEMPORÁRIO (15/09): voltou a ler de "mapa_rede" (coleção antiga, 1 doc por
-  // item, com "item" como campo top-level - dá pra filtrar direto na query) em
-  // vez de "mapa_rede_pacotes" - a cota diária de gravação do Firestore
-  // estourou hoje (de tanto tentar sincronizar durante a depuração), então
-  // mapa_rede_pacotes ficou vazia e o painel ficava sem nenhuma CTO. mapa_rede
-  // não foi apagada - continua com os últimos dados sincronizados com sucesso
-  // antes da migração. Reverter pra mapa_rede_pacotes assim que uma
-  // sincronização completa rodar com sucesso nela (a cota reseta à meia-noite
-  // horário do Pacífico, ~4h-5h de Brasília).
-  const ATIVO_QUERY = query(collection(fsDb, 'mapa_rede'), where('item', '==', 'terminal'));
-  onSnapshot(ATIVO_QUERY, snap => {
+  // Populada por Cloud Functions (geogridFullSync / geogridWebhook), agrupada em
+  // poucos documentos "pacote" (mapa_rede_pacotes, ver _lib/geogrid.js) em vez de
+  // 1 documento por item - isso estourava a cota gratuita de gravação do
+  // Firestore quando a conta cresceu (Jebnet + Infolink). Sem "item" como campo
+  // top-level do documento, não dá mais pra filtrar "terminal" direto na query -
+  // escuta a coleção inteira (são poucos documentos) e filtra aqui no cliente.
+  // (Voltou a ler daqui em 16/09, depois da cota resetar e uma sincronização
+  // completa - já filtrada só pra Jebnet no backend - rodar com sucesso; ver
+  // histórico do commit 8af4fb9 pro período em que ficou lendo de "mapa_rede"
+  // temporariamente.)
+  onSnapshot(collection(fsDb, 'mapa_rede_pacotes'), snap => {
     const itens = [];
-    snap.forEach(d => itens.push(d.data()));
+    snap.forEach(d => {
+      const pacote = d.data();
+      for (const item of Object.values(pacote.itens || {})) {
+        if (item && item.item === 'terminal') itens.push(item);
+      }
+    });
     window._applyAtivo && window._applyAtivo(itens);
   }, err => {
     console.error('Falha ao sincronizar base do GeoGrid:', err);
@@ -69,20 +74,23 @@
   // errado etc.) atrás de sigla começando com "CX", pra saber se as CTOs
   // Infolink estão sincronizadas só que classificadas com um "item" diferente
   // de "terminal". Filtro por sigla é feito no cliente (não dá pra fazer range
-  // query num campo dentro de um map aninhado entre vários documentos).
-  // TEMPORÁRIO (15/09): voltou a ler de "mapa_rede" (mesma razão do
-  // ATIVO_QUERY acima - mapa_rede_pacotes está vazia até a cota do Firestore
-  // resetar e uma sincronização completar).
+  // query num campo dentro de um map aninhado entre vários documentos). Com o
+  // filtro por rede no backend (16/09), o esperado agora é sempre "Nenhum item".
   window._diagnosticarCxEmQualquerTipo = async function(){
-    const snap = await getDocs(query(collection(fsDb, 'mapa_rede'), where('sigla', '>=', 'CX'), where('sigla', '<', 'CY')));
+    const snap = await getDocs(collection(fsDb, 'mapa_rede_pacotes'));
     const porTipo = {};
     const exemplos = [];
-    snap.forEach(d => {
-      const it = d.data();
-      porTipo[it.item] = (porTipo[it.item] || 0) + 1;
-      if (exemplos.length < 10) exemplos.push({sigla: it.sigla, item: it.item});
+    let total = 0;
+    snap.forEach(pacoteDoc => {
+      const itens = pacoteDoc.data().itens || {};
+      for (const it of Object.values(itens)) {
+        if (!it || !/^cx/i.test(it.sigla || '')) continue;
+        total++;
+        porTipo[it.item] = (porTipo[it.item] || 0) + 1;
+        if (exemplos.length < 10) exemplos.push({sigla: it.sigla, item: it.item});
+      }
     });
-    return {total: snap.size, porTipo, exemplos};
+    return {total, porTipo, exemplos};
   };
 </script>
 <title>Numeração de CTOs · Infolink</title>
