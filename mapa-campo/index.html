@@ -609,8 +609,19 @@ window._applyMapaChanges = function(changes){
   setSync('ok', `${total.toLocaleString('pt-BR')} itens carregados`);
   if (!primeiroSnapshot && total > 0) {
     primeiroSnapshot = true;
-    const grupo = L.featureGroup(Object.values(clusters).filter(c => map.hasLayer(c)));
-    if (grupo.getLayers().length) map.fitBounds(grupo.getBounds().pad(.15));
+    // Bug antigo: L.featureGroup(Object.values(clusters)...).getBounds() lançava
+    // "getLatLng is not a function", porque clusters[tipo] é um L.layerGroup()
+    // puro (sem getBounds próprio) - o Firestore engolia essa exceção em
+    // silêncio (por isso nunca tinha aparecido), mas agora qualquer erro no
+    // carregamento aparece de verdade (ver window._applyMapaError). Calcula
+    // os limites direto das coordenadas dos marcadores já carregados, sem
+    // depender de getBounds() dos grupos.
+    try {
+      const latlngs = Array.from(markersById.values()).map(e => e.marker.getLatLng());
+      if (latlngs.length) map.fitBounds(L.latLngBounds(latlngs).pad(.15));
+    } catch (e) {
+      console.warn('Não foi possível ajustar o zoom automático:', e);
+    }
   }
 };
 window._applyMapaError = function(){
