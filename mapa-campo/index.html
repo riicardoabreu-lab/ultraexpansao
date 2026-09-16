@@ -18,56 +18,55 @@
   window._MAPA_CAMPO_TOKEN = MAPA_CAMPO_TOKEN;
 </script>
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  const fb = initializeApp({
-    apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
-    authDomain: "isp-manager-ce.firebaseapp.com",
-    projectId: "isp-manager-ce",
-    storageBucket: "isp-manager-ce.firebasestorage.app",
-    messagingSenderId: "374725918192",
-    appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
-  });
-  const fsDb = getFirestore(fb);
+  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+  // Chave "anon" - pública por design (equivalente ao apiKey do Firebase que
+  // era exposto aqui antes). Leitura da tabela mapa_rede é liberada pra
+  // qualquer um via RLS (ver supabase.sql no repo); gravação só pelo backend,
+  // com a service_role key (nunca exposta no navegador).
+  const sb = createClient(
+    "https://kmqzvwakxeyujefrvxsz.supabase.co",
+    "sb_publishable_rilibSAUCQ3OIvH3mxZEKg_-VxLLjR6"
+  );
 
-  // Só liga o listener depois que a senha for confirmada (window._iniciarSync,
+  // Só liga a sincronização depois que a senha for confirmada (window._iniciarSync,
   // chamado pelo script de login mais abaixo).
   window._iniciarSync = function(){
-    // "mapa_rede_pacotes" agrupa vários itens por documento (ver _lib/geogrid.js,
-    // N_PACOTES) - 1 documento por item estourava a cota gratuita de gravação do
-    // Firestore quando a conta ficou grande (Jebnet + Infolink). Cada pacote muda
-    // de vez em quando (não item por item), então aqui a gente compara o "itens"
-    // de cada pacote contra o que já tinha visto antes (pacoteCache) e sintetiza
-    // uma mudança por item (added/modified/removed) igual o app já esperava -
-    // upsertMarker/removeMarker não precisaram mudar nada. (Voltou a ler daqui
-    // em 16/09, depois da cota resetar e uma sincronização completa - já filtrada
-    // só pra Jebnet - rodar com sucesso; ver histórico do commit 8af4fb9 pro
-    // período em que ficou lendo de "mapa_rede" temporariamente.)
-    const pacoteCache = new Map(); // pacoteId -> Map(itemId -> doc)
-    onSnapshot(collection(fsDb, 'mapa_rede_pacotes'), snap => {
-      const changesSintetizadas = [];
-      for (const change of snap.docChanges()) {
-        const pacoteId = change.doc.id;
-        const antigo = pacoteCache.get(pacoteId) || new Map();
-        if (change.type === 'removed') {
-          for (const [id, data] of antigo) changesSintetizadas.push({type: 'removed', doc: {id, data: () => data}});
-          pacoteCache.delete(pacoteId);
-          continue;
+    // Trocado do Firestore pro Supabase (16/09) - a cota gratuita de
+    // gravação/leitura do Firestore estourou 2 dias seguidos com o volume
+    // dessa conta do GeoGrid, mesmo já agrupando em "pacotes". Postgres não
+    // cobra por documento, então a tabela mapa_rede é 1 linha por item,
+    // direto - sem precisar de nenhum truque de agrupamento.
+    //
+    // Assina o canal de tempo real ANTES de pedir a carga inicial (evita
+    // perder eventos que cheguem no meio da carga). Object.assign no data()
+    // simula a API do Firestore (doc.data()) que upsertMarker já espera -
+    // upsertMarker/removeMarker não precisaram mudar nada.
+    const canal = sb.channel('mapa_rede_mudancas');
+    canal.on('postgres_changes', {event: '*', schema: 'public', table: 'mapa_rede'}, payload => {
+      const change = payload.eventType === 'DELETE'
+        ? {type: 'removed', doc: {id: String(payload.old.id), data: () => payload.old}}
+        : {type: payload.eventType === 'INSERT' ? 'added' : 'modified', doc: {id: String(payload.new.id), data: () => payload.new}};
+      window._applyMapaChanges && window._applyMapaChanges([change]);
+    });
+    canal.subscribe(async status => {
+      if (status !== 'SUBSCRIBED') return;
+      try {
+        // PostgREST devolve no máximo 1000 linhas por chamada - pagina até
+        // acabar (a conta tem 13 mil+ terminais só da Jebnet).
+        const PAGINA = 1000;
+        for (let desde = 0; ; desde += PAGINA) {
+          const {data, error} = await sb.from('mapa_rede').select('*').range(desde, desde + PAGINA - 1);
+          if (error) throw error;
+          if (!data.length) break;
+          window._applyMapaChanges && window._applyMapaChanges(
+            data.map(row => ({type: 'added', doc: {id: String(row.id), data: () => row}}))
+          );
+          if (data.length < PAGINA) break;
         }
-        const itens = change.doc.data().itens || {};
-        const novo = new Map(Object.entries(itens));
-        for (const [id, data] of novo) {
-          changesSintetizadas.push({type: antigo.has(id) ? 'modified' : 'added', doc: {id, data: () => data}});
-        }
-        for (const id of antigo.keys()) {
-          if (!novo.has(id)) changesSintetizadas.push({type: 'removed', doc: {id, data: () => antigo.get(id)}});
-        }
-        pacoteCache.set(pacoteId, novo);
+      } catch (err) {
+        console.error('Falha ao carregar mapa_rede:', err);
+        window._applyMapaError && window._applyMapaError(err);
       }
-      window._applyMapaChanges && window._applyMapaChanges(changesSintetizadas);
-    }, err => {
-      console.error('Falha ao sincronizar mapa_rede_pacotes:', err);
-      window._applyMapaError && window._applyMapaError(err);
     });
   };
 
@@ -815,7 +814,7 @@ document.getElementById('btnSair').addEventListener('click', () => {
 // Sincroniza sob demanda em vez de esperar o cron diário - chama um tipo por
 // vez (mesmo limite de tempo por execução do full-sync) e reflete o progresso
 // no próprio botão. Os dados atualizados chegam no mapa sozinhos, via o
-// listener do Firestore já ligado (window._iniciarSync) - não precisa recarregar.
+// canal de tempo real do Supabase já ligado (window._iniciarSync) - não precisa recarregar.
 document.getElementById('btnSincronizar').addEventListener('click', async () => {
   const btn = document.getElementById('btnSincronizar');
   const textoOriginal = btn.textContent;
