@@ -33,37 +33,20 @@
   // Só liga o listener depois que a senha for confirmada (window._iniciarSync,
   // chamado pelo script de login mais abaixo).
   window._iniciarSync = function(){
-    // "mapa_rede_pacotes" agrupa vários itens por documento (ver _lib/geogrid.js,
-    // N_PACOTES) - 1 documento por item estourava a cota gratuita de gravação do
-    // Firestore quando a conta ficou grande (Jebnet + Infolink). Cada pacote muda
-    // de vez em quando (não item por item), então aqui a gente compara o "itens"
-    // de cada pacote contra o que já tinha visto antes (pacoteCache) e sintetiza
-    // uma mudança por item (added/modified/removed) igual o app já esperava -
-    // upsertMarker/removeMarker não precisaram mudar nada.
-    const pacoteCache = new Map(); // pacoteId -> Map(itemId -> doc)
-    onSnapshot(collection(fsDb, 'mapa_rede_pacotes'), snap => {
-      const changesSintetizadas = [];
-      for (const change of snap.docChanges()) {
-        const pacoteId = change.doc.id;
-        const antigo = pacoteCache.get(pacoteId) || new Map();
-        if (change.type === 'removed') {
-          for (const [id, data] of antigo) changesSintetizadas.push({type: 'removed', doc: {id, data: () => data}});
-          pacoteCache.delete(pacoteId);
-          continue;
-        }
-        const itens = change.doc.data().itens || {};
-        const novo = new Map(Object.entries(itens));
-        for (const [id, data] of novo) {
-          changesSintetizadas.push({type: antigo.has(id) ? 'modified' : 'added', doc: {id, data: () => data}});
-        }
-        for (const id of antigo.keys()) {
-          if (!novo.has(id)) changesSintetizadas.push({type: 'removed', doc: {id, data: () => antigo.get(id)}});
-        }
-        pacoteCache.set(pacoteId, novo);
-      }
-      window._applyMapaChanges && window._applyMapaChanges(changesSintetizadas);
+    // TEMPORÁRIO (15/09): voltou a ler de "mapa_rede" (coleção antiga, 1 doc por
+    // item) em vez de "mapa_rede_pacotes" - a cota diária de gravação do
+    // Firestore estourou hoje (de tanto tentar sincronizar durante a depuração),
+    // então mapa_rede_pacotes ficou vazia (nenhuma sincronização completou nela
+    // ainda) e o técnico em campo ficava sem NENHUM dado no mapa. mapa_rede não
+    // foi apagada - continua com os últimos dados sincronizados com sucesso
+    // antes da migração, então voltar a ler dali devolve o acesso na hora, sem
+    // depender de sincronizar nada. Reverter pra mapa_rede_pacotes assim que uma
+    // sincronização completa rodar com sucesso nela (a cota reseta à meia-noite
+    // horário do Pacífico, ~4h-5h de Brasília).
+    onSnapshot(collection(fsDb, 'mapa_rede'), snap => {
+      window._applyMapaChanges && window._applyMapaChanges(snap.docChanges());
     }, err => {
-      console.error('Falha ao sincronizar mapa_rede_pacotes:', err);
+      console.error('Falha ao sincronizar mapa_rede:', err);
       window._applyMapaError && window._applyMapaError(err);
     });
   };
