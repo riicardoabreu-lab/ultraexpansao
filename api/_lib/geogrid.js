@@ -183,6 +183,38 @@ function montarDoc(item, pastaInfo) {
   return doc;
 }
 
+// A conta do GeoGrid tem VÁRIOS clientes misturados (Jebnet, Infolink, "Dnet",
+// e a pasta "CLIENTES-LINKS" com provedores concorrentes) - só a Jebnet deve
+// ser gravada no Firestore (mapa-campo e numeracao-ctos são só dela). Filtrar
+// aqui, ANTES de gravar, em vez de só na hora de mostrar no mapa (como era
+// antes) - sincronizar itens que nunca vão aparecer desperdiça uma fração
+// enorme da cota diária de gravação do Firestore à toa. Mesmo critério já
+// validado no mapa-campo (ver MUNICIPIOS_JEBNET lá): a Jebnet só atua na
+// região de Itapipoca e adjacências - região confirmada batendo com as
+// pastas do export "Jebnet - Itapipoca" do GeoGrid (KMZ 15/09/2026).
+const MUNICIPIOS_JEBNET = ['itapipoca', 'miraima', 'tururu', 'baleia', 'amontada', 'trairi', 'uruburetama'];
+function normalizar(txt) {
+  return (txt || '').toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+function ehMunicipioJebnet(municipio) {
+  const m = normalizar(municipio);
+  if (!m || m === 'clientes-links') return m.includes('jebnet');
+  return MUNICIPIOS_JEBNET.some(c => m.includes(c)) || m.includes('jebnet');
+}
+// Terminal (CTO) da Jebnet de verdade também exige sigla "CTO-" + dígito e
+// numeração >= 20000 - existe pelo menos um item "CTO-01 Iparana" (número
+// baixo) numa cidade da lista acima que ainda assim não é da Jebnet, então a
+// cidade sozinha não basta pra terminal.
+function ehJebnetTerminal(doc) {
+  const sigla = (doc.sigla || '').trim();
+  return /^cto-\d/i.test(sigla) && Number(doc.numero) >= 20000;
+}
+function ehJebnet(doc) {
+  if (!ehMunicipioJebnet(doc.municipio)) return false;
+  if (doc.item === 'terminal' && !ehJebnetTerminal(doc)) return false;
+  return true;
+}
+
 // ---- Armazenamento em "pacotes" (poucos documentos grandes) ----
 // Guardar 1 documento por item (13700+ só de terminal) estourava a cota
 // gratuita de gravação do Firestore (20 mil/dia) numa sincronização só.
@@ -231,9 +263,11 @@ async function sincronizarTipos(tipos) {
       for (const item of registros) {
         const id = item.dados && item.dados.id;
         if (!id) continue;
+        const doc = montarDoc(item, pastaInfo);
+        if (!ehJebnet(doc)) continue; // outro cliente da conta (Infolink, Dnet etc.) - não grava
         const idx = indicePacote(id);
         if (!porPacote.has(idx)) porPacote.set(idx, {});
-        porPacote.get(idx)[String(id)] = montarDoc(item, pastaInfo);
+        porPacote.get(idx)[String(id)] = doc;
         totalGravados++;
       }
       for (const [idx, itens] of porPacote) {
@@ -266,18 +300,22 @@ async function sincronizarPaginaTipo(tipo, pagina, pastaInfo) {
   const registros = dados.registros || [];
   const totalTipo = parseInt(dados.totalRegistros, 10) || 0;
 
-  // semIdCount conta itens sem "dados.id" (ficam de fora silenciosamente) -
-  // exposto pra diagnosticar se um lote inteiro de itens (ex.: os da
-  // Infolink) está sendo descartado aqui em vez de gravado.
+  // semIdCount conta itens sem "dados.id" (ficam de fora silenciosamente).
+  // foraDaJebnet conta itens de outro cliente da conta (Infolink, Dnet etc.) -
+  // filtrados aqui, antes de gravar, pra não gastar cota do Firestore com
+  // itens que nunca deveriam sincronizar (ver ehJebnet acima).
   let gravados = 0;
   let semId = 0;
+  let foraDaJebnet = 0;
   const porPacote = new Map(); // indice -> {id: doc}
   for (const item of registros) {
     const id = item.dados && item.dados.id;
     if (!id) { semId++; continue; }
+    const doc = montarDoc(item, pastaInfo);
+    if (!ehJebnet(doc)) { foraDaJebnet++; continue; }
     const idx = indicePacote(id);
     if (!porPacote.has(idx)) porPacote.set(idx, {});
-    porPacote.get(idx)[String(id)] = montarDoc(item, pastaInfo);
+    porPacote.get(idx)[String(id)] = doc;
     gravados++;
   }
   for (const [idx, itens] of porPacote) {
@@ -288,7 +326,7 @@ async function sincronizarPaginaTipo(tipo, pagina, pastaInfo) {
   }
 
   const temMais = registros.length > 0 && pagina * 500 < totalTipo;
-  return {totalTipo, recebidos: registros.length, gravados, semId, temMais};
+  return {totalTipo, recebidos: registros.length, gravados, semId, foraDaJebnet, temMais};
 }
 
 // Upsert/remoção de UM item só (usado pelo webhook) - acha o pacote certo
@@ -312,7 +350,7 @@ async function removerItemPacote(id) {
 }
 
 module.exports = {
-  admin, getDb, geogridFetch, carregarPastas, montarDoc,
+  admin, getDb, geogridFetch, carregarPastas, montarDoc, ehJebnet,
   sincronizarTipos, sincronizarPaginaTipo, TIPOS_SINCRONIZADOS,
   N_PACOTES, indicePacote, nomePacote, upsertItemPacote, removerItemPacote,
 };
