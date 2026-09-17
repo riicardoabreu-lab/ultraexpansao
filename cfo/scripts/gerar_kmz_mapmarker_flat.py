@@ -1,9 +1,11 @@
 """
 Variante de gerar_kmz_mapmarker.py para cidades cujo backup do Map Marker
 não tem uma pasta raiz com o nome do município (ex: Fortim, Aquiraz,
-Pindoretama, Cascavel) -- a pasta de nível 1 já é o bairro/setor
-diretamente, ao contrário de Beberibe/Fortaleza que tem
-"CIDADE/bairro/categoria/provedor".
+Pindoretama, Cascavel, Chorozinho, Barreira, Guaiuba, Capistrano) --
+ao contrário de Beberibe/Fortaleza que tem "CIDADE/bairro/categoria/
+provedor". O bairro é achado dinamicamente (segmento antes de "CAIXAS"/
+"CAIXA"), então funciona tanto com "bairro/CAIXAS/provedor" direto quanto
+com um nível extra tipo "MAPA GERAL/bairro/CAIXAS/provedor".
 
 Uso:
     python cfo/scripts/gerar_kmz_mapmarker_flat.py <content.json> <cidade> <saida.kmz>
@@ -60,20 +62,25 @@ def build_kml(content_json_path, cidade, only_bairros=None, exclude_bairros=None
         if not folder or not folder.get("name"):
             continue
         parts = [x.strip() for x in folder["name"].split("/") if x.strip()]
-        if len(parts) < 3:
+        # O bairro é o segmento imediatamente ANTES de "CAIXAS"/"CAIXA" --
+        # cobre tanto "bairro/CAIXAS/provedor" direto (Aquiraz, Pindoretama,
+        # Cascavel) quanto "MAPA GERAL/bairro/CAIXAS/provedor" (Chorozinho,
+        # Barreira, Guaiuba) e "MAPA GERAL/CAIXAS/provedor" sem sub-bairro
+        # (Capistrano, Porto das Dunas) -- não dá pra assumir posição fixa.
+        try:
+            idx = next(i for i, seg in enumerate(parts) if seg.upper() in ("CAIXAS", "CAIXA"))
+        except StopIteration:
             continue
-        bairro, categoria = parts[0], parts[1]
+        if idx == 0 or len(parts) <= idx + 1:
+            continue
+        bairro = parts[idx - 1]
         if only_set is not None and bairro.upper() not in only_set:
             continue
         if bairro.upper() in exclude_set:
             continue
-        # "CAIXA" (singular) aparece pelo menos em Cascavel/CENTRO -- provável
-        # erro de digitação de campo, mas é a mesma categoria de "CAIXAS"
-        if categoria.upper() not in ("CAIXAS", "CAIXA"):
-            continue  # só caixas de atendimento -- sem CEO/emendas, sem residencial
-        base_provider = normalize_provider(parts[2])
-        if len(parts) > 3:
-            suffix = " ".join(parts[3:])
+        base_provider = normalize_provider(parts[idx + 1])
+        if len(parts) > idx + 2:
+            suffix = " ".join(parts[idx + 2:])
             provedor = f"{base_provider} ({suffix})"
         else:
             provedor = base_provider
