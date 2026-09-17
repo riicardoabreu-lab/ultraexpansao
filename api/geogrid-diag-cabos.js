@@ -1,45 +1,37 @@
-const {geogridFetch} = require('./_lib/geogrid');
+const GEOGRID_BASE = 'https://eros.geogridmaps.com.br/alencar/api/v3';
 
-// Diagnóstico pontual (não grava nada): tenta alguns caminhos prováveis da
-// API do GeoGrid atrás de dados de CABO (linhas/rotas) - hoje o app só
-// sincroniza itens PONTO (terminal, caixa, rack, estação, pontoAcesso,
-// interesse, reserva - ver TIPOS_SINCRONIZADOS em _lib/geogrid.js); cabos
-// vêm de um KMZ estático, atualizado manualmente. Usado só pra descobrir se
-// dá pra puxar cabo também via API, sem precisar adivinhar às cegas (mesma
-// ideia do geogrid-diagnostico-cx.js). Apaga esse arquivo depois de usar.
-const CANDIDATOS = [
-  '/cabos?pagina=1&registrosPorPagina=5',
-  '/trechosCabo?pagina=1&registrosPorPagina=5',
-  '/rotasCabo?pagina=1&registrosPorPagina=5',
-  '/segmentosCabo?pagina=1&registrosPorPagina=5',
-  '/rotas?pagina=1&registrosPorPagina=5',
-  '/itensRede?item[]=cabo&pagina=1&registrosPorPagina=5',
-  '/itensRede?item[]=trechoCabo&pagina=1&registrosPorPagina=5',
-];
+// Diagnóstico pontual (não grava nada): /cabos respondeu HTTP 405 (Method Not
+// Allowed) na primeira rodada - existe de verdade, só não aceita GET. Testa
+// outros métodos/variações pra descobrir como ler de lá. Apagar depois de
+// descobrir o caminho certo (ver histórico do commit que criou esse arquivo).
+async function sonda(caminho, metodo) {
+  try {
+    const res = await fetch(`${GEOGRID_BASE}${caminho}`, {
+      method: metodo,
+      headers: {'api-key': process.env.GEOGRID_API_KEY},
+    });
+    const allow = res.headers.get('allow');
+    let corpo = '';
+    try { corpo = (await res.text()).slice(0, 500); } catch (e) {}
+    return {caminho, metodo, status: res.status, allow, corpo};
+  } catch (e) {
+    return {caminho, metodo, erro: String(e.message || e)};
+  }
+}
 
 module.exports = async function handler(req, res) {
-  // Usa o MAPA_CAMPO_TOKEN (já embutido no código-fonte de mapa-campo/index.html,
-  // então não é segredo write-only tipo GEOGRID_SYNC_SECRET) - evita depender de
-  // revelar uma variável "Secret" do Vercel, que não dá mais pra ver depois de salva.
   if (req.query.token !== process.env.MAPA_CAMPO_TOKEN) {
     res.status(403).json({erro: 'não autorizado'});
     return;
   }
 
-  const resultados = [];
-  for (const caminho of CANDIDATOS) {
-    try {
-      const dados = await geogridFetch(caminho);
-      resultados.push({
-        caminho,
-        ok: true,
-        totalRegistros: dados.totalRegistros,
-        amostra: JSON.stringify(dados.registros ? dados.registros.slice(0, 1) : dados).slice(0, 2000),
-      });
-    } catch (e) {
-      resultados.push({caminho, ok: false, erro: String(e.message || e)});
-    }
-  }
+  const resultados = await Promise.all([
+    sonda('/cabos', 'OPTIONS'),
+    sonda('/cabos', 'POST'),
+    sonda('/cabos?pagina=1&registrosPorPagina=5', 'POST'),
+    sonda('/cabos/listar', 'GET'),
+    sonda('/cabos/1', 'GET'),
+  ]);
 
   res.status(200).json({resultados});
 };
