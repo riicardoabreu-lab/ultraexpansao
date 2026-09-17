@@ -115,6 +115,10 @@
   </div>
   <div style="display:flex;align-items:center;gap:10px;">
     <div class="badge">Infolink Telecom · Inteligência Competitiva</div>
+    <button onclick="window.location.reload()"
+      style="background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:20px;font-size:12px;cursor:pointer;">
+      🔄 Atualizar
+    </button>
     <a href="../home.html"
       style="background:transparent;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:20px;font-size:12px;cursor:pointer;text-decoration:none;display:inline-block;">
       Início
@@ -285,7 +289,6 @@
       <h3>Mapa de Rede — KMZ do Map Marker <small>Pontos coletados em campo (caixas, emendas, condomínios), organizados por cidade → bairro → provedor</small></h3>
       <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
         <select id="kmzCitySelect" style="min-width:240px;"></select>
-        <button type="button" id="kmzRefreshBtn" class="state-btn" title="Recarrega o KMZ da cidade selecionada, ignorando cache">🔄 Atualizar</button>
         <span id="kmzStatus" style="color:var(--muted);font-size:12.5px;"></span>
       </div>
       <div id="kmzBody" style="display:grid;grid-template-columns:270px 1fr;gap:14px;">
@@ -1089,10 +1092,6 @@ function populateKmzCitySelect(){
     + '<option value="__ALL__">🌎 Todas as cidades</option>'
     + keys.map(k=>`<option value="${k}">${KMZ_CATALOG[k].display_name} (${KMZ_CATALOG[k].estado})</option>`).join('');
   sel.onchange = () => sel.value === '__ALL__' ? loadAllKmzCities() : loadKmzCity(sel.value);
-  document.getElementById('kmzRefreshBtn').addEventListener('click', () => {
-    if(!sel.value) return;
-    sel.value === '__ALL__' ? loadAllKmzCities() : loadKmzCity(sel.value);
-  });
 }
 
 // O mapa só é criado quando a aba KMZ é aberta pela 1ª vez — inicializar o
