@@ -18,7 +18,10 @@ const CANDIDATOS = [
 ];
 
 module.exports = async function handler(req, res) {
-  if (req.query.segredo !== process.env.GEOGRID_SYNC_SECRET) {
+  // Usa o MAPA_CAMPO_TOKEN (já embutido no código-fonte de mapa-campo/index.html,
+  // então não é segredo write-only tipo GEOGRID_SYNC_SECRET) - evita depender de
+  // revelar uma variável "Secret" do Vercel, que não dá mais pra ver depois de salva.
+  if (req.query.token !== process.env.MAPA_CAMPO_TOKEN) {
     res.status(403).json({erro: 'não autorizado'});
     return;
   }
