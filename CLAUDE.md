@@ -43,7 +43,8 @@ deploy específico: `npx vercel ls`, `npx vercel inspect <url>`).
 ├── auditoria-lb/index.html  → auditoria de campo por OS/protocolo (Firestore)
 ├── controle-km/index.html   → controle de quilometragem
 ├── avaliacao-provedor/      → calculadora de avaliação de provedor
-├── numeracao-ctos/          → numeração de CTOs
+├── mapa-campo/index.html    → mapa de campo (só rede Jebnet), dados do GeoGrid via Supabase
+├── numeracao-ctos/          → numeração de CTOs (rede Jebnet via Supabase + reservas via Firestore)
 ├── orcamento-ftth/          → catálogo de materiais FTTH (cabo/alça por FO,
 │                              caixas, splitters, mão de obra, com Alça/
 │                              Poste/Bap/Supa/mão de obra calculados
@@ -55,6 +56,40 @@ deploy específico: `npx vercel ls`, `npx vercel inspect <url>`).
 │                              com a equipe via Firestore (orcamento_ftth_backups)
 └── aquisicoes/               → plataforma de aquisições ISP
 ```
+
+### `mapa-campo/` + `numeracao-ctos/` — sincronização com o GeoGrid (Supabase)
+
+Ambos mostram dados da rede **Jebnet** (CTOs, caixas, racks, estações, pontos
+de acesso, interesses e reservas) puxados ao vivo da API do GeoGrid
+(`eros.geogridmaps.com.br/alencar/api/v3` — conta compartilhada com outros
+clientes revendidos, ex.: Infolink, "Dnet"; ver filtro abaixo). A
+sincronização roda em `api/_lib/geogrid.js` + `api/geogrid-*.js` (cron
+diário, webhook do GeoGrid, botão "🔄 Sincronizar" nas duas telas) e grava
+numa tabela **Postgres no Supabase** (`mapa_rede`, schema em `supabase.sql`
+na raiz do repo) — 1 linha por item, lida no navegador via
+`@supabase/supabase-js` com um canal `postgres_changes` (tempo real) +
+carga inicial paginada (PostgREST limita a 1000 linhas por chamada).
+
+Isso **não** é Firestore (histórico: era `mapa_rede`/`mapa_rede_pacotes` no
+Firestore, migrado em 16/09/2026 depois da cota gratuita de
+gravação/leitura estourar dois dias seguidos com o volume dessa conta do
+GeoGrid — Postgres não cobra por documento, então voltou a ser simples,
+sem precisar agrupar itens). O resto do portal (isp-manage, auditoria-lb,
+aquisicoes, orcamento-ftth, e o doc de reservas do próprio numeracao-ctos)
+continua no Firestore normalmente — baixo volume, nunca deu problema.
+
+Credenciais do Supabase são variáveis de ambiente da Vercel:
+`SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` (backend, secreta — nunca
+exposta no navegador). O frontend usa a chave **anon/publishable**
+(pública por design, hardcoded no HTML igual o `apiKey` do Firebase já
+era) — leitura liberada pra qualquer um via RLS (`supabase.sql`), escrita
+só pelo backend com a service_role key.
+
+A conta do GeoGrid tem vários clientes misturados — `ehJebnet()` em
+`api/_lib/geogrid.js` filtra por município (`MUNICIPIOS_JEBNET`: Itapipoca
+e adjacências) + sigla/número pra terminal, **antes** de gravar no Supabase
+(não só na hora de mostrar) — sincronizar item de outro cliente desperdiça
+banco à toa.
 
 ### `cfo/dashboard.html` — dashboard de rede
 

@@ -1,4 +1,4 @@
-const {geogridFetch, carregarPastas, montarDoc, upsertItemPacote, removerItemPacote} = require('./_lib/geogrid');
+const {geogridFetch, carregarPastas, montarLinha, ehJebnet, upsertItem, removerItem} = require('./_lib/geogrid');
 
 // Recebe o POST que o GeoGrid dispara quando um item muda (configurado em
 // Menu -> Configuração integração, dentro do GeoGrid). O formato exato do corpo
@@ -26,12 +26,20 @@ module.exports = async function handler(req, res) {
     const item = await geogridFetch(`/itensRede/${id}/mapa`);
 
     if (!item || item === false || !item.dados) {
-      await removerItemPacote(id);
-      console.log(`Item ${id} removido do pacote (não existe mais no GeoGrid)`);
+      await removerItem(id);
+      console.log(`Item ${id} removido (não existe mais no GeoGrid)`);
     } else {
       const pastaInfo = await carregarPastas();
-      await upsertItemPacote(id, montarDoc(item, pastaInfo));
-      console.log(`Item ${id} atualizado no pacote`);
+      const linha = montarLinha(item, pastaInfo);
+      if (!ehJebnet(linha)) {
+        // outro cliente da conta (Infolink, Dnet etc.) - garante que não fica
+        // gravado (caso já existisse de uma sincronização anterior ao filtro)
+        await removerItem(id);
+        console.log(`Item ${id} ignorado (não é da Jebnet: município ${linha.municipio})`);
+      } else {
+        await upsertItem(linha);
+        console.log(`Item ${id} atualizado`);
+      }
     }
     res.status(200).send('ok');
   } catch (e) {

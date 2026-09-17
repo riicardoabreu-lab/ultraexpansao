@@ -18,36 +18,55 @@
   window._MAPA_CAMPO_TOKEN = MAPA_CAMPO_TOKEN;
 </script>
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-  const fb = initializeApp({
-    apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
-    authDomain: "isp-manager-ce.firebaseapp.com",
-    projectId: "isp-manager-ce",
-    storageBucket: "isp-manager-ce.firebasestorage.app",
-    messagingSenderId: "374725918192",
-    appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
-  });
-  const fsDb = getFirestore(fb);
+  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+  // Chave "anon" - pública por design (equivalente ao apiKey do Firebase que
+  // era exposto aqui antes). Leitura da tabela mapa_rede é liberada pra
+  // qualquer um via RLS (ver supabase.sql no repo); gravação só pelo backend,
+  // com a service_role key (nunca exposta no navegador).
+  const sb = createClient(
+    "https://kmqzvwakxeyujefrvxsz.supabase.co",
+    "sb_publishable_rilibSAUCQ3OIvH3mxZEKg_-VxLLjR6"
+  );
 
-  // Só liga o listener depois que a senha for confirmada (window._iniciarSync,
+  // Só liga a sincronização depois que a senha for confirmada (window._iniciarSync,
   // chamado pelo script de login mais abaixo).
   window._iniciarSync = function(){
-    // TEMPORÁRIO (15/09): voltou a ler de "mapa_rede" (coleção antiga, 1 doc por
-    // item) em vez de "mapa_rede_pacotes" - a cota diária de gravação do
-    // Firestore estourou hoje (de tanto tentar sincronizar durante a depuração),
-    // então mapa_rede_pacotes ficou vazia (nenhuma sincronização completou nela
-    // ainda) e o técnico em campo ficava sem NENHUM dado no mapa. mapa_rede não
-    // foi apagada - continua com os últimos dados sincronizados com sucesso
-    // antes da migração, então voltar a ler dali devolve o acesso na hora, sem
-    // depender de sincronizar nada. Reverter pra mapa_rede_pacotes assim que uma
-    // sincronização completa rodar com sucesso nela (a cota reseta à meia-noite
-    // horário do Pacífico, ~4h-5h de Brasília).
-    onSnapshot(collection(fsDb, 'mapa_rede'), snap => {
-      window._applyMapaChanges && window._applyMapaChanges(snap.docChanges());
-    }, err => {
-      console.error('Falha ao sincronizar mapa_rede:', err);
-      window._applyMapaError && window._applyMapaError(err);
+    // Trocado do Firestore pro Supabase (16/09) - a cota gratuita de
+    // gravação/leitura do Firestore estourou 2 dias seguidos com o volume
+    // dessa conta do GeoGrid, mesmo já agrupando em "pacotes". Postgres não
+    // cobra por documento, então a tabela mapa_rede é 1 linha por item,
+    // direto - sem precisar de nenhum truque de agrupamento.
+    //
+    // Assina o canal de tempo real ANTES de pedir a carga inicial (evita
+    // perder eventos que cheguem no meio da carga). Object.assign no data()
+    // simula a API do Firestore (doc.data()) que upsertMarker já espera -
+    // upsertMarker/removeMarker não precisaram mudar nada.
+    const canal = sb.channel('mapa_rede_mudancas');
+    canal.on('postgres_changes', {event: '*', schema: 'public', table: 'mapa_rede'}, payload => {
+      const change = payload.eventType === 'DELETE'
+        ? {type: 'removed', doc: {id: String(payload.old.id), data: () => payload.old}}
+        : {type: payload.eventType === 'INSERT' ? 'added' : 'modified', doc: {id: String(payload.new.id), data: () => payload.new}};
+      window._applyMapaChanges && window._applyMapaChanges([change]);
+    });
+    canal.subscribe(async status => {
+      if (status !== 'SUBSCRIBED') return;
+      try {
+        // PostgREST devolve no máximo 1000 linhas por chamada - pagina até
+        // acabar (a conta tem 13 mil+ terminais só da Jebnet).
+        const PAGINA = 1000;
+        for (let desde = 0; ; desde += PAGINA) {
+          const {data, error} = await sb.from('mapa_rede').select('*').range(desde, desde + PAGINA - 1);
+          if (error) throw error;
+          if (!data.length) break;
+          window._applyMapaChanges && window._applyMapaChanges(
+            data.map(row => ({type: 'added', doc: {id: String(row.id), data: () => row}}))
+          );
+          if (data.length < PAGINA) break;
+        }
+      } catch (err) {
+        console.error('Falha ao carregar mapa_rede:', err);
+        window._applyMapaError && window._applyMapaError(err);
+      }
     });
   };
 
@@ -264,7 +283,10 @@
   <div id="diagAmostraTexto" style="font-family:monospace;font-size:12px;white-space:pre-wrap;"></div>
 </div>
 
-<div id="syncLogPainel" style="display:none;position:absolute;top:56px;left:14px;right:14px;max-height:50vh;overflow:auto;z-index:1200;background:#fdf1de;color:#1a1625;border:1px solid #d98c2b;border-radius:10px;padding:14px 16px;font-family:monospace;font-size:12px;white-space:pre-wrap;"></div>
+<div id="syncLogPainel" style="display:none;position:absolute;top:56px;left:14px;right:14px;max-height:50vh;overflow:auto;z-index:1200;background:#fdf1de;color:#1a1625;border:1px solid #d98c2b;border-radius:10px;padding:14px 16px;font-family:monospace;font-size:12px;">
+  <button id="btnFecharSyncLog" title="Fechar" style="position:sticky;top:0;float:right;background:none;border:none;font-size:18px;line-height:1;cursor:pointer;color:#1a1625;padding:0 0 8px 8px;">✕</button>
+  <div id="syncLogTexto" style="white-space:pre-wrap;"></div>
+</div>
 
 <div class="search-bar">
   <button class="pastas-toggle" id="btnAbrirPastas" title="Municípios">📁</button>
@@ -587,8 +609,19 @@ window._applyMapaChanges = function(changes){
   setSync('ok', `${total.toLocaleString('pt-BR')} itens carregados`);
   if (!primeiroSnapshot && total > 0) {
     primeiroSnapshot = true;
-    const grupo = L.featureGroup(Object.values(clusters).filter(c => map.hasLayer(c)));
-    if (grupo.getLayers().length) map.fitBounds(grupo.getBounds().pad(.15));
+    // Bug antigo: L.featureGroup(Object.values(clusters)...).getBounds() lançava
+    // "getLatLng is not a function", porque clusters[tipo] é um L.layerGroup()
+    // puro (sem getBounds próprio) - o Firestore engolia essa exceção em
+    // silêncio (por isso nunca tinha aparecido), mas agora qualquer erro no
+    // carregamento aparece de verdade (ver window._applyMapaError). Calcula
+    // os limites direto das coordenadas dos marcadores já carregados, sem
+    // depender de getBounds() dos grupos.
+    try {
+      const latlngs = Array.from(markersById.values()).map(e => e.marker.getLatLng());
+      if (latlngs.length) map.fitBounds(L.latLngBounds(latlngs).pad(.15));
+    } catch (e) {
+      console.warn('Não foi possível ajustar o zoom automático:', e);
+    }
   }
 };
 window._applyMapaError = function(){
@@ -795,13 +828,14 @@ document.getElementById('btnSair').addEventListener('click', () => {
 // Sincroniza sob demanda em vez de esperar o cron diário - chama um tipo por
 // vez (mesmo limite de tempo por execução do full-sync) e reflete o progresso
 // no próprio botão. Os dados atualizados chegam no mapa sozinhos, via o
-// listener do Firestore já ligado (window._iniciarSync) - não precisa recarregar.
+// canal de tempo real do Supabase já ligado (window._iniciarSync) - não precisa recarregar.
 document.getElementById('btnSincronizar').addEventListener('click', async () => {
   const btn = document.getElementById('btnSincronizar');
   const textoOriginal = btn.textContent;
-  const logEl = document.getElementById('syncLogPainel');
+  const logPainel = document.getElementById('syncLogPainel');
+  const logEl = document.getElementById('syncLogTexto');
   btn.disabled = true;
-  logEl.style.display = 'block';
+  logPainel.style.display = 'block';
   logEl.textContent = '';
   const tipos = Object.keys(TIPOS); // mesmos tipos de TIPOS_SINCRONIZADOS (api/_lib/geogrid.js)
   let totalGravados = 0;
@@ -867,6 +901,10 @@ document.getElementById('btnSincronizar').addEventListener('click', async () => 
     btn.disabled = false;
     setTimeout(() => { btn.textContent = textoOriginal; }, 4000);
   }
+});
+
+document.getElementById('btnFecharSyncLog').addEventListener('click', () => {
+  document.getElementById('syncLogPainel').style.display = 'none';
 });
 
 // Mostra na própria tela (sem precisar de DevTools) uma amostra real de

@@ -12,7 +12,8 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
   const fb = initializeApp({
     apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
     authDomain: "isp-manager-ce.firebaseapp.com",
@@ -33,6 +34,8 @@
   // ---- Numeros reservados aqui: sincronizados em tempo real com a equipe ----
   // Só as reservas feitas nesta ferramenta (origem:"manual") ficam num
   // documento compartilhado no Firestore, atualizado na hora pra todo mundo.
+  // Continua no Firestore (baixo volume, nunca deu problema de cota) - só a
+  // base "ativo" (itens do GeoGrid) foi pro Supabase, ver abaixo.
   const RESERVAS_DOC = doc(fsDb, 'numeracao_ctos', 'reservas');
   window._fbSaveReservas = (list) => setDoc(RESERVAS_DOC, { list, atualizado_em: Date.now() });
   onSnapshot(RESERVAS_DOC, snap => {
@@ -44,45 +47,59 @@
   });
 
   // ---- Base "ativo": sincronizada em tempo real com o GeoGrid ----
-  // TEMPORÁRIO (15/09): voltou a ler de "mapa_rede" (coleção antiga, 1 doc por
-  // item, com "item" como campo top-level - dá pra filtrar direto na query) em
-  // vez de "mapa_rede_pacotes" - a cota diária de gravação do Firestore
-  // estourou hoje (de tanto tentar sincronizar durante a depuração), então
-  // mapa_rede_pacotes ficou vazia e o painel ficava sem nenhuma CTO. mapa_rede
-  // não foi apagada - continua com os últimos dados sincronizados com sucesso
-  // antes da migração. Reverter pra mapa_rede_pacotes assim que uma
-  // sincronização completa rodar com sucesso nela (a cota reseta à meia-noite
-  // horário do Pacífico, ~4h-5h de Brasília).
-  const ATIVO_QUERY = query(collection(fsDb, 'mapa_rede'), where('item', '==', 'terminal'));
-  onSnapshot(ATIVO_QUERY, snap => {
-    const itens = [];
-    snap.forEach(d => itens.push(d.data()));
-    window._applyAtivo && window._applyAtivo(itens);
-  }, err => {
-    console.error('Falha ao sincronizar base do GeoGrid:', err);
-    window._applyAtivoError && window._applyAtivoError(err);
+  // Trocado do Firestore pro Supabase (16/09) - a cota gratuita de
+  // gravação/leitura do Firestore estourou 2 dias seguidos com o volume
+  // dessa conta do GeoGrid. Tabela mapa_rede no Postgres, 1 linha por item,
+  // já filtrada só pra Jebnet no backend (ver _lib/geogrid.js).
+  const sb = createClient(
+    "https://kmqzvwakxeyujefrvxsz.supabase.co",
+    "sb_publishable_rilibSAUCQ3OIvH3mxZEKg_-VxLLjR6"
+  );
+  let ativoCache = new Map(); // id -> linha (mantido pra reaplicar o filtro item=="terminal" a cada evento)
+  function reaplicarAtivo(){
+    window._applyAtivo && window._applyAtivo(Array.from(ativoCache.values()).filter(it => it.item === 'terminal'));
+  }
+  const canalAtivo = sb.channel('mapa_rede_ativo');
+  canalAtivo.on('postgres_changes', {event: '*', schema: 'public', table: 'mapa_rede'}, payload => {
+    if (payload.eventType === 'DELETE') ativoCache.delete(String(payload.old.id));
+    else ativoCache.set(String(payload.new.id), payload.new);
+    reaplicarAtivo();
+  });
+  canalAtivo.subscribe(async status => {
+    if (status !== 'SUBSCRIBED') return;
+    try {
+      const PAGINA = 1000;
+      for (let desde = 0; ; desde += PAGINA) {
+        const {data, error} = await sb.from('mapa_rede').select('*').range(desde, desde + PAGINA - 1);
+        if (error) throw error;
+        if (!data.length) break;
+        for (const row of data) ativoCache.set(String(row.id), row);
+        reaplicarAtivo();
+        if (data.length < PAGINA) break;
+      }
+    } catch (err) {
+      console.error('Falha ao sincronizar base do GeoGrid:', err);
+      window._applyAtivoError && window._applyAtivoError(err);
+    }
   });
 
   // Diagnóstico sob demanda (botão "🔍 Achar sigla CX em outro tipo"): a tela
-  // normal só escuta item=="terminal" - isso aqui varre TODOS os pacotes
-  // (mapa_rede_pacotes, qualquer tipo dentro: caixa, rack, poste teria dado
-  // errado etc.) atrás de sigla começando com "CX", pra saber se as CTOs
-  // Infolink estão sincronizadas só que classificadas com um "item" diferente
-  // de "terminal". Filtro por sigla é feito no cliente (não dá pra fazer range
-  // query num campo dentro de um map aninhado entre vários documentos).
-  // TEMPORÁRIO (15/09): voltou a ler de "mapa_rede" (mesma razão do
-  // ATIVO_QUERY acima - mapa_rede_pacotes está vazia até a cota do Firestore
-  // resetar e uma sincronização completar).
+  // normal só mostra item=="terminal" - isso aqui varre TODOS os itens já
+  // carregados (qualquer tipo: caixa, rack etc.) atrás de sigla começando com
+  // "CX", pra saber se as CTOs Infolink estão sincronizadas só que
+  // classificadas com um "item" diferente de "terminal". Com o filtro por
+  // rede no backend (16/09), o esperado agora é sempre "Nenhum item".
   window._diagnosticarCxEmQualquerTipo = async function(){
-    const snap = await getDocs(query(collection(fsDb, 'mapa_rede'), where('sigla', '>=', 'CX'), where('sigla', '<', 'CY')));
     const porTipo = {};
     const exemplos = [];
-    snap.forEach(d => {
-      const it = d.data();
+    let total = 0;
+    for (const it of ativoCache.values()) {
+      if (!it || !/^cx/i.test(it.sigla || '')) continue;
+      total++;
       porTipo[it.item] = (porTipo[it.item] || 0) + 1;
       if (exemplos.length < 10) exemplos.push({sigla: it.sigla, item: it.item});
-    });
-    return {total: snap.size, porTipo, exemplos};
+    }
+    return {total, porTipo, exemplos};
   };
 </script>
 <title>Numeração de CTOs · Infolink</title>
