@@ -12,7 +12,8 @@ const {getSupabase, geogridFetch} = require('./_lib/geogrid');
 // Vercel. Uso temporário (apagar depois de gerar o relatório), mesmo padrão
 // do antigo api/geogrid-diag-cabos.js.
 module.exports = async function handler(req, res) {
-  if (req.headers['x-mapa-campo-token'] !== process.env.MAPA_CAMPO_TOKEN) {
+  const token = req.headers['x-mapa-campo-token'] || req.query.token;
+  if (token !== process.env.MAPA_CAMPO_TOKEN) {
     res.status(403).json({erro: 'não autorizado'});
     return;
   }
