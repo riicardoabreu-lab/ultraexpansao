@@ -272,6 +272,7 @@
   </div>
   <div class="header-actions">
     <button class="btn-ghost-sm" id="btnSincronizar">🔄 Sincronizar</button>
+    <button class="btn-ghost-sm" id="btnVerifSplitter" title="Consulta o diagrama de equipamentos de cada CTO no GeoGrid e marca no mapa quem está sem splitter">🔌 Verificar splitters</button>
     <button class="btn-ghost-sm" id="btnDiagSiglas" title="Mostra amostra de sigla por tipo, pra achar padrão de outras redes misturadas">🔍 Amostra</button>
     <button class="btn-ghost-sm" id="btnSair">Sair</button>
   </div>
@@ -346,6 +347,12 @@ L.control.layers({'Satélite': satelite, 'Ruas': ruas}, overlays, {collapsed: tr
 const markersById = new Map(); // id -> {marker, tipo}
 const contagens = {};
 
+// Cor de CTO (terminal) sem splitter instalado no diagrama de fibra do
+// GeoGrid (tem_splitter === false, gravado pelo botão "🔌 Verificar
+// splitters") - vermelho chama atenção sem precisar abrir o popup de cada
+// caixa uma por uma. null/undefined (ainda não verificado) usa a cor normal.
+const COR_SEM_SPLITTER = '#e74c3c';
+
 function iconePara(tipo){
   const cor = (TIPOS[tipo] || {color:'#999'}).color;
   // Reserva é branca (posição planejada, ainda sem caixa instalada) - contorno
@@ -373,12 +380,18 @@ function popupHtml(data, id){
   // quando o popup abre (ver carregarEquipamento) - mais confiável que o texto livre.
   const equipamento = data.item === 'terminal'
     ? `<div class="loc" id="equip-${id}">carregando detalhes técnicos…</div>` : '';
+  // tem_splitter vem gravado no próprio mapa_rede (botão "🔌 Verificar
+  // splitters") - aparece na hora, sem esperar o carregarEquipamento (que
+  // ainda roda, pra mostrar o modelo exato do splitter/fibra).
+  const avisoSplitter = data.item === 'terminal' && data.tem_splitter === false
+    ? `<div class="loc" style="color:${COR_SEM_SPLITTER};font-weight:600;">⚠️ sem splitter instalado</div>` : '';
   return `<div class="popup-item">
     <div class="tipo">${tipo}</div>
     <div class="sigla">${data.sigla || '(sem sigla)'}</div>
     <div class="loc">${loc}</div>
     <div class="loc">status: ${data.status || '—'}</div>
     ${infoTecnica}
+    ${avisoSplitter}
     ${equipamento}
     <a class="btn-navegar" href="${urlNavegar}" target="_blank" rel="noopener">🧭 Navegar até aqui</a>
   </div>`;
@@ -462,6 +475,12 @@ function upsertMarker(id, data){
   entry.marker.setLatLng(latlng);
   entry.marker.setPopupContent(popupHtml(data, id));
   entry.marker._dados = data;
+  // CTO sem splitter fica vermelha, independente da camada/tipo - só terminal
+  // tem tem_splitter preenchido (ver api/geogrid-manual-sync-splitter.js).
+  if (data.item === 'terminal') {
+    const cor = data.tem_splitter === false ? COR_SEM_SPLITTER : TIPOS.terminal.color;
+    entry.marker.setStyle({fillColor: cor});
+  }
 
   if (data.item === 'reserva') {
     entry.oculta = temCaixaPerto(latlng);
@@ -905,6 +924,75 @@ document.getElementById('btnSincronizar').addEventListener('click', async () => 
 
 document.getElementById('btnFecharSyncLog').addEventListener('click', () => {
   document.getElementById('syncLogPainel').style.display = 'none';
+});
+
+// Verifica, CTO por CTO, se tem splitter cadastrado no diagrama do GeoGrid
+// (api/geogrid-manual-sync-splitter.js) e grava em mapa_rede.tem_splitter -
+// as CTOs sem splitter ficam vermelhas no mapa (ver upsertMarker/iconePara)
+// assim que o valor chega pelo canal de tempo real, sem precisar recarregar.
+// Uma chamada por CTO na API do GeoGrid (rate limit apertado - ver comentário
+// no backend) - por isso demora bem mais que o "🔄 Sincronizar" normal.
+document.getElementById('btnVerifSplitter').addEventListener('click', async () => {
+  const btn = document.getElementById('btnVerifSplitter');
+  const textoOriginal = btn.textContent;
+  const logPainel = document.getElementById('syncLogPainel');
+  const logEl = document.getElementById('syncLogTexto');
+  btn.disabled = true;
+  logPainel.style.display = 'block';
+  logEl.textContent = '';
+  let offset = 0;
+  let totalAtualizados = 0;
+  let totalTerminais = null;
+  let tentativas = 0;
+  try {
+    for (;;) {
+      btn.textContent = totalTerminais
+        ? `🔌 Verificando (${offset}/${totalTerminais})…`
+        : `🔌 Verificando (${offset})…`;
+      try {
+        const res = await fetch(`/api/geogrid-manual-sync-splitter?offset=${offset}`, {
+          headers: {'x-mapa-campo-token': window._MAPA_CAMPO_TOKEN},
+        });
+        const dados = await res.json();
+        if (!res.ok || !dados.ok) {
+          if (tentativas < 2) {
+            tentativas++;
+            logEl.textContent += `erro no offset ${offset} (${dados.erro || `HTTP ${res.status}`}), tentando de novo (${tentativas}/2)…\n`;
+            continue;
+          }
+          logEl.textContent += `ERRO no offset ${offset} — ${dados.erro || `HTTP ${res.status}`} (parou aqui, ${totalAtualizados} atualizadas antes de falhar)\n`;
+          break;
+        }
+        tentativas = 0;
+        if (dados.totalTerminais != null) totalTerminais = dados.totalTerminais;
+        totalAtualizados += dados.atualizados || 0;
+        if (dados.erros && dados.erros.length) {
+          logEl.textContent += `offset ${offset}: ${dados.erros.length} CTO(s) com erro (ex.: ${dados.erros[0].erro})\n`;
+        }
+        if (!dados.temMais) {
+          logEl.textContent += `OK — ${totalAtualizados} CTOs verificadas no total.\n`;
+          break;
+        }
+        offset = dados.proximoOffset;
+      } catch (e) {
+        if (tentativas < 2) {
+          tentativas++;
+          logEl.textContent += `erro de rede no offset ${offset} (${e.message}), tentando de novo (${tentativas}/2)…\n`;
+          continue;
+        }
+        logEl.textContent += `ERRO DE REDE no offset ${offset} — ${e.message} (parou aqui, ${totalAtualizados} atualizadas antes de falhar)\n`;
+        break;
+      }
+    }
+    btn.textContent = `✅ ${totalAtualizados.toLocaleString('pt-BR')} verificadas`;
+  } catch (e) {
+    console.error('Falha ao verificar splitters:', e);
+    btn.textContent = '⚠️ Falha ao verificar';
+    logEl.textContent += `\nFalha geral: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => { btn.textContent = textoOriginal; }, 4000);
+  }
 });
 
 // Mostra na própria tela (sem precisar de DevTools) uma amostra real de
