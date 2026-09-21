@@ -19,7 +19,11 @@ module.exports = async function handler(req, res) {
   }
 
   const offset = parseInt(req.query.offset || '0', 10);
-  const limite = Math.min(parseInt(req.query.limite || '80', 10), 200);
+  const limite = Math.min(parseInt(req.query.limite || '15', 10), 40);
+  // Pausa entre cada chamada pra não estourar o limite de requisições por
+  // minuto do GeoGrid (visto na prática: rajada de ~30 chamadas seguidas
+  // sem pausa virou 429 em quase todas, mesmo com o retry do geogridFetch).
+  const pausaMs = Math.min(parseInt(req.query.pausaMs || '350', 10), 2000);
 
   const supabase = getSupabase();
   const query = supabase
@@ -36,7 +40,11 @@ module.exports = async function handler(req, res) {
   }
 
   const semSplitter = [];
+  const erros = [];
+  let primeira = true;
   for (const linha of linhas || []) {
+    if (!primeira) await new Promise(r => setTimeout(r, pausaMs));
+    primeira = false;
     try {
       const dados = await geogridFetch(`/diagrama/equipamentos/${linha.id}`);
       const registros = dados.registros || [];
@@ -44,7 +52,7 @@ module.exports = async function handler(req, res) {
         semSplitter.push({id: linha.id, sigla: linha.sigla, municipio: linha.municipio, localidade: linha.localidade});
       }
     } catch (e) {
-      semSplitter.push({id: linha.id, sigla: linha.sigla, municipio: linha.municipio, localidade: linha.localidade, erro: String(e.message || e)});
+      erros.push({id: linha.id, sigla: linha.sigla, municipio: linha.municipio, localidade: linha.localidade, erro: String(e.message || e)});
     }
   }
 
@@ -57,6 +65,7 @@ module.exports = async function handler(req, res) {
     temMais: (linhas || []).length === limite,
     proximoOffset: offset + (linhas || []).length,
     semSplitter,
+    erros,
   });
 };
 
