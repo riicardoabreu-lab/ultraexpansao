@@ -13,11 +13,7 @@ const {getSupabase, geogridFetch} = require('./_lib/geogrid');
 // (botão "🔌 Verificar splitters" no mapa-campo) chama isso em loop até
 // "temMais" vir false.
 module.exports = async function handler(req, res) {
-  // Aceita o token por query string também (além do header) - só pra dar
-  // pra disparar manualmente (ex.: ferramenta que não manda header custom),
-  // mesmo padrão do antigo diagnóstico geogrid-audit-splitter.js.
-  const token = req.headers['x-mapa-campo-token'] || req.query.token;
-  if (token !== process.env.MAPA_CAMPO_TOKEN) {
+  if (req.headers['x-mapa-campo-token'] !== process.env.MAPA_CAMPO_TOKEN) {
     res.status(403).json({erro: 'não autorizado'});
     return;
   }
