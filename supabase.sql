@@ -17,19 +17,8 @@ create table if not exists mapa_rede (
   cabo text,
   fibra text,
   potencia text,
-  tem_splitter boolean,
   atualizado_em timestamptz not null default now()
 );
-
--- Rodar numa tabela mapa_rede já existente (criada antes desta coluna):
--- alter table mapa_rede add column if not exists tem_splitter boolean;
---
--- tem_splitter: null = ainda não verificado, true/false = resultado da
--- última verificação. Só terminal (CTO) é verificado - gravado pelo botão
--- "🔌 Verificar splitters" do mapa-campo (api/geogrid-manual-sync-splitter.js),
--- que consulta /diagrama/equipamentos/{id} no GeoGrid CTO por CTO (não faz
--- parte da sincronização normal - é uma chamada por CTO, rate limit
--- apertado, só roda quando alguém aperta o botão).
 
 create index if not exists mapa_rede_item_idx on mapa_rede (item);
 

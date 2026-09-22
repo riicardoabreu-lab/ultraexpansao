@@ -91,16 +91,6 @@ e adjacências) + sigla/número pra terminal, **antes** de gravar no Supabase
 (não só na hora de mostrar) — sincronizar item de outro cliente desperdiça
 banco à toa.
 
-**Splitter por CTO** (`mapa_rede.tem_splitter`, coluna separada de
-`splitter`/`cabo`/`fibra`/`potencia` que vêm do texto livre da
-`observacao`): não faz parte da sincronização normal — é uma chamada por CTO
-na API do GeoGrid (`/diagrama/equipamentos/{id}`, mesmo endpoint que
-`api/geogrid-equipamento.js` já usava sob demanda no popup), com limite de
-requisições por minuto bem apertado. Só é atualizada quando alguém aperta
-"🔌 Verificar splitters" no mapa-campo (`api/geogrid-manual-sync-splitter.js`,
-pagina em lotes pequenos com pausa entre chamadas). CTO com
-`tem_splitter=false` fica vermelha no mapa e ganha aviso no popup.
-
 ### `cfo/dashboard.html` — dashboard de rede
 
 Estrutura de dados principal é um objeto JS gigante `let D = {...}` embutido
