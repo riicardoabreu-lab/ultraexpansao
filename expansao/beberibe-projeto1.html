@@ -427,6 +427,14 @@
         <div class="label">CPD</div>
         <div class="valor">R$ 49.953,90</div>
       </div>
+      <div class="card-resumo">
+        <div class="label">Mão de Obra Terceirizada</div>
+        <div class="valor">R$ 0,00</div>
+      </div>
+      <div class="card-resumo">
+        <div class="label">Mão de Obra Infolink</div>
+        <div class="valor">R$ 0,00</div>
+      </div>
       <div class="card-resumo total">
         <div class="label">Total Geral (itens já cotados/levantados)</div>
         <div class="valor">R$ 245.814,13</div>
@@ -538,6 +546,60 @@
         <strong>Itens ainda sem cotação / quantidade</strong>
         2 und — No-Break SMS Vision 2200VA · 2x Placa HSWA · 2x Placa HU2A · Ar Condicionado 12.000 BTU
       </div>
+    </section>
+
+    <!-- MÃO DE OBRA TERCEIRIZADA -->
+    <section class="bloco">
+      <div class="bloco-header">Mão de Obra Terceirizada</div>
+      <div class="bloco-sub">Lançamento de cabo, instalação de CTO e de caixa de emenda/CEO — mesmas taxas de referência do Orçamento FTTH (planilha mestra), aplicadas às quantidades desta infraestrutura. Quantidade e valor unitário são editáveis; use "+ Adicionar item" para novas linhas.</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th class="num">Unid.</th>
+            <th class="num">Quantidade</th>
+            <th class="money">Vlr. Unit.</th>
+            <th class="money">Vlr. Total</th>
+            <th>Origem</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody-mo-terc">
+          <tr data-row><td class="desc" contenteditable="true">Lançamento de cabo óptico</td><td class="num" contenteditable="true">Metro</td><td class="num"><input type="number" class="qty-in" value="78490" step="1"></td><td class="money"><input type="number" class="price-in" value="0.80" step="0.01"></td><td class="money row-total"></td><td class="fonte" contenteditable="true">Taxa de referência (Orçamento FTTH) × total de cabo 12FO</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">Instalação e fixação de CTO</td><td class="num" contenteditable="true">Unid.</td><td class="num"><input type="number" class="qty-in" value="241" step="1"></td><td class="money"><input type="number" class="price-in" value="40.00" step="0.01"></td><td class="money row-total"></td><td class="fonte" contenteditable="true">Taxa de referência (Orçamento FTTH) × total de CTO</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+          <tr data-row><td class="desc" contenteditable="true">Instalação de Cx Emenda / CEO</td><td class="num" contenteditable="true">Unid.</td><td class="num"><input type="number" class="qty-in" value="19" step="1"></td><td class="money"><input type="number" class="price-in" value="30.00" step="0.01"></td><td class="money row-total"></td><td class="fonte" contenteditable="true">Taxa de referência (Orçamento FTTH) × total de CEO novos</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+        </tbody>
+        <tfoot>
+          <tr><td colspan="4" style="text-align:right;">TOTAL MÃO DE OBRA TERCEIRIZADA</td><td class="money" id="total-mo-terc">R$ 0,00</td><td colspan="2"></td></tr>
+        </tfoot>
+      </table>
+      <button class="add-btn" onclick="addRow('tbody-mo-terc')">+ Adicionar item</button>
+    </section>
+
+    <!-- MÃO DE OBRA INFOLINK -->
+    <section class="bloco">
+      <div class="bloco-header">Mão de Obra Infolink</div>
+      <div class="bloco-sub">Custo da equipe própria (Infolink), caso a mão de obra não seja toda terceirizada. Preencha o valor conforme a equipe/escopo alocado.</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th class="num">Unid.</th>
+            <th class="num">Quantidade</th>
+            <th class="money">Vlr. Unit.</th>
+            <th class="money">Vlr. Total</th>
+            <th>Origem</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody-mo-infolink">
+          <tr data-row><td class="desc" contenteditable="true">Mão de obra — equipe própria Infolink</td><td class="num" contenteditable="true">Vb.</td><td class="num"><input type="number" class="qty-in" value="1" step="1"></td><td class="money"><input type="number" class="price-in" value="0" step="0.01"></td><td class="money row-total"></td><td class="fonte" contenteditable="true">Preencha o valor da equipe própria</td><td><button class="del-btn" onclick="delRow(this)">✕</button></td></tr>
+        </tbody>
+        <tfoot>
+          <tr><td colspan="4" style="text-align:right;">TOTAL MÃO DE OBRA INFOLINK</td><td class="money" id="total-mo-infolink">R$ 0,00</td><td colspan="2"></td></tr>
+        </tfoot>
+      </table>
+      <button class="add-btn" onclick="addRow('tbody-mo-infolink')">+ Adicionar item</button>
     </section>
 
   </div>
@@ -699,11 +761,15 @@ function recalcTable(tbodyId, totalCellId){
 function recalcAll(){
   const infraTotal = recalcTable('tbody-infra', 'total-infra');
   const cpdTotal = recalcTable('tbody-cpd', 'total-cpd');
-  const grand = infraTotal + cpdTotal;
+  const moTercTotal = recalcTable('tbody-mo-terc', 'total-mo-terc');
+  const moInfolinkTotal = recalcTable('tbody-mo-infolink', 'total-mo-infolink');
+  const grand = infraTotal + cpdTotal + moTercTotal + moInfolinkTotal;
   const cards = document.querySelectorAll('.card-resumo .valor');
   if(cards[0]) cards[0].textContent = formatMoney(infraTotal);
   if(cards[1]) cards[1].textContent = formatMoney(cpdTotal);
-  if(cards[2]) cards[2].textContent = formatMoney(grand);
+  if(cards[2]) cards[2].textContent = formatMoney(moTercTotal);
+  if(cards[3]) cards[3].textContent = formatMoney(moInfolinkTotal);
+  if(cards[4]) cards[4].textContent = formatMoney(grand);
 }
 
 // ============================================================
@@ -781,6 +847,8 @@ function captureState(){
   return {
     infra: serializeTbody('tbody-infra'),
     cpd: serializeTbody('tbody-cpd'),
+    moTerc: serializeTbody('tbody-mo-terc'),
+    moInfolink: serializeTbody('tbody-mo-infolink'),
     concorrentes,
     concSeedV: _concSeedV,
     updated: Date.now(),
@@ -816,6 +884,16 @@ function applyState(state){
     const tbody = document.getElementById('tbody-cpd');
     tbody.innerHTML = '';
     state.cpd.forEach(r=>tbody.appendChild(rowFromData(r)));
+  }
+  if(state.moTerc && state.moTerc.length){
+    const tbody = document.getElementById('tbody-mo-terc');
+    tbody.innerHTML = '';
+    state.moTerc.forEach(r=>tbody.appendChild(rowFromData(r)));
+  }
+  if(state.moInfolink && state.moInfolink.length){
+    const tbody = document.getElementById('tbody-mo-infolink');
+    tbody.innerHTML = '';
+    state.moInfolink.forEach(r=>tbody.appendChild(rowFromData(r)));
   }
   recalcAll();
 }
@@ -890,7 +968,7 @@ document.addEventListener('input', (e)=>{
   if(e.target.classList.contains('qty-in') || e.target.classList.contains('price-in')){
     recalcAll();
   }
-  if(e.target.closest('#tbody-infra') || e.target.closest('#tbody-cpd')){
+  if(e.target.closest('#tbody-infra') || e.target.closest('#tbody-cpd') || e.target.closest('#tbody-mo-terc') || e.target.closest('#tbody-mo-infolink')){
     scheduleSave();
   }
 });
