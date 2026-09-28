@@ -154,6 +154,16 @@
     background:linear-gradient(135deg,var(--green),var(--darkgreen)); color:#fff;
     font-weight:600; font-size:13px; text-decoration:none;
   }
+  /* Lista de escolha quando dois itens caem no mesmo ponto (ver handleMarkerClick) */
+  .chooser-item{
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    width:100%; margin-top:6px; padding:8px 10px; border-radius:8px;
+    background:var(--panel2); border:1px solid var(--border); color:var(--text);
+    font-family:inherit; font-size:13px; text-align:left; cursor:pointer;
+  }
+  .chooser-item:hover{border-color:var(--cyan);}
+  .chooser-item .chooser-tipo{font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.3px;}
+  .chooser-item .chooser-sigla{font-weight:700;}
 
   .leaflet-control-layers{background:var(--panel) !important; color:var(--text) !important; border:1px solid var(--border) !important;}
   .leaflet-control-layers-toggle{filter:invert(1);}
@@ -310,7 +320,11 @@ const TIPOS = {
   reserva:     {label: 'Reservas (futuras caixas)', color: '#ffffff', default: true},
 };
 
-const map = L.map('map', {preferCanvas: true, zoomControl: false}).setView([-3.49, -39.66], 12);
+// tolerance: margem extra (em pixels) ao redor de uma linha pra contar como
+// clique/toque nela - sem isso, o cabo (3px de largura) é quase impossível
+// de acertar em campo no dedo (preferCanvas não dá tolerância nenhuma por
+// padrão), e o clique "escapa" pro mapa sem abrir popup nenhum.
+const map = L.map('map', {preferCanvas: true, renderer: L.canvas({tolerance: 10}), zoomControl: false}).setView([-3.49, -39.66], 12);
 L.control.zoom({position: 'bottomleft'}).addTo(map);
 
 const satelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
@@ -451,8 +465,12 @@ function upsertMarker(id, data){
   let entry = markersById.get(id);
   if (!entry) {
     const marker = iconePara(data.item);
-    marker.bindPopup('');
-    marker.on('popupopen', () => carregarEquipamento(id, data.item));
+    // Sem bindPopup: o clique é tratado à mão (handleMarkerClick) pra dar
+    // pra checar se tem mais de um item no mesmo pixel antes de decidir que
+    // popup abrir (ver "Desambiguação de cliques" logo abaixo) - com
+    // bindPopup, o próprio Leaflet já abriria o popup daquele marcador
+    // direto no clique, sem chance de interceptar antes.
+    marker.on('click', e => handleMarkerClick(id, e));
     entry = {marker, tipo: data.item, oculta: false};
     markersById.set(id, entry);
     contagens[data.item] = (contagens[data.item] || 0) + 1;
@@ -460,7 +478,6 @@ function upsertMarker(id, data){
 
   const latlng = [Number(data.latitude), Number(data.longitude)];
   entry.marker.setLatLng(latlng);
-  entry.marker.setPopupContent(popupHtml(data, id));
   entry.marker._dados = data;
 
   if (data.item === 'reserva') {
@@ -470,6 +487,59 @@ function upsertMarker(id, data){
     if (!clusters[data.item].hasLayer(entry.marker)) clusters[data.item].addLayer(entry.marker);
     if (data.item === 'terminal' || data.item === 'caixa') reavaliarReservasPerto(latlng);
   }
+}
+
+// ---- Desambiguação de cliques (dois itens no mesmo poste/ponto) ----
+// Uma caixa de emenda (CEO) e uma caixa de atendimento (CTO/terminal) no
+// mesmo poste ficam em camadas diferentes mas podem cair nas mesmas
+// coordenadas - aí o círculo de cima esconde o de baixo por completo (raio
+// fixo em pixels, não em metros - dar zoom não separa). Em vez de abrir
+// direto o popup do marcador clicado, checa por pixel se tem mais de um
+// item ali perto; se tiver, mostra uma lista pra escolher qual abrir.
+const RAIO_ESCOLHA_PX = 14; // um pouco mais que o raio do círculo (7px) + borda
+
+function itensNoClique(containerPoint){
+  const candidatos = [];
+  for (const [id, entry] of markersById) {
+    if (entry.oculta) continue; // reserva escondida por caixa/terminal perto
+    const tipo = entry.tipo;
+    if (!map.hasLayer(clusters[tipo]) || !clusters[tipo].hasLayer(entry.marker)) continue; // camada desligada
+    const p = map.latLngToContainerPoint(entry.marker.getLatLng());
+    if (p.distanceTo(containerPoint) <= RAIO_ESCOLHA_PX) candidatos.push(id);
+  }
+  return candidatos;
+}
+
+function abrirPopupItem(id){
+  const entry = markersById.get(id);
+  if (!entry) return;
+  const data = entry.marker._dados;
+  L.popup({closeButton: true})
+    .setLatLng(entry.marker.getLatLng())
+    .setContent(popupHtml(data, id))
+    .openOn(map);
+  if (data.item === 'terminal') carregarEquipamento(id, data.item);
+}
+
+function abrirEscolhaItens(ids, latlng){
+  const linhas = ids.map(id => {
+    const entry = markersById.get(id);
+    const data = entry.marker._dados;
+    const label = TIPOS[data.item] ? TIPOS[data.item].label : data.item;
+    return `<button class="chooser-item" data-id="${id}"><span class="chooser-tipo">${label}</span><span class="chooser-sigla">${data.sigla || '(sem sigla)'}</span></button>`;
+  }).join('');
+  const html = `<div class="popup-item"><div class="tipo">${ids.length} itens neste ponto — escolha um:</div>${linhas}</div>`;
+  const popup = L.popup({closeButton: true}).setLatLng(latlng).setContent(html).openOn(map);
+  popup.getElement().querySelectorAll('.chooser-item').forEach(btn => {
+    btn.addEventListener('click', () => abrirPopupItem(btn.dataset.id));
+  });
+}
+
+function handleMarkerClick(id, e){
+  L.DomEvent.stopPropagation(e);
+  const candidatos = itensNoClique(e.containerPoint);
+  if (candidatos.length <= 1) { abrirPopupItem(id); return; }
+  abrirEscolhaItens(candidatos, e.latlng);
 }
 
 // Splitter (ex.: "1x8") e a fibra que alimenta a entrada (número + cor, no padrão
@@ -633,12 +703,12 @@ document.getElementById('searchInput').addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
   const num = parseInt(e.target.value.trim(), 10);
   if (!num) return;
-  for (const [, entry] of markersById) {
+  for (const [id, entry] of markersById) {
     const d = entry.marker._dados;
     if (d && d.item === 'terminal' && d.numero === num) {
       Object.values(clusters).forEach(c => { if (!map.hasLayer(c)) map.addLayer(c); });
       map.setView(entry.marker.getLatLng(), 18);
-      entry.marker.openPopup();
+      abrirPopupItem(id);
       return;
     }
   }
