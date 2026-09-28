@@ -365,10 +365,16 @@ function iconePara(tipo){
   // Reserva é branca (posição planejada, ainda sem caixa instalada) - contorno
   // escuro pra não sumir contra fundo claro (a borda padrão também é branca).
   const borda = tipo === 'reserva' ? '#333' : '#fff';
-  // pane 'markerPane' (nativo do Leaflet, zIndex mais alto que a camada dos cabos)
-  // garante que os itens sempre desenham por cima dos cabos, não importa a ordem
-  // que os dados chegam.
-  return L.circleMarker([0,0], {radius: 7, color: borda, weight: 1.5, fillColor: cor, fillOpacity: .9, pane: 'markerPane'});
+  // SEM pane customizado (era 'markerPane' antes) - com preferCanvas:true, cada
+  // pane com layer interativa vira um <canvas> próprio, e o de cima intercepta
+  // todo clique dentro da área do mapa antes mesmo de checar se acertou algo
+  // desenhado nele (bloqueando qualquer clique que "vazasse" pro cabo por
+  // baixo, mesmo em pixel sem nenhum marcador - o cabo nunca recebia o
+  // evento). Ficando no mesmo canvas/pane que os cabos (ver cabosLayer), o
+  // Leaflet faz o hit-test certo entre os dois; quem fica visualmente por
+  // cima agora é controlado por ordem de desenho (bringToFront em
+  // upsertMarker), não mais por pane.
+  return L.circleMarker([0,0], {radius: 7, color: borda, weight: 1.5, fillColor: cor, fillOpacity: .9});
 }
 
 function popupHtml(data, id){
@@ -487,6 +493,11 @@ function upsertMarker(id, data){
     if (!clusters[data.item].hasLayer(entry.marker)) clusters[data.item].addLayer(entry.marker);
     if (data.item === 'terminal' || data.item === 'caixa') reavaliarReservasPerto(latlng);
   }
+  // Sem pane próprio (ver iconePara), o marcador entra no mesmo canvas dos
+  // cabos - bringToFront garante que ele desenha por cima, não importa a
+  // ordem de chegada dos dados (cabo vindo depois de um marcador já
+  // desenhado, por exemplo).
+  if (!entry.oculta) entry.marker.bringToFront();
 }
 
 // ---- Desambiguação de cliques (dois itens no mesmo poste/ponto) ----
