@@ -1161,7 +1161,9 @@ async function loadKmzCity(key){
   status.textContent = 'Carregando KMZ...';
   try{
     const doc = await fetchKmzDoc(cat.path);
-    const bounds = buildKmzMap(doc);
+    const bounds = await buildKmzMap(doc, undefined, n => {
+      status.textContent = `Carregando KMZ... (${n.toLocaleString('pt-BR')} pontos)`;
+    });
     finishKmzLoad(bounds);
     status.textContent = `${kmzAllMarkers.length.toLocaleString('pt-BR')} pontos carregados`;
   }catch(err){
@@ -1185,9 +1187,17 @@ async function loadAllKmzCities(){
     status.textContent = `Carregando ${cat.display_name}... (${done}/${keys.length})`;
     try{
       const doc = await fetchKmzDoc(cat.path);
-      const bounds = buildKmzMap(doc, cat.display_name);
-      allBounds.push(...bounds);
+      const bounds = await buildKmzMap(doc, cat.display_name, n => {
+        status.textContent = `Carregando ${cat.display_name}... (${n.toLocaleString('pt-BR')} pontos, cidade ${done+1}/${keys.length})`;
+      });
+      // não usar allBounds.push(...bounds): com cidades grandes (Fortaleza
+      // tem ~189 mil pontos) o spread vira 189 mil argumentos numa chamada
+      // só de push(), o que estoura a pilha de chamadas do V8
+      // ("Maximum call stack size exceeded") -- era a causa real do
+      // "falhou: Fortaleza" no modo "Todas as cidades".
+      for(const b of bounds) allBounds.push(b);
     }catch(err){
+      console.error(`Falha ao carregar KMZ de ${cat.display_name}:`, err);
       failed.push(cat.display_name);
     }
     done++;
@@ -1198,9 +1208,13 @@ async function loadAllKmzCities(){
     + (failed.length ? ` — falhou: ${failed.join(', ')}` : '');
 }
 
-function buildKmzMap(doc, cityPrefix){
+async function buildKmzMap(doc, cityPrefix, onProgress){
   if(!kmzMapInst){
-    kmzMapInst = L.map('kmzMap').setView([-4.0,-38.4], 10);
+    // renderer: L.canvas() -- Fortaleza tem ~189 mil pontos; o renderer SVG
+    // padrão do Leaflet cria 1 nó de DOM por circleMarker, o que trava o
+    // navegador por minutos nesse volume. Canvas desenha tudo numa única
+    // tela, sem custo de DOM por marcador.
+    kmzMapInst = L.map('kmzMap', { renderer: L.canvas({ padding: 0.5 }) }).setView([-4.0,-38.4], 10);
     // Satélite como padrão: o mapa de ruas do OpenStreetMap tem cobertura
     // fraca no litoral (faixa de dunas/lagoas de Beberibe etc.), desenhando
     // como "água" trechos que na verdade são areia/estradas com povoados —
@@ -1222,13 +1236,22 @@ function buildKmzMap(doc, cityPrefix){
   const docEl = doc.getElementsByTagName('Document')[0];
   const bairroFolders = [...docEl.children].filter(c=>c.tagName==='Folder');
   const allBounds = [];
+  // Nome do provedor é lido 1x por pasta-mãe (não por Placemark): cidades
+  // grandes (Fortaleza) têm até ~189 mil Placemarks espalhados por só ~2,7
+  // mil pastas de provedor — sem esse cache, getElementsByTagName('name')
+  // rodava de novo pra cada ponto e multiplicava o custo à toa.
+  const providerNameCache = new Map();
+  let processed = 0;
 
-  bairroFolders.forEach(bf=>{
+  for(const bf of bairroFolders){
     const bairroNameRaw = bf.getElementsByTagName('name')[0]?.textContent || '(sem nome)';
     let bairroName = bairroNameRaw.replace(/\s*\(\d+\)$/, '').trim();
     if(cityPrefix) bairroName = `${cityPrefix} · ${bairroName}`;
     kmzCheckedBairros.add(bairroName);
-    [...bf.getElementsByTagName('Placemark')].forEach(pm=>{
+
+    const placemarks = [...bf.getElementsByTagName('Placemark')];
+    for(let i=0; i<placemarks.length; i++){
+      const pm = placemarks[i];
       // O provedor é o nome da pasta-mãe do Placemark (ex.: "ALARES (348)"), e não o
       // <name> do próprio Placemark: em alguns KMZ (ex. Fortaleza) o Placemark é
       // nomeado "PROVEDOR N" (N = índice do ponto), o que faria cada ponto virar um
@@ -1236,27 +1259,40 @@ function buildKmzMap(doc, cityPrefix){
       // independente de quantos níveis de pasta existem entre o bairro e o provedor
       // (Fortaleza não tem pasta intermediária; Beberibe tem uma pasta "CAIXAS").
       const parentFolder = pm.parentElement;
-      const providerNameRaw = parentFolder?.getElementsByTagName('name')[0]?.textContent || '(sem provedor)';
-      const provider = providerNameRaw.replace(/\s*\(\d+\)$/, '').trim();
+      let provider = providerNameCache.get(parentFolder);
+      if(provider === undefined){
+        const providerNameRaw = parentFolder?.getElementsByTagName('name')[0]?.textContent || '(sem provedor)';
+        provider = providerNameRaw.replace(/\s*\(\d+\)$/, '').trim();
+        providerNameCache.set(parentFolder, provider);
+      }
       const styleUrl = (pm.getElementsByTagName('styleUrl')[0]?.textContent||'').replace('#','');
       const color = styleColor[styleUrl] || '#00d4c8';
       const coordsText = pm.getElementsByTagName('coordinates')[0]?.textContent;
-      if(!coordsText) return;
-      const [lon,lat] = coordsText.trim().split(',').map(Number);
-      if(!isFinite(lat) || !isFinite(lon)) return;
-
-      const marker = L.circleMarker([lat,lon], {radius:4, color, fillColor:color, fillOpacity:.9, weight:1})
-        .bindPopup(`<b>${provider}</b><br>${bairroName}<br>${lat.toFixed(6)}, ${lon.toFixed(6)}<br>`
-          + `<a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" rel="noopener">Abrir no Google Maps ↗</a>`)
-        .addTo(kmzMapInst);
-      kmzAllMarkers.push({ marker, bairro: bairroName, provider });
-      kmzCheckedProviders.add(provider);
-      kmzProviderColor[provider] = color;
-      kmzProviderCount[provider] = (kmzProviderCount[provider]||0) + 1;
-      kmzBairroCount[bairroName] = (kmzBairroCount[bairroName]||0) + 1;
-      allBounds.push([lat,lon]);
-    });
-  });
+      processed++;
+      if(coordsText){
+        const [lon,lat] = coordsText.trim().split(',').map(Number);
+        if(isFinite(lat) && isFinite(lon)){
+          const marker = L.circleMarker([lat,lon], {radius:4, color, fillColor:color, fillOpacity:.9, weight:1})
+            .bindPopup(`<b>${provider}</b><br>${bairroName}<br>${lat.toFixed(6)}, ${lon.toFixed(6)}<br>`
+              + `<a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" rel="noopener">Abrir no Google Maps ↗</a>`)
+            .addTo(kmzMapInst);
+          kmzAllMarkers.push({ marker, bairro: bairroName, provider });
+          kmzCheckedProviders.add(provider);
+          kmzProviderColor[provider] = color;
+          kmzProviderCount[provider] = (kmzProviderCount[provider]||0) + 1;
+          kmzBairroCount[bairroName] = (kmzBairroCount[bairroName]||0) + 1;
+          allBounds.push([lat,lon]);
+        }
+      }
+      // Cede o main thread a cada 5 mil pontos: sem isso, uma cidade grande
+      // trava a aba inteira (e o "Todas as cidades" não consegue nem
+      // atualizar o status) até terminar o processamento de todos os pontos.
+      if(processed % 5000 === 0){
+        onProgress?.(processed);
+        await new Promise(r=>setTimeout(r, 0));
+      }
+    }
+  }
 
   return allBounds;
 }
