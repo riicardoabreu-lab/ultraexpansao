@@ -339,14 +339,6 @@ footer{ max-width:1180px; margin:0 auto; padding:0 24px 40px; color:var(--text-m
         <label for="in-vao">Vão médio (m)</label>
         <input id="in-vao" type="number" value="40" min="10" step="5">
       </div>
-      <div class="field num">
-        <label for="in-conting">Conting. (%)</label>
-        <input id="in-conting" type="number" value="5" min="0" step="0.5">
-      </div>
-      <div class="field num">
-        <label for="in-bdi">BDI (%)</label>
-        <input id="in-bdi" type="number" value="20" min="0" step="0.5">
-      </div>
     </div>
     <div class="grand-total">
       <span class="label">Total geral</span>
@@ -471,9 +463,6 @@ footer{ max-width:1180px; margin:0 auto; padding:0 24px 40px; color:var(--text-m
         <div class="row sub"><span>Materiais</span><span class="cost mono" id="sum-materials">R$ 0</span></div>
         <div class="row sub"><span>Mão de obra</span><span class="cost mono" id="sum-labor">R$ 0</span></div>
         <div class="row"><span>Custo direto</span><span class="cost mono" id="sum-direct">R$ 0</span></div>
-        <div class="row sub"><span>Contingência (<span id="conting-echo">5</span>%)</span><span class="cost mono" id="sum-conting">R$ 0</span></div>
-        <div class="row"><span>Custo com contingência</span><span class="cost mono" id="sum-withconting">R$ 0</span></div>
-        <div class="row sub"><span>BDI (<span id="bdi-echo">20</span>%)</span><span class="cost mono" id="sum-bdi">R$ 0</span></div>
         <div class="row grand"><span class="k">Total geral</span><span class="cost mono" id="sum-grand">R$ 0</span></div>
       </div>
       <div class="notes">
@@ -984,22 +973,12 @@ function recompute(){
   });
 
   const direct = materialsTotal + laborTotal;
-  const contingPct = parseFloat(document.getElementById('in-conting').value) || 0;
-  const bdiPct = parseFloat(document.getElementById('in-bdi').value) || 0;
-  const contingVal = direct * contingPct/100;
-  const withConting = direct + contingVal;
-  const bdiVal = withConting * bdiPct/100;
-  const grand = withConting + bdiVal;
+  const grand = direct;
 
   document.getElementById('sum-materials').textContent = fmt(materialsTotal);
   document.getElementById('sum-labor').textContent = fmt(laborTotal);
   document.getElementById('sum-direct').textContent = fmt(direct);
-  document.getElementById('sum-conting').textContent = fmt(contingVal);
-  document.getElementById('sum-withconting').textContent = fmt(withConting);
-  document.getElementById('sum-bdi').textContent = fmt(bdiVal);
   document.getElementById('sum-grand').textContent = fmt(grand);
-  document.getElementById('conting-echo').textContent = contingPct;
-  document.getElementById('bdi-echo').textContent = bdiPct;
   document.getElementById('grand-total-value').textContent = fmt(grand);
 
   // per-route allocation, scaled so it sums to the same direct-cost basis as the tables above
@@ -1013,8 +992,6 @@ function recompute(){
   document.getElementById('routes-total-cost').textContent = fmt(direct);
 }
 
-document.getElementById('in-conting').addEventListener('input', ()=>{ recompute(); scheduleSave(); });
-document.getElementById('in-bdi').addEventListener('input', ()=>{ recompute(); scheduleSave(); });
 document.getElementById('in-vao').addEventListener('input', ()=>{
   qty.alca = alcaCount();
   document.querySelector('.qty-input[data-key="alca"]').value = qty.alca;
@@ -1038,8 +1015,6 @@ function captureState(){
     inCliente: document.getElementById('in-cliente').value,
     inSplitter: document.getElementById('in-splitter').value,
     inVao: document.getElementById('in-vao').value,
-    inConting: document.getElementById('in-conting').value,
-    inBdi: document.getElementById('in-bdi').value,
     materials: MATERIALS.map(i=>({...i})),
     labor: LABOR.map(i=>({...i})),
     concorrentes: CONCORRENTES.map(i=>({...i})),
@@ -1055,8 +1030,6 @@ function applyState(state){
   if(state.inCliente!=null) document.getElementById('in-cliente').value = state.inCliente;
   if(state.inSplitter!=null) document.getElementById('in-splitter').value = state.inSplitter;
   if(state.inVao!=null) document.getElementById('in-vao').value = state.inVao;
-  if(state.inConting!=null) document.getElementById('in-conting').value = state.inConting;
-  if(state.inBdi!=null) document.getElementById('in-bdi').value = state.inBdi;
   // MATERIALS/LABOR são const — muta em vez de reatribuir, senão os itens
   // adicionados/excluídos à mão (e removidos/renomeados) não voltam certo.
   if(Array.isArray(state.materials)){ MATERIALS.length = 0; state.materials.forEach(i=>MATERIALS.push(i)); }
