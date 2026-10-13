@@ -1175,6 +1175,7 @@ function tplRede(){
         <div class="kpi"><div class="label">CEOs (emenda)</div><div class="value" id="kpi-kmz-ceos">—</div></div>
         <div class="kpi"><div class="label">Segmentos de cabo</div><div class="value" id="kpi-kmz-cabos">—</div></div>
         <div class="kpi"><div class="label">Metragem total</div><div class="value" id="kpi-kmz-metragem">—</div></div>
+        <div class="kpi" id="kpi-kmz-outros-wrap" style="display:none;"><div class="label">Pontos não classificados</div><div class="value" id="kpi-kmz-outros">—</div></div>
       </div>
       <div class="field-grid" style="margin-top:16px;">
         <div class="field"><label>Custo por caixa/CTO (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-kmz-custo-caixa" type="text" inputmode="numeric"></div></div>
@@ -1967,11 +1968,17 @@ async function extractKMLFromBlob(blob, filename){
   return new TextDecoder('utf-8').decode(buf);
 }
 
-// Classifica um ponto (Caixa/CTO x CEO) pelo nome/pasta do placemark.
+// Classifica um ponto (Caixa/CTO x CEO) pelo nome do placemark + nomes de
+// TODAS as pastas-mãe (não só a imediata): exports do Map Marker costumam
+// ter a categoria (ex. "CAIXAS"/"CTO"/"CEO") numa pasta acima da pasta do
+// provedor (bairro > categoria > provedor > pontos) — olhar só 1 nível
+// acima pega o nome do provedor (ex. "E&I NET TELECOM", sem CTO/CEO no
+// nome) e classifica tudo como "outro" por engano.
 // Cobre tanto nomes completos ("CTO", "CAIXA DE EMENDA") quanto siglas
 // comuns em projetos reais (ex: "CT10B", "CT1.OT", "CX01" = caixa; "CEO AEREA" = CEO).
-function classifyPlacemark(name, folderName){
-  const text = ((name||'') + ' ' + (folderName||'')).toUpperCase();
+function classifyPlacemark(name, folderNames){
+  const chain = Array.isArray(folderNames) ? folderNames.join(' ') : (folderNames||'');
+  const text = ((name||'') + ' ' + chain).toUpperCase();
   if(/\bCEO\b|CAIXA DE EMENDA/.test(text)) return 'ceo';
   if(/\bCTO\b|CT\d|CX\d|CAIXA TERMINAL|\bNAP\b|\bCAIXA\b/.test(text)) return 'caixa';
   return 'outro';
@@ -2078,19 +2085,33 @@ function parseKML(xmlText){
   const coordsToLatLngs = txt => txt.trim().split(/\s+/).filter(Boolean).map(c=>{
     const parts = c.split(',').map(Number); return [parts[1], parts[0]];
   });
+  // Nomes de TODAS as pastas-mãe do placemark, da mais próxima até a raiz
+  // do documento (ver comentário em classifyPlacemark acima).
+  const ancestorFolderNames = pm => {
+    const names = [];
+    let el = pm.parentElement;
+    while(el){
+      if(el.tagName === 'Folder'){
+        const n = el.getElementsByTagName('name')[0]?.textContent?.trim();
+        if(n) names.push(n);
+      }
+      if(el.tagName === 'Document' || el.tagName === 'kml') break;
+      el = el.parentElement;
+    }
+    return names;
+  };
   placemarks.forEach(pm=>{
     const name = pm.getElementsByTagName('name')[0]?.textContent?.trim() || '';
     const desc = pm.getElementsByTagName('description')[0]?.textContent?.trim() || '';
     const popupHtml = `<b>${name||'Sem nome'}</b>${desc?'<br>'+desc.slice(0,200):''}`;
-    const folderEl = pm.closest ? pm.closest('Folder') : null;
-    const folderName = folderEl ? (folderEl.getElementsByTagName('name')[0]?.textContent?.trim() || '') : '';
+    const folderNames = ancestorFolderNames(pm);
 
     const point = pm.getElementsByTagName('Point')[0];
     if(point){
       const c = point.getElementsByTagName('coordinates')[0]?.textContent;
       if(c){ const [lon,lat] = c.trim().split(',').map(Number);
         if(isFinite(lat)&&isFinite(lon)){
-          const tipo = classifyPlacemark(name, folderName);
+          const tipo = classifyPlacemark(name, folderNames);
           const cor = tipo==='ceo' ? '#fb923c' : tipo==='caixa' ? '#00d4c8' : '#8b99b6';
           L.circleMarker([lat,lon], {radius:5, color:cor, fillColor:cor, fillOpacity:.9, weight:1.5}).bindPopup(popupHtml).addTo(layer);
           if(tipo==='ceo') ceos++; else if(tipo==='caixa') caixas++; else outros++;
@@ -2153,6 +2174,13 @@ function renderKmzStatsPanel(){
   setText('kpi-kmz-ceos', fmtNum(s.ceos));
   setText('kpi-kmz-cabos', fmtNum(s.cabosCount));
   setText('kpi-kmz-metragem', fmtMetros(s.metragemTotal));
+  // Mostra o KPI de "não classificados" só quando existe algum, pra não
+  // poluir a tela nos arquivos que já classificam 100% certo.
+  const outrosWrap = document.getElementById('kpi-kmz-outros-wrap');
+  if(outrosWrap){
+    outrosWrap.style.display = s.outros > 0 ? '' : 'none';
+    setText('kpi-kmz-outros', fmtNum(s.outros));
+  }
 
   const chaves = Object.keys(s.cabosPorModelo).sort((a,b)=>{
     if(a==='outro') return 1; if(b==='outro') return -1;
