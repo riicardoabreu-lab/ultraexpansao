@@ -1968,20 +1968,32 @@ async function extractKMLFromBlob(blob, filename){
   return new TextDecoder('utf-8').decode(buf);
 }
 
-// Classifica um ponto (Caixa/CTO x CEO) pelo nome do placemark + nomes de
-// TODAS as pastas-mãe (não só a imediata): exports do Map Marker costumam
-// ter a categoria (ex. "CAIXAS"/"CTO"/"CEO") numa pasta acima da pasta do
-// provedor (bairro > categoria > provedor > pontos) — olhar só 1 nível
-// acima pega o nome do provedor (ex. "E&I NET TELECOM", sem CTO/CEO no
-// nome) e classifica tudo como "outro" por engano.
-// Cobre tanto nomes completos ("CTO", "CAIXA DE EMENDA") quanto siglas
-// comuns em projetos reais (ex: "CT10B", "CT1.OT", "CX01" = caixa; "CEO AEREA" = CEO).
-function classifyPlacemark(name, folderNames){
+// Classifica um ponto (Caixa/CTO x CEO). Duas fontes, por ordem de
+// confiança:
+// 1) Ícone do ponto (ex.: exports do Google Earth Pro, onde cada tipo tem
+//    um ícone próprio -- "files/cto_008000.png", "files/ceo_0000ff.png",
+//    "files/dio_...png", "files/olt_...png" -- o nome do ponto costuma ser
+//    livre/descritivo ("CAIXA EMENDA JOÃO FILHO", "ponto 1"...), então
+//    confiar só no texto erra a maioria. Veja iconCategory()/resolveIconHref().
+// 2) Nome do placemark + nomes de TODAS as pastas-mãe (não só a imediata),
+//    usado como fallback para arquivos sem ícone próprio por categoria
+//    (ex.: exports do Map Marker, onde a categoria vira o nome de uma
+//    pasta acima da pasta do provedor: bairro > categoria > provedor >
+//    pontos).
+function classifyPlacemark(name, folderNames, iconCat){
+  if(iconCat === 'cto') return 'caixa';
+  if(iconCat === 'ceo') return 'ceo';
   const chain = Array.isArray(folderNames) ? folderNames.join(' ') : (folderNames||'');
   const text = ((name||'') + ' ' + chain).toUpperCase();
   if(/\bCEO\b|CAIXA DE EMENDA/.test(text)) return 'ceo';
   if(/\bCTO\b|CT\d|CX\d|CAIXA TERMINAL|\bNAP\b|\bCAIXA\b/.test(text)) return 'caixa';
   return 'outro';
+}
+// Extrai a categoria (cto/ceo/dio/olt/...) do nome do arquivo de ícone,
+// ex.: "files/cto_008000.png" -> "cto".
+function iconCategory(href){
+  const m = /\/([a-z]+)_[0-9a-f]{6}\.[a-z]+$/i.exec(href||'') || /\/([a-z]+)[._]/i.exec(href||'');
+  return m ? m[1].toLowerCase() : null;
 }
 
 // Classifica um cabo (LineString) pelo modelo/bitola de fibra (6FO, 12FO,
@@ -2034,10 +2046,13 @@ function extrairLegendaCoresFO(doc){
 }
 function buildStyleColorMaps(doc){
   const styleColor = new Map(); // id do Style -> cor (aabbggrr)
+  const styleIcon = new Map(); // id do Style -> href do ícone (IconStyle/Icon/href)
   [...doc.getElementsByTagName('Style')].forEach(el=>{
     const id = el.getAttribute('id'); if(!id) return;
     const cor = el.getElementsByTagName('LineStyle')[0]?.getElementsByTagName('color')[0]?.textContent?.trim();
     if(cor) styleColor.set(id, cor);
+    const href = el.getElementsByTagName('IconStyle')[0]?.getElementsByTagName('Icon')[0]?.getElementsByTagName('href')[0]?.textContent?.trim();
+    if(href) styleIcon.set(id, href);
   });
   const styleMap = new Map(); // id do StyleMap -> id do Style "normal"
   [...doc.getElementsByTagName('StyleMap')].forEach(el=>{
@@ -2046,17 +2061,25 @@ function buildStyleColorMaps(doc){
     const url = par?.getElementsByTagName('styleUrl')[0]?.textContent?.trim();
     if(url) styleMap.set(id, url.replace(/^#/,''));
   });
-  return {styleColor, styleMap};
+  return {styleColor, styleIcon, styleMap};
 }
-function resolveLineColorHex(styleUrlRaw, maps){
+function resolveStyleRef(styleUrlRaw, maps){
   let ref = (styleUrlRaw||'').replace(/^#/,'');
   if(!ref) return null;
   const visitados = new Set();
-  while(!maps.styleColor.has(ref) && maps.styleMap.has(ref) && !visitados.has(ref)){
+  while(!maps.styleColor.has(ref) && !maps.styleIcon.has(ref) && maps.styleMap.has(ref) && !visitados.has(ref)){
     visitados.add(ref);
     ref = maps.styleMap.get(ref);
   }
-  return maps.styleColor.get(ref) || null;
+  return ref;
+}
+function resolveLineColorHex(styleUrlRaw, maps){
+  const ref = resolveStyleRef(styleUrlRaw, maps);
+  return ref ? (maps.styleColor.get(ref) || null) : null;
+}
+function resolveIconHref(styleUrlRaw, maps){
+  const ref = resolveStyleRef(styleUrlRaw, maps);
+  return ref ? (maps.styleIcon.get(ref) || null) : null;
 }
 
 function haversineMeters(lat1, lon1, lat2, lon2){
@@ -2111,7 +2134,9 @@ function parseKML(xmlText){
       const c = point.getElementsByTagName('coordinates')[0]?.textContent;
       if(c){ const [lon,lat] = c.trim().split(',').map(Number);
         if(isFinite(lat)&&isFinite(lon)){
-          const tipo = classifyPlacemark(name, folderNames);
+          const styleUrlPt = pm.getElementsByTagName('styleUrl')[0]?.textContent?.trim() || '';
+          const iconHref = resolveIconHref(styleUrlPt, styleMaps);
+          const tipo = classifyPlacemark(name, folderNames, iconCategory(iconHref));
           const cor = tipo==='ceo' ? '#fb923c' : tipo==='caixa' ? '#00d4c8' : '#8b99b6';
           L.circleMarker([lat,lon], {radius:5, color:cor, fillColor:cor, fillOpacity:.9, weight:1.5}).bindPopup(popupHtml).addTo(layer);
           if(tipo==='ceo') ceos++; else if(tipo==='caixa') caixas++; else outros++;
