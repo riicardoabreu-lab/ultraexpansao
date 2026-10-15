@@ -56,6 +56,11 @@
   .panel h3{margin:0 0 14px;font-size:15px;color:var(--text);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;}
   .panel h3 small{color:var(--muted);font-weight:400;display:block;font-size:11px;margin-top:2px;}
   canvas{max-height:360px;}
+  /* O renderer Canvas do Leaflet (aba KMZ, ver buildKmzMap) também é um
+     <canvas>, mas não pode herdar esse limite de altura dos gráficos: ele
+     cobre o #kmzMap inteiro e o Leaflet já controla o tamanho dele sozinho
+     (senão os pontos ficam desenhados fora da área visível do mapa). */
+  #kmzMap canvas{max-height:none;}
 
   table{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;}
   th,td{padding:8px 9px;text-align:left;border-bottom:1px solid var(--border);}
