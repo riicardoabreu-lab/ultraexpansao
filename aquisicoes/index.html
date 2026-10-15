@@ -129,7 +129,7 @@
   /* ---------- topbar ---------- */
   .topbar{ position:sticky; top:0; z-index:50; backdrop-filter:blur(10px); background:rgba(255,255,255,.85); border-bottom:1px solid var(--border-soft); }
   :root[data-theme="dark"] .topbar{ background:rgba(13,6,32,.9); }
-  .topbar-inner{ max-width:1560px; margin:0 auto; padding:12px 22px; display:flex; align-items:center; gap:16px; }
+  .topbar-inner{ padding:12px 22px; display:flex; align-items:center; gap:16px; }
   .brand{ display:flex; align-items:center; gap:9px; font-family:var(--disp); font-weight:600; font-size:14.5px; white-space:nowrap; }
   .brand-dot{ width:9px; height:9px; border-radius:50%; background:var(--accent); box-shadow:0 0 10px 2px rgba(var(--accent-rgb),.7); }
   .topbar-actions{ margin-left:auto; display:flex; align-items:center; gap:8px; }
@@ -145,7 +145,7 @@
   }
 
   /* ---------- shell layout ---------- */
-  .shell{ max-width:1560px; margin:0 auto; display:flex; align-items:flex-start; }
+  .shell{ display:flex; align-items:flex-start; }
   .sidebar{
     width:280px; flex-shrink:0; padding:20px 14px 40px; position:sticky; top:53px;
     height:calc(100vh - 53px); overflow-y:auto; border-right:1px solid var(--border-soft);
