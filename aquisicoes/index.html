@@ -1082,7 +1082,7 @@ function tplPropostas(){
         <thead><tr>
           <th>Proposta</th><th>Oferta (R$)</th><th>Entr. %</th><th>Entrada R$</th><th>Saldo Fin.</th>
           <th>Parc.</th><th>Vr. Parcela</th><th>R$/Cliente</th><th>EV/MRR</th><th>EV/EBITDA</th>
-          <th>Payback (m)</th><th>Caixa Mensal</th><th>Custo Comprador</th><th>Banco</th><th>Caixa Real</th><th>Viável?</th><th></th>
+          <th>Payback (m)</th><th>Custo Comprador</th><th>Caixa Mensal</th><th>Banco</th><th>Caixa Real</th><th>Viável?</th><th></th>
         </tr></thead>
         <tbody id="propostas-body"></tbody>
       </table></div>
@@ -1336,8 +1336,8 @@ function refreshPropostaRowComputed(tr, pr){
   tr.querySelector('[data-role="evMRRi"]').textContent = fmtMult(c.evMRRi);
   tr.querySelector('[data-role="evEBITDAi"]').textContent = fmtMult(c.evEBITDAi);
   tr.querySelector('[data-role="paybackI"]').textContent = isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A';
-  tr.querySelector('[data-role="caixaMensal"]').textContent = fmtBRL(c.caixaMensal);
   tr.querySelector('[data-role="custoComprador"]').textContent = fmtBRL(m.custoCompradorTotal);
+  tr.querySelector('[data-role="caixaMensal"]').textContent = fmtBRL(c.caixaMensal);
   tr.querySelector('[data-role="banco"]').textContent = fmtBRLouTraco(c.banco);
   tr.querySelector('[data-role="caixaReal"]').textContent = fmtBRLouTraco(c.caixaReal);
   const badge = tr.querySelector('[data-role="badge"]');
@@ -1364,8 +1364,8 @@ function buildPropostasTable(){
       <td class="computed" data-role="evMRRi">${fmtMult(c.evMRRi)}</td>
       <td class="computed" data-role="evEBITDAi">${fmtMult(c.evEBITDAi)}</td>
       <td class="computed" data-role="paybackI">${isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A'}</td>
-      <td class="computed" data-role="caixaMensal">${fmtBRL(c.caixaMensal)}</td>
       <td class="computed" data-role="custoComprador">${fmtBRL(m.custoCompradorTotal)}</td>
+      <td class="computed" data-role="caixaMensal">${fmtBRL(c.caixaMensal)}</td>
       <td class="computed" data-role="banco">${fmtBRLouTraco(c.banco)}</td>
       <td class="computed" data-role="caixaReal">${fmtBRLouTraco(c.caixaReal)}</td>
       <td><span class="badge ${cls}" data-role="badge">${c.viavel}</span></td>
@@ -1388,8 +1388,8 @@ function buildPropostasTable(){
       <td class="computed" data-role="evMRRi">${fmtMult(cs.evMRRi)}</td>
       <td class="computed" data-role="evEBITDAi">${fmtMult(cs.evEBITDAi)}</td>
       <td class="computed" data-role="paybackI">${isFinite(cs.paybackI)?cs.paybackI.toFixed(1):'N/A'}</td>
-      <td class="computed" data-role="caixaMensal">${fmtBRL(cs.caixaMensal)}</td>
       <td class="computed" data-role="custoComprador">${fmtBRL(m.custoCompradorTotal)}</td>
+      <td class="computed" data-role="caixaMensal">${fmtBRL(cs.caixaMensal)}</td>
       <td class="computed" data-role="banco">${fmtBRLouTraco(cs.banco)}</td>
       <td class="computed" data-role="caixaReal">${fmtBRLouTraco(cs.caixaReal)}</td>
       <td><span class="badge ${clsS}" data-role="badge">${cs.viavel}</span></td>
@@ -1659,13 +1659,13 @@ function refreshProposalsComputed(p, m){
       set('[data-role="evMRRi"]', fmtMult(c.evMRRi));
       set('[data-role="evEBITDAi"]', fmtMult(c.evEBITDAi));
       set('[data-role="paybackI"]', isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A');
-      set('[data-role="caixaMensal"]', fmtBRL(c.caixaMensal));
       set('[data-role="custoComprador"]', fmtBRL(m.custoCompradorTotal));
+      set('[data-role="caixaMensal"]', fmtBRL(c.caixaMensal));
       set('[data-role="banco"]', fmtBRLouTraco(c.banco));
       set('[data-role="caixaReal"]', fmtBRLouTraco(c.caixaReal));
     } else {
       const tds = tr.querySelectorAll('td.computed');
-      const vals = [fmtBRL(c.entradaR), fmtBRL(c.saldoFin), fmtBRL(c.parcela), fmtBRL2(c.porCliente), fmtMult(c.evMRRi), fmtMult(c.evEBITDAi), isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A', fmtBRL(c.caixaMensal), fmtBRL(m.custoCompradorTotal), fmtBRLouTraco(c.banco), fmtBRLouTraco(c.caixaReal)];
+      const vals = [fmtBRL(c.entradaR), fmtBRL(c.saldoFin), fmtBRL(c.parcela), fmtBRL2(c.porCliente), fmtMult(c.evMRRi), fmtMult(c.evEBITDAi), isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A', fmtBRL(m.custoCompradorTotal), fmtBRL(c.caixaMensal), fmtBRLouTraco(c.banco), fmtBRLouTraco(c.caixaReal)];
       tds.forEach((td,idx)=>{ if(idx>0 && vals[idx-1]!==undefined) td.textContent = vals[idx-1]; });
     }
     const cls = c.viavel==='SIM'?'sim':(c.viavel==='NÃO'?'nao':'rev');
