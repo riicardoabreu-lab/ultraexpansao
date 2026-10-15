@@ -298,15 +298,34 @@
   .rm-btn{ background:transparent; border:1px solid var(--border); color:var(--text-faint); width:26px; height:26px; border-radius:6px; cursor:pointer; font-size:14px; line-height:1; }
   .rm-btn:hover{ border-color:var(--bad); color:var(--bad); }
 
-  /* Tabela de propostas: muitas colunas — compacta pra caber sem scroll horizontal */
-  #tbl-propostas{ min-width:0; }
-  #tbl-propostas th, #tbl-propostas td{ padding:5px 3px; }
+  /* Tabela de propostas: muitas colunas — larguras fixas e proporcionais
+     (em vez de deixar o navegador calcular pelo conteúdo) pra cada coluna
+     ficar do mesmo tamanho em toda linha, números e cabeçalhos alinhados
+     de ponta a ponta. Rola horizontal (.table-scroll) em telas estreitas
+     em vez de espremer as colunas. */
+  #tbl-propostas{ table-layout:fixed; width:100%; }
+  #tbl-propostas th, #tbl-propostas td{ padding:5px 3px; overflow:hidden; text-overflow:ellipsis; }
   #tbl-propostas th{ font-size:9px; }
   #tbl-propostas td.computed{ font-size:11px; }
-  #tbl-propostas input, #tbl-propostas select{ font-size:10.5px; padding:5px 4px; min-width:0; }
-  #tbl-propostas td:nth-child(1) input{ min-width:52px; }
-  #tbl-propostas td:nth-child(2) input{ min-width:0; width:88px; max-width:88px; }
-  #tbl-propostas td:nth-child(3) input, #tbl-propostas td:nth-child(6) input{ width:38px; min-width:0; text-align:center; }
+  #tbl-propostas input, #tbl-propostas select{ font-size:10.5px; padding:5px 4px; min-width:0; width:100%; }
+  #tbl-propostas th:nth-child(1), #tbl-propostas td:nth-child(1){ width:10%; }
+  #tbl-propostas th:nth-child(2), #tbl-propostas td:nth-child(2){ width:7%; }
+  #tbl-propostas th:nth-child(3), #tbl-propostas td:nth-child(3){ width:4%; }
+  #tbl-propostas th:nth-child(4), #tbl-propostas td:nth-child(4){ width:6%; }
+  #tbl-propostas th:nth-child(5), #tbl-propostas td:nth-child(5){ width:6%; }
+  #tbl-propostas th:nth-child(6), #tbl-propostas td:nth-child(6){ width:4%; }
+  #tbl-propostas th:nth-child(7), #tbl-propostas td:nth-child(7){ width:6%; }
+  #tbl-propostas th:nth-child(8), #tbl-propostas td:nth-child(8){ width:7%; }
+  #tbl-propostas th:nth-child(9), #tbl-propostas td:nth-child(9){ width:4%; }
+  #tbl-propostas th:nth-child(10), #tbl-propostas td:nth-child(10){ width:5%; }
+  #tbl-propostas th:nth-child(11), #tbl-propostas td:nth-child(11){ width:6%; }
+  #tbl-propostas th:nth-child(12), #tbl-propostas td:nth-child(12){ width:7%; }
+  #tbl-propostas th:nth-child(13), #tbl-propostas td:nth-child(13){ width:7%; }
+  #tbl-propostas th:nth-child(14), #tbl-propostas td:nth-child(14){ width:6%; }
+  #tbl-propostas th:nth-child(15), #tbl-propostas td:nth-child(15){ width:7%; }
+  #tbl-propostas th:nth-child(16), #tbl-propostas td:nth-child(16){ width:6%; }
+  #tbl-propostas th:nth-child(17), #tbl-propostas td:nth-child(17){ width:2%; }
+  #tbl-propostas td:nth-child(3) input, #tbl-propostas td:nth-child(6) input{ text-align:center; }
   #tbl-propostas .badge{ padding:3px 6px; font-size:9.5px; }
   #tbl-propostas .rm-btn{ width:20px; height:20px; font-size:11px; }
   .add-row{ margin-top:10px; background:var(--bg-inset); border:1px dashed var(--border); color:var(--text-dim); padding:9px 14px; border-radius:7px; font-size:12.5px; cursor:pointer; }
@@ -1082,7 +1101,7 @@ function tplPropostas(){
         <thead><tr>
           <th>Proposta</th><th>Oferta (R$)</th><th>Entr. %</th><th>Entrada R$</th><th>Saldo Fin.</th>
           <th>Parc.</th><th>Vr. Parcela</th><th>R$/Cliente</th><th>EV/MRR</th><th>EV/EBITDA</th>
-          <th>Payback (m)</th><th>Custo Comprador</th><th>Caixa Mensal</th><th>Banco</th><th>Caixa Real</th><th>Viável?</th><th></th>
+          <th>Payback (m)</th><th>Custo Compr.</th><th>Caixa Mensal</th><th>Banco</th><th>Caixa Real</th><th>Viável?</th><th></th>
         </tr></thead>
         <tbody id="propostas-body"></tbody>
       </table></div>
