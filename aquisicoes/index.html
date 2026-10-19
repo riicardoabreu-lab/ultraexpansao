@@ -756,17 +756,31 @@ function calcCapitalProprio(valor, totalPeriodos, taxaAplicPct, irPct, custoEmpr
   return { bruto, ir, liquido, diferenca, diferencaMensal, vantagem: diferenca>0 ? 'banco' : 'proprio' };
 }
 
-// Roda calcCapitalProprio duas vezes: no 1º ano do empréstimo (4 trimestres,
-// reaproveitando o custo do 1º ano já calculado em calcEmprestimo -- mesma
-// definição usada na "Reserva mensal recomendada") e no prazo total
-// (carência + todas as parcelas) -- pra comparar os dois horizontes lado a
-// lado, já que financiamentos curtos saem proporcionalmente mais caros
-// (a carência, mais cara, pesa mais num prazo curto).
+// Roda calcCapitalProprio pra vários horizontes (1, 2, 3 anos -- só os que
+// cabem dentro do prazo do empréstimo -- e sempre o prazo total no fim),
+// pra comparar lado a lado: financiamentos curtos saem proporcionalmente
+// mais caros, porque a carência (mais cara) pesa mais num prazo curto, e
+// isso pode até inverter a recomendação de um horizonte pro outro.
 function calcComparacaoCapital(emprestimo, taxaAplicPct, irPct){
   const totalPeriodos = emprestimo.carencia + emprestimo.parcelasAmort;
-  const ano1 = calcCapitalProprio(emprestimo.valor, Math.min(4, totalPeriodos), taxaAplicPct, irPct, emprestimo.ano1);
-  const total = calcCapitalProprio(emprestimo.valor, totalPeriodos, taxaAplicPct, irPct, emprestimo.custoTotalEmprestimo);
-  return { ano1, total, totalPeriodos, anos: totalPeriodos/4 };
+  // custo = juros + IR + flat (igual ao custoTotalEmprestimo) até o trimestre n --
+  // NUNCA inclui o principal (l.principal): devolver o que foi emprestado não é
+  // custo nenhum, só o juro é. (comImposto inclui principal -- serve pra saber o
+  // desembolso de caixa de cada parcela, não pra medir custo do empréstimo.)
+  const custoAteTrimestre = n => emprestimo.flatValor + emprestimo.linhas
+    .filter(l=>l.parcela>=1 && l.parcela<=n)
+    .reduce((s,l)=>s+l.juros+l.ir, 0);
+
+  const horizontes = [1,2,3]
+    .filter(anos => anos*4 < totalPeriodos)
+    .map(anos => ({ label: anos===1?'1 ano':`${anos} anos`, periodos: anos*4, custo: custoAteTrimestre(anos*4) }));
+  horizontes.push({ label: `Prazo total (${fmtAnos(totalPeriodos/4)})`, periodos: totalPeriodos, custo: emprestimo.custoTotalEmprestimo });
+
+  const resultados = horizontes.map(h => ({
+    ...h,
+    ...calcCapitalProprio(emprestimo.valor, h.periodos, taxaAplicPct, irPct, h.custo),
+  }));
+  return { resultados, totalPeriodos, anos: totalPeriodos/4 };
 }
 
 /* ======================================================================
@@ -1145,7 +1159,7 @@ function tplValuation(){
         </tr></thead>
         <tbody id="capital-proprio-body"></tbody>
       </table></div>
-      <p class="note">Comparação simplificada, líquida de IR dos dois lados: se a diferença for positiva, o capital aplicado rende mais do que o empréstimo custa — vale mais a pena financiar pelo banco e deixar o caixa próprio investido. Se for negativa, o empréstimo sai mais caro do que o capital renderia — vale mais a pena pagar a entrada com capital próprio. "Diferença/mês" é a mesma diferença dividida pelo horizonte, pra comparar com a conta de cabeça: o juro real do empréstimo não é a taxa cheia do banco, é só o <i>spread</i> entre o que o banco cobra e o que o seu próprio dinheiro já rende aplicado. O 1º ano usa o mesmo custo já calculado na "Reserva mensal recomendada (ano 1)" acima.</p>
+      <p class="note">Comparação simplificada, líquida de IR dos dois lados: se a diferença for positiva, o capital aplicado rende mais do que o empréstimo custa — vale mais a pena financiar pelo banco e deixar o caixa próprio investido. Se for negativa, o empréstimo sai mais caro do que o capital renderia — vale mais a pena pagar a entrada com capital próprio. "Diferença/mês" é a mesma diferença dividida pelo horizonte, pra comparar com a conta de cabeça: o juro real do empréstimo não é a taxa cheia do banco, é só o <i>spread</i> entre o que o banco cobra e o que o seu próprio dinheiro já rende aplicado. "Custo do empréstimo" é só juros + IR + comissão flat até aquele horizonte — nunca inclui o principal amortizado, já que devolver o que foi emprestado não é custo.</p>
     </div>
   </div>`;
 }
@@ -1535,24 +1549,18 @@ function fmtAnos(n){
 function renderCapitalProprioTable(m){
   const tbody = document.getElementById('capital-proprio-body');
   if(!tbody) return;
-  const cp = m.capitalProprio;
-  const rows = [
-    { label: '1º ano', dados: cp.ano1, custo: m.emprestimo.ano1 },
-    { label: `Prazo total (${fmtAnos(cp.anos)})`, dados: cp.total, custo: m.emprestimo.custoTotalEmprestimo },
-  ];
-  tbody.innerHTML = rows.map(r=>{
-    const d = r.dados;
-    const corDif = d.diferenca>=0 ? 'var(--good)' : 'var(--bad)';
-    const cls = d.vantagem==='banco' ? 'sim' : 'rev';
-    const label = d.vantagem==='banco' ? 'Financiar' : 'Capital próprio';
+  tbody.innerHTML = m.capitalProprio.resultados.map(r=>{
+    const corDif = r.diferenca>=0 ? 'var(--good)' : 'var(--bad)';
+    const cls = r.vantagem==='banco' ? 'sim' : 'rev';
+    const label = r.vantagem==='banco' ? 'Financiar' : 'Capital próprio';
     return `<tr>
       <td>${r.label}</td>
-      <td class="computed">${fmtBRL(d.bruto)}</td>
-      <td class="computed">${fmtBRL(d.ir)}</td>
-      <td class="computed">${fmtBRL(d.liquido)}</td>
+      <td class="computed">${fmtBRL(r.bruto)}</td>
+      <td class="computed">${fmtBRL(r.ir)}</td>
+      <td class="computed">${fmtBRL(r.liquido)}</td>
       <td class="computed">${fmtBRL(r.custo)}</td>
-      <td class="computed" style="color:${corDif}">${d.diferenca>=0?'+':''}${fmtBRL(d.diferenca)}</td>
-      <td class="computed" style="color:${corDif}">${d.diferencaMensal>=0?'+':''}${fmtBRL(d.diferencaMensal)}</td>
+      <td class="computed" style="color:${corDif}">${r.diferenca>=0?'+':''}${fmtBRL(r.diferenca)}</td>
+      <td class="computed" style="color:${corDif}">${r.diferencaMensal>=0?'+':''}${fmtBRL(r.diferencaMensal)}</td>
       <td><span class="badge ${cls}">${label}</span></td>
     </tr>`;
   }).join('');
