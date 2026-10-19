@@ -726,7 +726,7 @@ function calcEmprestimo(p, investTotal){
   const reservaMensalAno1 = ano1/12;
 
   return { valor, carencia, parcelasAmort, taxaTri, taxaCarenciaTri, flatValor, linhas,
-    somaPrincipal, somaJuros, somaIR, custoTotalEmprestimo, totalDesembolsado, reservaMensalAno1 };
+    somaPrincipal, somaJuros, somaIR, custoTotalEmprestimo, totalDesembolsado, ano1, reservaMensalAno1 };
 }
 
 /* ======================================================================
@@ -734,17 +734,18 @@ function calcEmprestimo(p, investTotal){
    banco (e deixar o caixa próprio rendendo) ou pagar à vista com capital
    próprio (e não ter o custo do empréstimo)?
    Simula o MESMO valor do empréstimo aplicado à mesma taxa trimestral
-   composta, pelo mesmo prazo total (carência + parcelas) -- e aplica a
-   mesma alíquota de IR do empréstimo sobre o rendimento, pra comparar
-   dois custos líquidos de imposto na mesma régua.
+   composta, pelo prazo informado -- e aplica a mesma alíquota de IR do
+   empréstimo sobre o rendimento, pra comparar dois custos líquidos de
+   imposto na mesma régua. Genérica em "totalPeriodos" (trimestres) e
+   "custoEmprestimoPeriodo" pra poder rodar tanto pro 1º ano quanto pro
+   prazo total do empréstimo (ver calcComparacaoCapital).
 ====================================================================== */
-function calcCapitalProprio(emprestimo, taxaAplicPct, irPct){
+function calcCapitalProprio(valor, totalPeriodos, taxaAplicPct, irPct, custoEmprestimoPeriodo){
   const taxaAplicTri = (taxaAplicPct||0)/4/100;
-  const totalPeriodos = emprestimo.carencia + emprestimo.parcelasAmort;
-  const bruto = emprestimo.valor * (Math.pow(1+taxaAplicTri, totalPeriodos) - 1);
+  const bruto = valor * (Math.pow(1+taxaAplicTri, totalPeriodos) - 1);
   const ir = bruto * (irPct||0)/100;
   const liquido = bruto - ir;
-  const diferenca = liquido - emprestimo.custoTotalEmprestimo;
+  const diferenca = liquido - custoEmprestimoPeriodo;
   // diferenca > 0: capital aplicado rende mais que o empréstimo custa -> compensa financiar pelo banco
   // diferenca < 0: empréstimo custa mais que o capital renderia -> compensa pagar com capital próprio
   // diferencaMensal: a mesma diferença, mas "por mês" -- a conta de cabeça que todo mundo
@@ -753,6 +754,19 @@ function calcCapitalProprio(emprestimo, taxaAplicPct, irPct){
   const meses = totalPeriodos*3;
   const diferencaMensal = meses>0 ? diferenca/meses : 0;
   return { bruto, ir, liquido, diferenca, diferencaMensal, vantagem: diferenca>0 ? 'banco' : 'proprio' };
+}
+
+// Roda calcCapitalProprio duas vezes: no 1º ano do empréstimo (4 trimestres,
+// reaproveitando o custo do 1º ano já calculado em calcEmprestimo -- mesma
+// definição usada na "Reserva mensal recomendada") e no prazo total
+// (carência + todas as parcelas) -- pra comparar os dois horizontes lado a
+// lado, já que financiamentos curtos saem proporcionalmente mais caros
+// (a carência, mais cara, pesa mais num prazo curto).
+function calcComparacaoCapital(emprestimo, taxaAplicPct, irPct){
+  const totalPeriodos = emprestimo.carencia + emprestimo.parcelasAmort;
+  const ano1 = calcCapitalProprio(emprestimo.valor, Math.min(4, totalPeriodos), taxaAplicPct, irPct, emprestimo.ano1);
+  const total = calcCapitalProprio(emprestimo.valor, totalPeriodos, taxaAplicPct, irPct, emprestimo.custoTotalEmprestimo);
+  return { ano1, total, totalPeriodos, anos: totalPeriodos/4 };
 }
 
 /* ======================================================================
@@ -798,7 +812,7 @@ function compute(p){
 
   const emprestimo = calcEmprestimo(p, investTotal);
   emprestimo.caixaPosReserva = ebitdaComprador - emprestimo.reservaMensalAno1;
-  const capitalProprio = calcCapitalProprio(emprestimo, p.finTaxaAplicPct ?? 14.5, p.finIRPct);
+  const capitalProprio = calcComparacaoCapital(emprestimo, p.finTaxaAplicPct ?? 14.5, p.finIRPct);
 
   return { custoAtualTotal, custoCompradorTotal, investTotal, mrr, deducoes,
     ebitdaAtual, ebitdaComprador, margemAtual, margemComprador, custoClienteAtual, custoClienteComprador,
@@ -1119,18 +1133,19 @@ function tplValuation(){
   </div>
   <div class="sec-block">
     <h3>Capital Próprio × Empréstimo</h3>
-    <p class="hint">Em vez de financiar a entrada pelo banco, e se pagássemos com caixa próprio? Simula quanto esse mesmo valor renderia aplicado pelo mesmo prazo do empréstimo, e compara com o custo do empréstimo acima.</p>
+    <p class="hint">Em vez de financiar a entrada pelo banco, e se pagássemos com caixa próprio? Compara o 1º ano do empréstimo com o prazo total — financiamentos curtos saem proporcionalmente mais caros, porque a carência (mais cara) pesa mais num prazo pequeno.</p>
     <div class="panel">
       <div class="field-grid">
         <div class="field"><label>Taxa de aplicação do capital próprio (% a.a.)</label><input id="in-fin-taxaaplic" type="number" step="0.1"></div>
       </div>
-      <div class="kpi-row" style="margin-top:16px;">
-        <div class="kpi"><div class="label">Rendimento bruto no período</div><div class="value" id="kpi-cap-bruto">—</div><div class="sub">Mesmo valor e prazo do empréstimo, juros compostos</div></div>
-        <div class="kpi"><div class="label">IR sobre o rendimento</div><div class="value" id="kpi-cap-ir">—</div><div class="sub">Mesma alíquota do empréstimo, acima</div></div>
-        <div class="kpi"><div class="label">Rendimento líquido no período</div><div class="value" id="kpi-cap-liquido">—</div></div>
-        <div class="kpi hi"><div class="label">Diferença (rendimento líquido − custo do empréstimo)</div><div class="value" id="kpi-cap-diferenca">—</div><div class="sub" id="kpi-cap-diferenca-mes">—</div><div class="sub" id="kpi-cap-recomendacao">—</div></div>
-      </div>
-      <p class="note">Comparação simplificada, líquida de IR dos dois lados: se a diferença for positiva, o capital aplicado rende mais do que o empréstimo custa — vale mais a pena financiar pelo banco e deixar o caixa próprio investido. Se for negativa, o empréstimo sai mais caro do que o capital renderia — vale mais a pena pagar a entrada com capital próprio. O "≈ R$/mês" é a mesma diferença dividida pelo prazo, pra comparar com a conta de cabeça: o juro real do empréstimo não é a taxa cheia do banco, é só o <i>spread</i> entre o que o banco cobra e o que o seu próprio dinheiro já rende aplicado.</p>
+      <div class="table-scroll" style="margin-top:16px;"><table id="tbl-capital-proprio">
+        <thead><tr>
+          <th>Horizonte</th><th>Rendimento bruto</th><th>IR</th><th>Rendimento líquido</th>
+          <th>Custo do empréstimo</th><th>Diferença</th><th>Diferença/mês</th><th>Recomendação</th>
+        </tr></thead>
+        <tbody id="capital-proprio-body"></tbody>
+      </table></div>
+      <p class="note">Comparação simplificada, líquida de IR dos dois lados: se a diferença for positiva, o capital aplicado rende mais do que o empréstimo custa — vale mais a pena financiar pelo banco e deixar o caixa próprio investido. Se for negativa, o empréstimo sai mais caro do que o capital renderia — vale mais a pena pagar a entrada com capital próprio. "Diferença/mês" é a mesma diferença dividida pelo horizonte, pra comparar com a conta de cabeça: o juro real do empréstimo não é a taxa cheia do banco, é só o <i>spread</i> entre o que o banco cobra e o que o seu próprio dinheiro já rende aplicado. O 1º ano usa o mesmo custo já calculado na "Reserva mensal recomendada (ano 1)" acima.</p>
     </div>
   </div>`;
 }
@@ -1514,6 +1529,35 @@ function buildEmprestimoTable(emp){
     </tr>`).join('');
 }
 
+function fmtAnos(n){
+  return (Number.isInteger(n) ? n : n.toFixed(1).replace('.',',')) + (n===1 ? ' ano' : ' anos');
+}
+function renderCapitalProprioTable(m){
+  const tbody = document.getElementById('capital-proprio-body');
+  if(!tbody) return;
+  const cp = m.capitalProprio;
+  const rows = [
+    { label: '1º ano', dados: cp.ano1, custo: m.emprestimo.ano1 },
+    { label: `Prazo total (${fmtAnos(cp.anos)})`, dados: cp.total, custo: m.emprestimo.custoTotalEmprestimo },
+  ];
+  tbody.innerHTML = rows.map(r=>{
+    const d = r.dados;
+    const corDif = d.diferenca>=0 ? 'var(--good)' : 'var(--bad)';
+    const cls = d.vantagem==='banco' ? 'sim' : 'rev';
+    const label = d.vantagem==='banco' ? 'Financiar' : 'Capital próprio';
+    return `<tr>
+      <td>${r.label}</td>
+      <td class="computed">${fmtBRL(d.bruto)}</td>
+      <td class="computed">${fmtBRL(d.ir)}</td>
+      <td class="computed">${fmtBRL(d.liquido)}</td>
+      <td class="computed">${fmtBRL(r.custo)}</td>
+      <td class="computed" style="color:${corDif}">${d.diferenca>=0?'+':''}${fmtBRL(d.diferenca)}</td>
+      <td class="computed" style="color:${corDif}">${d.diferencaMensal>=0?'+':''}${fmtBRL(d.diferencaMensal)}</td>
+      <td><span class="badge ${cls}">${label}</span></td>
+    </tr>`;
+  }).join('');
+}
+
 /* ======================================================================
    RECOMPUTE (runs on every keystroke — text-only updates, no rebuild)
 ====================================================================== */
@@ -1577,24 +1621,7 @@ function recomputeAll(){
   setText('kpi-fin-caixa', fmtBRL(m.emprestimo.caixaPosReserva));
   buildEmprestimoTable(m.emprestimo);
 
-  setText('kpi-cap-bruto', fmtBRL(m.capitalProprio.bruto));
-  setText('kpi-cap-ir', fmtBRL(m.capitalProprio.ir));
-  setText('kpi-cap-liquido', fmtBRL(m.capitalProprio.liquido));
-  const difEl = document.getElementById('kpi-cap-diferenca');
-  if(difEl){
-    const dif = m.capitalProprio.diferenca;
-    difEl.textContent = (dif>=0?'+':'')+fmtBRL(dif);
-    difEl.style.color = dif>=0 ? 'var(--good)' : 'var(--bad)';
-  }
-  const difMesEl = document.getElementById('kpi-cap-diferenca-mes');
-  if(difMesEl){
-    const difMes = m.capitalProprio.diferencaMensal;
-    difMesEl.textContent = `≈ ${difMes>=0?'+':''}${fmtBRL(difMes)}/mês`;
-    difMesEl.style.color = difMes>=0 ? 'var(--good)' : 'var(--bad)';
-  }
-  setText('kpi-cap-recomendacao', m.capitalProprio.vantagem==='banco'
-    ? 'Vale mais a pena financiar pelo banco — o capital aplicado rende mais do que o empréstimo custa'
-    : 'Vale mais a pena pagar com capital próprio — o empréstimo custa mais do que o capital renderia');
+  renderCapitalProprioTable(m);
 
   refreshProposalsComputed(p, m);
   renderCrescimento(p);
