@@ -747,7 +747,12 @@ function calcCapitalProprio(emprestimo, taxaAplicPct, irPct){
   const diferenca = liquido - emprestimo.custoTotalEmprestimo;
   // diferenca > 0: capital aplicado rende mais que o empréstimo custa -> compensa financiar pelo banco
   // diferenca < 0: empréstimo custa mais que o capital renderia -> compensa pagar com capital próprio
-  return { bruto, ir, liquido, diferenca, vantagem: diferenca>0 ? 'banco' : 'proprio' };
+  // diferencaMensal: a mesma diferença, mas "por mês" -- a conta de cabeça que todo mundo
+  // faz na prática (ex.: "banco cobra 1,5% a.m., meu dinheiro rende 1% a.m., então o custo
+  // real é só o spread de 0,5% a.m." = diferencaMensal sobre o valor do empréstimo).
+  const meses = totalPeriodos*3;
+  const diferencaMensal = meses>0 ? diferenca/meses : 0;
+  return { bruto, ir, liquido, diferenca, diferencaMensal, vantagem: diferenca>0 ? 'banco' : 'proprio' };
 }
 
 /* ======================================================================
@@ -1123,9 +1128,9 @@ function tplValuation(){
         <div class="kpi"><div class="label">Rendimento bruto no período</div><div class="value" id="kpi-cap-bruto">—</div><div class="sub">Mesmo valor e prazo do empréstimo, juros compostos</div></div>
         <div class="kpi"><div class="label">IR sobre o rendimento</div><div class="value" id="kpi-cap-ir">—</div><div class="sub">Mesma alíquota do empréstimo, acima</div></div>
         <div class="kpi"><div class="label">Rendimento líquido no período</div><div class="value" id="kpi-cap-liquido">—</div></div>
-        <div class="kpi hi"><div class="label">Diferença (rendimento líquido − custo do empréstimo)</div><div class="value" id="kpi-cap-diferenca">—</div><div class="sub" id="kpi-cap-recomendacao">—</div></div>
+        <div class="kpi hi"><div class="label">Diferença (rendimento líquido − custo do empréstimo)</div><div class="value" id="kpi-cap-diferenca">—</div><div class="sub" id="kpi-cap-diferenca-mes">—</div><div class="sub" id="kpi-cap-recomendacao">—</div></div>
       </div>
-      <p class="note">Comparação simplificada, líquida de IR dos dois lados: se a diferença for positiva, o capital aplicado rende mais do que o empréstimo custa — vale mais a pena financiar pelo banco e deixar o caixa próprio investido. Se for negativa, o empréstimo sai mais caro do que o capital renderia — vale mais a pena pagar a entrada com capital próprio.</p>
+      <p class="note">Comparação simplificada, líquida de IR dos dois lados: se a diferença for positiva, o capital aplicado rende mais do que o empréstimo custa — vale mais a pena financiar pelo banco e deixar o caixa próprio investido. Se for negativa, o empréstimo sai mais caro do que o capital renderia — vale mais a pena pagar a entrada com capital próprio. O "≈ R$/mês" é a mesma diferença dividida pelo prazo, pra comparar com a conta de cabeça: o juro real do empréstimo não é a taxa cheia do banco, é só o <i>spread</i> entre o que o banco cobra e o que o seu próprio dinheiro já rende aplicado.</p>
     </div>
   </div>`;
 }
@@ -1580,6 +1585,12 @@ function recomputeAll(){
     const dif = m.capitalProprio.diferenca;
     difEl.textContent = (dif>=0?'+':'')+fmtBRL(dif);
     difEl.style.color = dif>=0 ? 'var(--good)' : 'var(--bad)';
+  }
+  const difMesEl = document.getElementById('kpi-cap-diferenca-mes');
+  if(difMesEl){
+    const difMes = m.capitalProprio.diferencaMensal;
+    difMesEl.textContent = `≈ ${difMes>=0?'+':''}${fmtBRL(difMes)}/mês`;
+    difMesEl.style.color = difMes>=0 ? 'var(--good)' : 'var(--bad)';
   }
   setText('kpi-cap-recomendacao', m.capitalProprio.vantagem==='banco'
     ? 'Vale mais a pena financiar pelo banco — o capital aplicado rende mais do que o empréstimo custa'
