@@ -415,6 +415,7 @@
       <button class="side-btn" id="templateBtn">Baixar modelo (.xlsx)</button>
       <button class="side-btn" id="sheetImportBtn">Importar planilha</button>
       <input type="file" id="sheetImport" accept=".xlsx,.xls,.csv">
+      <button class="side-btn" id="btnComparativo">📊 Comparar rede × clientes</button>
     </div>
     <h4>Provedores</h4>
     <div class="provider-list" id="providerList"></div>
@@ -457,6 +458,8 @@ function blankEmpresa(nome){
     kmz:null, // {name} — o arquivo em si fica no IndexedDB deste navegador, não aqui
     kmzCustoCaixa:0, kmzCustoCeo:0,
     kmzCustoMetroPorModelo:{}, // ex: {"12": 2.5, "24": 4, "outro": 1.8} — R$/metro por bitola de fibra
+    kmzValorRedeCache:0, // último "Valor estimado da rede" calculado (cacheado pra comparar entre provedores sem precisar reabrir o KMZ de cada um)
+    kmzComparacaoPropostaId:null, // qual proposta usar como "preço de compra" na comparação Rede x Clientes ('sug' = Proposta Sugerida, ou o índice da proposta)
   };
 }
 
@@ -945,7 +948,7 @@ function renderSidebar(){
   list.querySelectorAll('.provider-card').forEach(card=>{
     card.addEventListener('click', e=>{
       if(e.target.dataset.act) return;
-      app.currentId = card.dataset.id; saveApp(); renderAll();
+      app.currentId = card.dataset.id; viewMode='ficha'; saveApp(); renderAll();
     });
     card.querySelector('[data-act="dup"]').addEventListener('click', e=>{
       e.stopPropagation();
@@ -968,8 +971,12 @@ function renderSidebar(){
 
 document.getElementById('newProviderBtn').onclick = () => {
   const p = blankEmpresa("Novo provedor "+(app.empresas.length+1));
-  app.empresas.push(p); app.currentId = p.id; saveApp(); renderAll();
+  app.empresas.push(p); app.currentId = p.id; viewMode='ficha'; saveApp(); renderAll();
   setTimeout(()=>{ const el=document.querySelector('.pname-input'); if(el){ el.focus(); el.select(); } }, 30);
+};
+document.getElementById('btnComparativo').onclick = () => {
+  viewMode = (viewMode==='comparativo') ? 'ficha' : 'comparativo';
+  renderAll();
 };
 
 /* ======================================================================
@@ -1281,6 +1288,23 @@ function tplRede(){
         <div class="kpi hi"><div class="label">Valor estimado da rede</div><div class="value" id="kpi-kmz-valor">—</div><div class="sub">Caixas×custo + CEOs×custo + Σ(metragem×custo/metro por categoria)</div></div>
       </div>
       <p class="note">Pontos: nomes tipo "CT10B"/"CTO" → caixa; "CEO" → emenda. Cabos: primeiro procura a bitola escrita direto no nome/descrição da linha (ex: "12 FO"); se não achar, usa a <b>cor da linha</b> no KMZ cruzada com uma legenda de cores escrita em alguma descrição do arquivo (ex: "VERDE = 6 FO"). Cor sem legenda correspondente vira "Cabo cor X (bitola não identificada)" — ainda dá pra precificar, só não sabe a bitola exata. Confira visualmente no mapa acima se a classificação bateu.</p>
+    </div>
+  </div>
+  <div class="sec-block" id="kmzProporcaoBlock" style="display:none;">
+    <h3>Proporção do preço: Rede × Clientes</h3>
+    <p class="hint">Do valor de uma proposta, quanto foi "pago" pela rede física (valor estimado acima) e quanto sobra, implicitamente, pela carteira de clientes.</p>
+    <div class="panel">
+      <div class="field-grid">
+        <div class="field"><label>Proposta usada como preço de compra</label><select id="in-kmz-proposta-comparacao"></select></div>
+      </div>
+      <div class="kpi-row" style="margin-top:16px;">
+        <div class="kpi"><div class="label">Preço da proposta</div><div class="value" id="kpi-prop-preco">—</div></div>
+        <div class="kpi"><div class="label">Valor da rede</div><div class="value" id="kpi-prop-rede">—</div><div class="sub" id="kpi-prop-rede-pct">—</div></div>
+        <div class="kpi hi"><div class="label">Valor implícito dos clientes</div><div class="value" id="kpi-prop-clientes">—</div><div class="sub" id="kpi-prop-clientes-pct">—</div></div>
+        <div class="kpi"><div class="label">R$ por cliente (implícito)</div><div class="value" id="kpi-prop-rcliente">—</div></div>
+      </div>
+      <p class="note" id="kpi-prop-aviso" style="color:var(--bad);"></p>
+      <p class="note">"Valor da rede" é o mesmo "Valor estimado da rede" calculado acima. "Valor implícito dos clientes" é o resíduo (preço da proposta − valor da rede) — não é uma avaliação própria da carteira, é só o que sobra do preço depois de descontar a rede física. Pra comparar com outros provedores, veja o botão "📊 Comparar rede × clientes" na barra lateral.</p>
     </div>
   </div>`;
 }
@@ -2361,6 +2385,59 @@ function renderKmzStatsPanel(){
   const valorCabos = chaves.reduce((sum,chave)=> sum + s.cabosPorModelo[chave].metros*(p.kmzCustoMetroPorModelo[chave]||0), 0);
   const valor = s.caixas*(p.kmzCustoCaixa||0) + s.ceos*(p.kmzCustoCeo||0) + valorCabos;
   setText('kpi-kmz-valor', fmtBRL(valor));
+
+  // Cacheia no próprio provedor (persiste com o resto dos dados) pra dar pra
+  // comparar entre provedores sem precisar reabrir o KMZ de cada um.
+  if(p.kmzValorRedeCache !== valor){
+    p.kmzValorRedeCache = valor;
+    saveApp();
+  }
+  renderProporcaoRedeClientes();
+}
+
+// Compara o preço de uma proposta (escolhida pelo usuário) com o "Valor
+// estimado da rede" acima: o que sobra (preço - valor da rede) é o valor
+// implícito que estaria sendo pago pela carteira de clientes.
+function renderProporcaoRedeClientes(){
+  const block = document.getElementById('kmzProporcaoBlock');
+  if(!block) return;
+  if(!currentKmzStats){ block.style.display = 'none'; return; }
+  block.style.display = '';
+  const p = current();
+  const m = compute(p);
+  const opts = p.propostas.map((pr,i)=>({ id:String(i), label: pr.nome||`Proposta ${i+1}`, valor: pr.valor }));
+  opts.push({ id:'sug', label: m.propostaSugerida.nome, valor: m.propostaSugerida.valor });
+
+  const sel = document.getElementById('in-kmz-proposta-comparacao');
+  if(!sel) return;
+  const chosenId = (p.kmzComparacaoPropostaId!=null && opts.some(o=>o.id===p.kmzComparacaoPropostaId)) ? p.kmzComparacaoPropostaId : opts[0].id;
+  sel.innerHTML = opts.map(o=>`<option value="${esc(o.id)}" ${o.id===chosenId?'selected':''}>${esc(o.label)} — ${fmtBRL(o.valor)}</option>`).join('');
+  if(p.kmzComparacaoPropostaId !== chosenId){ p.kmzComparacaoPropostaId = chosenId; saveApp(); }
+
+  const escolhida = opts.find(o=>o.id===chosenId);
+  const preco = escolhida ? escolhida.valor : 0;
+  const valorRede = p.kmzValorRedeCache || 0;
+  const valorClientes = preco - valorRede;
+  const pctRede = preco>0 ? valorRede/preco : 0;
+  const pctClientes = preco>0 ? valorClientes/preco : 0;
+
+  setText('kpi-prop-preco', fmtBRL(preco));
+  setText('kpi-prop-rede', fmtBRL(valorRede));
+  setText('kpi-prop-rede-pct', fmtPct(pctRede)+' do preço');
+  setText('kpi-prop-clientes', fmtBRL(valorClientes));
+  setText('kpi-prop-clientes-pct', fmtPct(pctClientes)+' do preço');
+  setText('kpi-prop-rcliente', p.clientes ? fmtBRL2(valorClientes/p.clientes) : '—');
+  const clientesEl = document.getElementById('kpi-prop-clientes');
+  if(clientesEl) clientesEl.style.color = valorClientes>=0 ? '' : 'var(--bad)';
+  setText('kpi-prop-aviso', valorClientes<0
+    ? 'Valor implícito dos clientes negativo: o preço dessa proposta é menor que o valor estimado só da rede física.'
+    : '');
+
+  sel.onchange = () => {
+    current().kmzComparacaoPropostaId = sel.value;
+    saveApp();
+    renderProporcaoRedeClientes();
+  };
 }
 
 // Limite de folga pra sincronizar o KMZ com a nuvem (documento à parte,
@@ -2847,6 +2924,8 @@ document.getElementById('sheetImport').onchange = () => {
 /* ======================================================================
    INIT
 ====================================================================== */
+let viewMode = 'ficha'; // 'ficha' | 'comparativo'
+
 function renderAll(){
   const main = document.getElementById('main');
   if(!app.empresas.length){
@@ -2858,6 +2937,13 @@ function renderAll(){
     return;
   }
   if(!app.currentId || !app.empresas.find(e=>e.id===app.currentId)) app.currentId = app.empresas[0].id;
+
+  if(viewMode === 'comparativo'){
+    renderComparativo();
+    renderSidebar();
+    return;
+  }
+
   main.innerHTML = mainSkeleton();
   fillFields();
   buildCostTable('custosAtual','tbl-atual');
@@ -2870,6 +2956,62 @@ function renderAll(){
   applyTab();
   recomputeAll();
   renderSidebar();
+}
+
+// Tela "Comparar rede × clientes": lista TODOS os provedores cadastrados
+// lado a lado, usando o valor de rede já cacheado (kmzValorRedeCache,
+// calculado da última vez que alguém abriu a aba Rede/KMZ desse provedor)
+// e a proposta escolhida por provedor (kmzComparacaoPropostaId, mesmo
+// seletor da aba Rede/KMZ de cada um) -- não recalcula nada ao vivo, só
+// lê o que já está salvo, então funciona sem precisar reabrir o KMZ de
+// cada provedor um por um.
+function renderComparativo(){
+  const main = document.getElementById('main');
+  const linhas = app.empresas.map(p=>{
+    const m = compute(p);
+    const opts = p.propostas.map((pr,i)=>({ id:String(i), label: pr.nome||`Proposta ${i+1}`, valor: pr.valor }));
+    opts.push({ id:'sug', label: m.propostaSugerida.nome, valor: m.propostaSugerida.valor });
+    const chosenId = (p.kmzComparacaoPropostaId!=null && opts.some(o=>o.id===p.kmzComparacaoPropostaId)) ? p.kmzComparacaoPropostaId : opts[0].id;
+    const escolhida = opts.find(o=>o.id===chosenId);
+    const preco = escolhida ? escolhida.valor : 0;
+    const temRede = !!p.kmz;
+    const valorRede = p.kmzValorRedeCache || 0;
+    const valorClientes = preco - valorRede;
+    return {
+      p, propostaLabel: escolhida?escolhida.label:'—', preco, temRede, valorRede,
+      pctRede: preco>0 ? valorRede/preco : 0,
+      valorClientes, pctClientes: preco>0 ? valorClientes/preco : 0,
+      rCliente: p.clientes ? valorClientes/p.clientes : null,
+    };
+  });
+
+  main.innerHTML = `
+  <div class="sec-block">
+    <h3>Comparativo — Rede × Clientes <button class="ghost-btn" id="btnVoltarFicha" style="margin-left:10px;font-size:11.5px;">← Voltar pro provedor</button></h3>
+    <p class="hint">Quanto do preço de cada proposta foi "pago" pela rede física (valor estimado na aba Rede/KMZ de cada provedor) e quanto sobra, implicitamente, pela carteira de clientes.</p>
+    <div class="panel">
+      <div class="table-scroll"><table>
+        <thead><tr>
+          <th>Provedor</th><th>Proposta usada</th><th>Preço</th><th>Valor da rede</th><th>% rede</th>
+          <th>Valor clientes (implícito)</th><th>% clientes</th><th>R$/cliente (implícito)</th>
+        </tr></thead>
+        <tbody>
+          ${linhas.map(r=>`<tr>
+            <td>${esc(r.p.nome)}</td>
+            <td>${esc(r.propostaLabel)}</td>
+            <td class="computed">${fmtBRL(r.preco)}</td>
+            <td class="computed">${r.temRede ? fmtBRL(r.valorRede) : '<span style="color:var(--text-faint);font-weight:400;">sem rede carregada</span>'}</td>
+            <td class="computed">${r.temRede ? fmtPct(r.pctRede) : '—'}</td>
+            <td class="computed" style="color:${r.temRede && r.valorClientes<0 ? 'var(--bad)' : ''}">${r.temRede ? fmtBRL(r.valorClientes) : '—'}</td>
+            <td class="computed">${r.temRede ? fmtPct(r.pctClientes) : '—'}</td>
+            <td class="computed">${r.temRede && r.rCliente!=null ? fmtBRL2(r.rCliente) : '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>
+      <p class="note">"Sem rede carregada" = esse provedor ainda não teve um arquivo KMZ/KML enviado na aba Rede (KMZ) dele. A proposta usada em cada linha é a mesma selecionada na aba Rede (KMZ) daquele provedor — troque lá se quiser comparar com outra oferta.</p>
+    </div>
+  </div>`;
+  document.getElementById('btnVoltarFicha').onclick = () => { viewMode='ficha'; renderAll(); };
 }
 
 renderAll();
