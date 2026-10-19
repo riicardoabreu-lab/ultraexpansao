@@ -885,6 +885,13 @@ function liberarAcesso(){
   document.getElementById('loginOverlay').style.display = 'none';
   window._iniciarSync();
   carregarCabos();
+  // Sincroniza sozinho ao entrar, sem esperar clique no botão nem o cron
+  // diário - mesma lógica de sincronizarGeoGrid() (ver mais abaixo), só que
+  // disparada automaticamente. Cada login da equipe passa a puxar o GeoGrid
+  // de novo (não só uma vez por dia via cron) - é uma sincronização em
+  // massa (itensRede paginado), não chamada por item, então não é pesada
+  // pro GeoGrid mesmo com vários técnicos entrando ao longo do dia.
+  sincronizarGeoGrid();
 }
 window.liberarAcesso = liberarAcesso;
 // Não chama aqui direto se já autenticado: window._iniciarSync ainda não existe
@@ -910,7 +917,9 @@ document.getElementById('btnSair').addEventListener('click', () => {
 // vez (mesmo limite de tempo por execução do full-sync) e reflete o progresso
 // no próprio botão. Os dados atualizados chegam no mapa sozinhos, via o
 // canal de tempo real do Supabase já ligado (window._iniciarSync) - não precisa recarregar.
-document.getElementById('btnSincronizar').addEventListener('click', async () => {
+// Chamada tanto pelo clique no botão quanto automaticamente ao entrar (ver
+// liberarAcesso) - por isso é uma função nomeada, não direto no listener.
+async function sincronizarGeoGrid(){
   const btn = document.getElementById('btnSincronizar');
   const textoOriginal = btn.textContent;
   const logPainel = document.getElementById('syncLogPainel');
@@ -982,7 +991,8 @@ document.getElementById('btnSincronizar').addEventListener('click', async () => 
     btn.disabled = false;
     setTimeout(() => { btn.textContent = textoOriginal; }, 4000);
   }
-});
+}
+document.getElementById('btnSincronizar').addEventListener('click', sincronizarGeoGrid);
 
 document.getElementById('btnFecharSyncLog').addEventListener('click', () => {
   document.getElementById('syncLogPainel').style.display = 'none';
