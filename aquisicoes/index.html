@@ -449,6 +449,7 @@ function blankEmpresa(nome){
     propostas:[], propostaSugEntrada:50, propostaSugParcelas:12,
     finSelic:14.5, finTaxaCarenciaPct:4.6,
     finCarenciaTri:3, finParcelasTri:13, finFlatPct:1.6, finIRPct:17.647,
+    finTaxaAplicPct:14.5,
     intencaoVendaValor:0,
     crescModo:'unidades',
     crescAtivMes:0, crescCancelMes:0, crescInfolinkAtivMes:0, crescInfolinkCancelMes:0,
@@ -729,6 +730,27 @@ function calcEmprestimo(p, investTotal){
 }
 
 /* ======================================================================
+   CAPITAL PRÓPRIO x EMPRÉSTIMO — vale a pena financiar a entrada pelo
+   banco (e deixar o caixa próprio rendendo) ou pagar à vista com capital
+   próprio (e não ter o custo do empréstimo)?
+   Simula o MESMO valor do empréstimo aplicado à mesma taxa trimestral
+   composta, pelo mesmo prazo total (carência + parcelas) -- e aplica a
+   mesma alíquota de IR do empréstimo sobre o rendimento, pra comparar
+   dois custos líquidos de imposto na mesma régua.
+====================================================================== */
+function calcCapitalProprio(emprestimo, taxaAplicPct, irPct){
+  const taxaAplicTri = (taxaAplicPct||0)/4/100;
+  const totalPeriodos = emprestimo.carencia + emprestimo.parcelasAmort;
+  const bruto = emprestimo.valor * (Math.pow(1+taxaAplicTri, totalPeriodos) - 1);
+  const ir = bruto * (irPct||0)/100;
+  const liquido = bruto - ir;
+  const diferenca = liquido - emprestimo.custoTotalEmprestimo;
+  // diferenca > 0: capital aplicado rende mais que o empréstimo custa -> compensa financiar pelo banco
+  // diferenca < 0: empréstimo custa mais que o capital renderia -> compensa pagar com capital próprio
+  return { bruto, ir, liquido, diferenca, vantagem: diferenca>0 ? 'banco' : 'proprio' };
+}
+
+/* ======================================================================
    COMPUTED MODEL (per provider)
 ====================================================================== */
 function compute(p){
@@ -771,11 +793,12 @@ function compute(p){
 
   const emprestimo = calcEmprestimo(p, investTotal);
   emprestimo.caixaPosReserva = ebitdaComprador - emprestimo.reservaMensalAno1;
+  const capitalProprio = calcCapitalProprio(emprestimo, p.finTaxaAplicPct ?? 14.5, p.finIRPct);
 
   return { custoAtualTotal, custoCompradorTotal, investTotal, mrr, deducoes,
     ebitdaAtual, ebitdaComprador, margemAtual, margemComprador, custoClienteAtual, custoClienteComprador,
     invPorCliente, invPctMRRano, payback, evMRR, evEBITDAano, tetoMRR, tetoEBITDA, tetoSustentavel, propostaSugerida,
-    ebitdaPositivo, margemOk, paybackOk, conclusao, emprestimo };
+    ebitdaPositivo, margemOk, paybackOk, conclusao, emprestimo, capitalProprio };
 }
 
 // Investimento total "e se": as linhas vinculadas a uma proposta (via
@@ -1087,6 +1110,22 @@ function tplValuation(){
         <tbody id="emprestimo-body"></tbody>
       </table></div>
       <p class="note">Carência: só paga juros a cada trimestre, sem amortizar o principal. Depois da carência, o principal é dividido em parcelas trimestrais iguais (SAC), com juros decrescentes sobre o saldo devedor. Reserva mensal recomendada = soma dos 4 primeiros trimestres (1º ano) ÷ 12.</p>
+    </div>
+  </div>
+  <div class="sec-block">
+    <h3>Capital Próprio × Empréstimo</h3>
+    <p class="hint">Em vez de financiar a entrada pelo banco, e se pagássemos com caixa próprio? Simula quanto esse mesmo valor renderia aplicado pelo mesmo prazo do empréstimo, e compara com o custo do empréstimo acima.</p>
+    <div class="panel">
+      <div class="field-grid">
+        <div class="field"><label>Taxa de aplicação do capital próprio (% a.a.)</label><input id="in-fin-taxaaplic" type="number" step="0.1"></div>
+      </div>
+      <div class="kpi-row" style="margin-top:16px;">
+        <div class="kpi"><div class="label">Rendimento bruto no período</div><div class="value" id="kpi-cap-bruto">—</div><div class="sub">Mesmo valor e prazo do empréstimo, juros compostos</div></div>
+        <div class="kpi"><div class="label">IR sobre o rendimento</div><div class="value" id="kpi-cap-ir">—</div><div class="sub">Mesma alíquota do empréstimo, acima</div></div>
+        <div class="kpi"><div class="label">Rendimento líquido no período</div><div class="value" id="kpi-cap-liquido">—</div></div>
+        <div class="kpi hi"><div class="label">Diferença (rendimento líquido − custo do empréstimo)</div><div class="value" id="kpi-cap-diferenca">—</div><div class="sub" id="kpi-cap-recomendacao">—</div></div>
+      </div>
+      <p class="note">Comparação simplificada, líquida de IR dos dois lados: se a diferença for positiva, o capital aplicado rende mais do que o empréstimo custa — vale mais a pena financiar pelo banco e deixar o caixa próprio investido. Se for negativa, o empréstimo sai mais caro do que o capital renderia — vale mais a pena pagar a entrada com capital próprio.</p>
     </div>
   </div>`;
 }
@@ -1533,6 +1572,19 @@ function recomputeAll(){
   setText('kpi-fin-caixa', fmtBRL(m.emprestimo.caixaPosReserva));
   buildEmprestimoTable(m.emprestimo);
 
+  setText('kpi-cap-bruto', fmtBRL(m.capitalProprio.bruto));
+  setText('kpi-cap-ir', fmtBRL(m.capitalProprio.ir));
+  setText('kpi-cap-liquido', fmtBRL(m.capitalProprio.liquido));
+  const difEl = document.getElementById('kpi-cap-diferenca');
+  if(difEl){
+    const dif = m.capitalProprio.diferenca;
+    difEl.textContent = (dif>=0?'+':'')+fmtBRL(dif);
+    difEl.style.color = dif>=0 ? 'var(--good)' : 'var(--bad)';
+  }
+  setText('kpi-cap-recomendacao', m.capitalProprio.vantagem==='banco'
+    ? 'Vale mais a pena financiar pelo banco — o capital aplicado rende mais do que o empréstimo custa'
+    : 'Vale mais a pena pagar com capital próprio — o empréstimo custa mais do que o capital renderia');
+
   refreshProposalsComputed(p, m);
   renderCrescimento(p);
   renderSidebar();
@@ -1777,6 +1829,7 @@ function fillFields(){
   set('in-fin-parcelas', p.finParcelasTri);
   set('in-fin-flat', p.finFlatPct);
   set('in-fin-ir', p.finIRPct);
+  set('in-fin-taxaaplic', p.finTaxaAplicPct ?? 14.5);
   set('in-intencao-valor', fmtMoneyInput(p.intencaoVendaValor));
   set('in-cresc-ativ', p.crescAtivMes || '');
   set('in-cresc-cancel', p.crescCancelMes || '');
@@ -1845,6 +1898,7 @@ function bindAll(){
   bindField('in-fin-parcelas', (p,v)=>p.finParcelasTri=parseFloat(v)||1);
   bindField('in-fin-flat', (p,v)=>p.finFlatPct=parseFloat(v)||0);
   bindField('in-fin-ir', (p,v)=>p.finIRPct=parseFloat(v)||0);
+  bindField('in-fin-taxaaplic', (p,v)=>p.finTaxaAplicPct=parseFloat(v)||0);
   bindMoneyField('in-intencao-valor', (p,v)=>p.intencaoVendaValor=v);
   bindField('in-cresc-ativ', (p,v)=>p.crescAtivMes=parseFloat(v)||0);
   bindField('in-cresc-cancel', (p,v)=>p.crescCancelMes=parseFloat(v)||0);
