@@ -459,6 +459,9 @@ function blankEmpresa(nome){
     kmzCustoMetroPorModelo:{}, // ex: {"12": 2.5, "24": 4, "outro": 1.8} — R$/metro por bitola de fibra
     kmzValorRedeCache:0, // último "Valor estimado da rede" calculado (cacheado pra comparar entre provedores sem precisar reabrir o KMZ de cada um)
     kmzComparacaoPropostaId:null, // qual proposta usar como "preço de compra" na comparação Rede x Clientes ('sug' = Proposta Sugerida, ou o índice da proposta)
+    kmzCabosManuais:[], // linhas adicionadas à mão na tabela "Categoria de cabo" (não vêm do KMZ): [{id,label,segmentos,metros}]
+    kmzCabosExcluidos:[], // chaves de categorias auto-detectadas do KMZ que o usuário tirou da tabela/total
+    kmzCabosRenomeados:{}, // chave (auto-detectada) -> label customizado, ex. renomear "Cabo cor Amarela (bitola não identificada)" pra "6 FO"
   };
 }
 
@@ -1278,9 +1281,11 @@ function tplRede(){
         <div class="field"><label>Custo por CEO (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-kmz-custo-ceo" type="text" inputmode="numeric"></div></div>
       </div>
       <div class="table-scroll" style="margin-top:16px;"><table>
-        <thead><tr><th>Categoria de cabo</th><th style="text-align:right">Segmentos</th><th style="text-align:right">Metragem</th><th style="text-align:right">Custo/metro (R$)</th><th style="text-align:right">Total</th></tr></thead>
+        <thead><tr><th>Categoria de cabo</th><th style="text-align:right">Segmentos</th><th style="text-align:right">Metragem</th><th style="text-align:right">Custo/metro (R$)</th><th style="text-align:right">Total</th><th></th></tr></thead>
         <tbody id="kmz-cabos-body"></tbody>
       </table></div>
+      <button class="add-row" id="kmzCaboAddBtn">+ adicionar item</button>
+      <p class="note">Linhas vindas do KMZ: dá pra renomear a categoria (ex. identificar uma cor) e remover da tabela/total (não apaga nada do arquivo original, só tira da conta). Linhas adicionadas com "+ adicionar item" são 100% manuais — categoria, segmentos e metragem editáveis.</p>
       <div class="kpi-row" style="margin-top:16px;">
         <div class="kpi hi"><div class="label">Valor estimado da rede</div><div class="value" id="kpi-kmz-valor">—</div><div class="sub">Caixas×custo + CEOs×custo + Σ(metragem×custo/metro por categoria)</div></div>
       </div>
@@ -2370,36 +2375,96 @@ function renderKmzStatsPanel(){
     setText('kpi-kmz-outros', fmtNum(s.outros));
   }
 
-  const chaves = Object.keys(s.cabosPorModelo).sort((a,b)=>{
-    if(a==='outro') return 1; if(b==='outro') return -1;
-    return Number(a)-Number(b);
-  });
+  if(!p.kmzCabosManuais) p.kmzCabosManuais = [];
+  if(!p.kmzCabosExcluidos) p.kmzCabosExcluidos = [];
+  if(!p.kmzCabosRenomeados) p.kmzCabosRenomeados = {};
+
+  const chaves = Object.keys(s.cabosPorModelo)
+    .filter(chave => !p.kmzCabosExcluidos.includes(chave))
+    .sort((a,b)=>{
+      if(a==='outro') return 1; if(b==='outro') return -1;
+      return Number(a)-Number(b);
+    });
+
+  // Valor total da rede = caixas + CEOs + Σ(metragem × custo/metro) de TODA
+  // linha de cabo visível (auto do KMZ, já sem as excluídas, + manuais).
+  const calcValorRede = () => {
+    const vCabosAuto = chaves.reduce((sum,chave)=> sum + s.cabosPorModelo[chave].metros*(p.kmzCustoMetroPorModelo[chave]||0), 0);
+    const vCabosManuais = p.kmzCabosManuais.reduce((sum,r)=> sum + (r.metros||0)*(p.kmzCustoMetroPorModelo[r.id]||0), 0);
+    return s.caixas*(p.kmzCustoCaixa||0) + s.ceos*(p.kmzCustoCeo||0) + vCabosAuto + vCabosManuais;
+  };
+
   const tbody = document.getElementById('kmz-cabos-body');
   if(tbody){
-    tbody.innerHTML = chaves.map(chave=>{
+    const linhasAuto = chaves.map(chave=>{
       const d = s.cabosPorModelo[chave];
       const custo = p.kmzCustoMetroPorModelo[chave] || 0;
-      return `<tr>
-        <td>${esc(d.label)}</td>
+      const label = p.kmzCabosRenomeados[chave] ?? d.label;
+      return `<tr data-tipo="auto" data-chave="${esc(chave)}">
+        <td><input data-role="label" type="text" value="${esc(label)}"></td>
         <td class="qty">${fmtNum(d.count)}</td>
         <td class="qty">${fmtMetros(d.metros)}</td>
-        <td><input type="number" class="kmz-custo-metro-modelo" data-chave="${esc(chave)}" step="0.1" value="${custo||''}" placeholder="0"></td>
-        <td class="computed">${fmtBRL(d.metros*custo)}</td>
+        <td><input type="number" data-role="custo" step="0.1" value="${custo||''}" placeholder="0"></td>
+        <td class="computed" data-role="total-cell">${fmtBRL(d.metros*custo)}</td>
+        <td><button class="rm-btn" data-role="rm" title="Tirar da tabela (não mexe no arquivo, só não entra no total)">×</button></td>
       </tr>`;
-    }).join('') || `<tr><td colspan="5" style="color:var(--text-dim);">Nenhum cabo encontrado no arquivo.</td></tr>`;
-    tbody.querySelectorAll('.kmz-custo-metro-modelo').forEach(inp=>{
-      inp.oninput = e => {
-        const pp = current();
-        if(!pp.kmzCustoMetroPorModelo) pp.kmzCustoMetroPorModelo = {};
-        pp.kmzCustoMetroPorModelo[e.target.dataset.chave] = parseFloat(e.target.value)||0;
-        renderKmzStatsPanel();
-        saveApp();
-      };
     });
+    const linhasManuais = p.kmzCabosManuais.map((r,i)=>{
+      const custo = p.kmzCustoMetroPorModelo[r.id] || 0;
+      return `<tr data-tipo="manual" data-i="${i}">
+        <td><input data-role="label" type="text" value="${esc(r.label||'')}" placeholder="Categoria"></td>
+        <td class="qty"><input data-role="segmentos" type="number" step="1" value="${r.segmentos||''}" placeholder="0" style="text-align:right;"></td>
+        <td class="qty"><input data-role="metros" type="number" step="1" value="${r.metros||''}" placeholder="0" style="text-align:right;"></td>
+        <td><input type="number" data-role="custo" step="0.1" value="${custo||''}" placeholder="0"></td>
+        <td class="computed" data-role="total-cell">${fmtBRL((r.metros||0)*custo)}</td>
+        <td><button class="rm-btn" data-role="rm">×</button></td>
+      </tr>`;
+    });
+    tbody.innerHTML = (linhasAuto.join('')+linhasManuais.join('')) || `<tr><td colspan="6" style="color:var(--text-dim);">Nenhum cabo encontrado no arquivo.</td></tr>`;
+
+    tbody.oninput = e => {
+      const tr = e.target.closest('tr'); if(!tr) return;
+      const role = e.target.dataset.role;
+      const pp = current();
+      let metros, custo;
+      if(tr.dataset.tipo==='auto'){
+        const chave = tr.dataset.chave;
+        if(role==='label'){ pp.kmzCabosRenomeados[chave] = e.target.value; saveApp(); return; }
+        if(role==='custo') pp.kmzCustoMetroPorModelo[chave] = parseFloat(e.target.value)||0;
+        metros = s.cabosPorModelo[chave].metros;
+        custo = pp.kmzCustoMetroPorModelo[chave]||0;
+      } else {
+        const i = +tr.dataset.i;
+        const row = pp.kmzCabosManuais[i]; if(!row) return;
+        if(role==='label'){ row.label = e.target.value; saveApp(); return; }
+        if(role==='segmentos'){ row.segmentos = parseFloat(e.target.value)||0; saveApp(); return; }
+        if(role==='metros') row.metros = parseFloat(e.target.value)||0;
+        if(role==='custo') pp.kmzCustoMetroPorModelo[row.id] = parseFloat(e.target.value)||0;
+        metros = row.metros||0;
+        custo = pp.kmzCustoMetroPorModelo[row.id]||0;
+      }
+      const totalCell = tr.querySelector('[data-role="total-cell"]');
+      if(totalCell) totalCell.textContent = fmtBRL(metros*custo);
+      setText('kpi-kmz-valor', fmtBRL(calcValorRede()));
+      saveApp();
+    };
+    tbody.onclick = e => {
+      if(e.target.dataset.role!=='rm') return;
+      const tr = e.target.closest('tr');
+      const pp = current();
+      if(tr.dataset.tipo==='auto') pp.kmzCabosExcluidos.push(tr.dataset.chave);
+      else pp.kmzCabosManuais.splice(+tr.dataset.i,1);
+      renderKmzStatsPanel(); saveApp();
+    };
   }
 
-  const valorCabos = chaves.reduce((sum,chave)=> sum + s.cabosPorModelo[chave].metros*(p.kmzCustoMetroPorModelo[chave]||0), 0);
-  const valor = s.caixas*(p.kmzCustoCaixa||0) + s.ceos*(p.kmzCustoCeo||0) + valorCabos;
+  const addBtn = document.getElementById('kmzCaboAddBtn');
+  if(addBtn) addBtn.onclick = () => {
+    current().kmzCabosManuais.push({ id: novoId('cabo'), label:'', segmentos:0, metros:0 });
+    renderKmzStatsPanel(); saveApp();
+  };
+
+  const valor = calcValorRede();
   setText('kpi-kmz-valor', fmtBRL(valor));
 
   // Cacheia no próprio provedor (persiste com o resto dos dados) pra dar pra
