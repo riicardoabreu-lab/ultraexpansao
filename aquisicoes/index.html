@@ -2153,8 +2153,8 @@ function classifyPlacemark(name, folderNames, iconCat){
   if(iconCat === 'ceo') return 'ceo';
   const chain = Array.isArray(folderNames) ? folderNames.join(' ') : (folderNames||'');
   const text = ((name||'') + ' ' + chain).toUpperCase();
-  if(/\bCEO\b|CAIXA DE EMENDA/.test(text)) return 'ceo';
-  if(/\bCTO\b|CT\d|CX\d|CAIXA TERMINAL|\bNAP\b|\bCAIXA\b/.test(text)) return 'caixa';
+  if(/\bCEOS?\b|CAIXAS? DE EMENDA/.test(text)) return 'ceo';
+  if(/\bCTOS?\b|CT\d|CX\d|CAIXAS? TERMINA(L|IS)|\bNAPS?\b|\bCAIXAS?\b/.test(text)) return 'caixa';
   return 'outro';
 }
 // Extrai a categoria (cto/ceo/dio/olt/...) do nome do arquivo de ícone,
