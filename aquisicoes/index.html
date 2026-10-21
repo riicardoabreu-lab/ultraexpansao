@@ -761,11 +761,12 @@ function calcCapitalProprio(valor, totalPeriodos, taxaAplicPct, irPct, custoEmpr
   return { bruto, ir, liquido, diferenca, diferencaMensal, vantagem: diferenca>0 ? 'banco' : 'proprio' };
 }
 
-// Roda calcCapitalProprio pra vários horizontes (1, 2, 3 anos -- só os que
-// cabem dentro do prazo do empréstimo -- e sempre o prazo total no fim),
-// pra comparar lado a lado: financiamentos curtos saem proporcionalmente
-// mais caros, porque a carência (mais cara) pesa mais num prazo curto, e
-// isso pode até inverter a recomendação de um horizonte pro outro.
+// Roda calcCapitalProprio pra vários horizontes (Mensal, 1, 2, 3 e 4 anos --
+// só os que cabem dentro do prazo do empréstimo -- e o prazo total no fim,
+// se ele não bater exato com um desses marcos), pra comparar lado a lado:
+// financiamentos curtos saem proporcionalmente mais caros, porque a
+// carência (mais cara) pesa mais num prazo curto, e isso pode até inverter
+// a recomendação de um horizonte pro outro.
 function calcComparacaoCapital(emprestimo, taxaAplicPct, irPct){
   const totalPeriodos = emprestimo.carencia + emprestimo.parcelasAmort;
   // custo = juros + IR + flat (igual ao custoTotalEmprestimo) até o trimestre n --
@@ -776,10 +777,31 @@ function calcComparacaoCapital(emprestimo, taxaAplicPct, irPct){
     .filter(l=>l.parcela>=1 && l.parcela<=n)
     .reduce((s,l)=>s+l.juros+l.ir, 0);
 
-  const horizontes = [1,2,3]
-    .filter(anos => anos*4 < totalPeriodos)
-    .map(anos => ({ label: anos===1?'1 ano':`${anos} anos`, periodos: anos*4, custo: custoAteTrimestre(anos*4) }));
-  horizontes.push({ label: `Prazo total (${fmtAnos(totalPeriodos/4)})`, periodos: totalPeriodos, custo: emprestimo.custoTotalEmprestimo });
+  const horizontes = [];
+
+  // Mensal = 1/3 de trimestre: usa a MESMA composição trimestral da taxa de
+  // aplicação (só que fracionada pra 1 mês -- matematicamente equivalente a
+  // converter a taxa pra mensal). Do lado do empréstimo, soma a comissão
+  // flat inteira (paga de uma vez, no ato -- não dá pra fatiar por mês) +
+  // 1/3 do juro+IR do 1º trimestre (mesma lógica do "Vr. Mensal Equiv."
+  // da tabela de parcelas acima).
+  if(totalPeriodos > 0){
+    const linha1 = emprestimo.linhas.find(l=>l.parcela===1);
+    const custoMensal = emprestimo.flatValor + (linha1 ? (linha1.juros+linha1.ir)/3 : 0);
+    horizontes.push({ label:'Mensal', periodos: 1/3, custo: custoMensal });
+  }
+
+  [1,2,3,4].forEach(anos=>{
+    const trimestres = anos*4;
+    if(trimestres <= totalPeriodos){
+      horizontes.push({ label: anos===1?'1 ano':`${anos} anos`, periodos: trimestres, custo: custoAteTrimestre(trimestres) });
+    }
+  });
+  // Só acrescenta "Prazo total" se ele não bater exato com um dos marcos
+  // acima (evita duas linhas idênticas quando o empréstimo já é de 1/2/3/4 anos redondos).
+  if(!horizontes.some(h=>h.periodos===totalPeriodos)){
+    horizontes.push({ label: `Prazo total (${fmtAnos(totalPeriodos/4)})`, periodos: totalPeriodos, custo: emprestimo.custoTotalEmprestimo });
+  }
 
   const resultados = horizontes.map(h => ({
     ...h,
@@ -1153,19 +1175,31 @@ function tplValuation(){
     </div>
   </div>
   <div class="sec-block">
-    <h3>Capital Próprio × Empréstimo</h3>
-    <p class="hint">Em vez de financiar a entrada pelo banco, e se pagássemos com caixa próprio? Compara o 1º ano do empréstimo com o prazo total — financiamentos curtos saem proporcionalmente mais caros, porque a carência (mais cara) pesa mais num prazo pequeno.</p>
+    <h3>Capital Próprio Investido</h3>
+    <p class="hint">Em vez de financiar a entrada pelo banco, e se pagássemos com caixa próprio? Quanto esse mesmo valor renderia aplicado à taxa abaixo, em cada horizonte — de 1 mês até o prazo total do empréstimo.</p>
     <div class="panel">
       <div class="field-grid">
         <div class="field"><label>Taxa de aplicação do capital próprio (% a.a.)</label><input id="in-fin-taxaaplic" type="number" step="0.1"></div>
       </div>
-      <div class="table-scroll" style="margin-top:16px;"><table id="tbl-capital-proprio">
+      <div class="table-scroll" style="margin-top:16px;"><table>
+        <thead><tr><th>Horizonte</th><th>Rendimento bruto</th><th>IR</th><th>Rendimento líquido</th></tr></thead>
+        <tbody id="capital-investido-body"></tbody>
+      </table></div>
+      <p class="note">Juros compostos sobre o mesmo valor do empréstimo (a entrada), líquidos da mesma alíquota de IR configurada no empréstimo acima. "Mensal" usa a taxa de aplicação convertida pra 1 mês (mesma composição, só fracionada).</p>
+    </div>
+  </div>
+  <div class="sec-block">
+    <h3>Empréstimo × Capital Próprio</h3>
+    <p class="hint">Comparação direta: o custo de financiar pelo banco contra o rendimento do capital aplicado, horizonte a horizonte — financiamentos curtos saem proporcionalmente mais caros, porque a carência (mais cara) pesa mais num prazo pequeno.</p>
+    <div class="panel">
+      <div class="table-scroll"><table id="tbl-capital-proprio">
         <thead><tr>
-          <th>Horizonte</th><th>Rendimento bruto</th><th>IR</th><th>Rendimento líquido</th>
-          <th>Custo do empréstimo</th><th>Diferença</th><th>Diferença/mês</th><th>Recomendação</th>
+          <th>Horizonte</th><th>Custo do empréstimo</th><th>Rendimento líquido do capital</th>
+          <th>Diferença</th><th>Diferença/mês</th><th>Recomendação</th>
         </tr></thead>
         <tbody id="capital-proprio-body"></tbody>
       </table></div>
+      <p class="note" id="capital-narrativa" style="color:var(--text);font-weight:500;"></p>
       <p class="note">Comparação simplificada, líquida de IR dos dois lados: se a diferença for positiva, o capital aplicado rende mais do que o empréstimo custa — vale mais a pena financiar pelo banco e deixar o caixa próprio investido. Se for negativa, o empréstimo sai mais caro do que o capital renderia — vale mais a pena pagar a entrada com capital próprio. "Diferença/mês" é a mesma diferença dividida pelo horizonte, pra comparar com a conta de cabeça: o juro real do empréstimo não é a taxa cheia do banco, é só o <i>spread</i> entre o que o banco cobra e o que o seu próprio dinheiro já rende aplicado. "Custo do empréstimo" é só juros + IR + comissão flat até aquele horizonte — nunca inclui o principal amortizado, já que devolver o que foi emprestado não é custo.</p>
     </div>
   </div>`;
@@ -1590,24 +1624,54 @@ function buildEmprestimoTable(emp){
 function fmtAnos(n){
   return (Number.isInteger(n) ? n : n.toFixed(1).replace('.',',')) + (n===1 ? ' ano' : ' anos');
 }
+// Monta a frase que descreve o comportamento financeiro entre as duas
+// opções ao longo dos horizontes: se um lado vence em todos, ou se existe
+// uma "virada" (comum, já que a carência cara pesa mais em prazos curtos e
+// a amortização SAC + juros compostos favorecem financiar em prazos longos).
+function narrativaCapitalEmprestimo(resultados){
+  if(!resultados.length) return '';
+  const todosIguais = resultados.every(r=>r.vantagem===resultados[0].vantagem);
+  if(todosIguais){
+    return resultados[0].vantagem==='banco'
+      ? 'Em todos os horizontes calculados, financiar pelo banco compensa mais: o rendimento do capital aplicado supera o custo do empréstimo do mês até o prazo total.'
+      : 'Em todos os horizontes calculados, pagar com capital próprio compensa mais: o custo do empréstimo — puxado pela carência — supera o que o capital renderia aplicado, do mês até o prazo total.';
+  }
+  const idxVirada = resultados.findIndex((r,i)=> i>0 && r.vantagem !== resultados[i-1].vantagem);
+  const antes = resultados[idxVirada-1], depois = resultados[idxVirada];
+  return `Nos horizontes mais curtos (até ${antes.label}), o custo do empréstimo — puxado pela carência, que cobra juros sobre o valor cheio sem amortizar nada — é maior que o rendimento do capital aplicado: compensa mais pagar com capital próprio. A partir de ${depois.label}, a amortização (SAC) já reduziu o saldo devedor e o rendimento composto do capital passa a superar o custo do empréstimo: a partir daí compensa financiar pelo banco e deixar o caixa próprio investido. A virada acontece entre ${antes.label} e ${depois.label}.`;
+}
+
 function renderCapitalProprioTable(m){
-  const tbody = document.getElementById('capital-proprio-body');
-  if(!tbody) return;
-  tbody.innerHTML = m.capitalProprio.resultados.map(r=>{
-    const corDif = r.diferenca>=0 ? 'var(--good)' : 'var(--bad)';
-    const cls = r.vantagem==='banco' ? 'sim' : 'rev';
-    const label = r.vantagem==='banco' ? 'Financiar' : 'Capital próprio';
-    return `<tr>
+  const resultados = m.capitalProprio.resultados;
+
+  const investidoBody = document.getElementById('capital-investido-body');
+  if(investidoBody){
+    investidoBody.innerHTML = resultados.map(r=>`<tr>
       <td>${r.label}</td>
       <td class="computed">${fmtBRL(r.bruto)}</td>
       <td class="computed">${fmtBRL(r.ir)}</td>
       <td class="computed">${fmtBRL(r.liquido)}</td>
-      <td class="computed">${fmtBRL(r.custo)}</td>
-      <td class="computed" style="color:${corDif}">${r.diferenca>=0?'+':''}${fmtBRL(r.diferenca)}</td>
-      <td class="computed" style="color:${corDif}">${r.diferencaMensal>=0?'+':''}${fmtBRL(r.diferencaMensal)}</td>
-      <td><span class="badge ${cls}">${label}</span></td>
-    </tr>`;
-  }).join('');
+    </tr>`).join('');
+  }
+
+  const tbody = document.getElementById('capital-proprio-body');
+  if(tbody){
+    tbody.innerHTML = resultados.map(r=>{
+      const corDif = r.diferenca>=0 ? 'var(--good)' : 'var(--bad)';
+      const cls = r.vantagem==='banco' ? 'sim' : 'rev';
+      const label = r.vantagem==='banco' ? 'Financiar' : 'Capital próprio';
+      return `<tr>
+        <td>${r.label}</td>
+        <td class="computed">${fmtBRL(r.custo)}</td>
+        <td class="computed">${fmtBRL(r.liquido)}</td>
+        <td class="computed" style="color:${corDif}">${r.diferenca>=0?'+':''}${fmtBRL(r.diferenca)}</td>
+        <td class="computed" style="color:${corDif}">${r.diferencaMensal>=0?'+':''}${fmtBRL(r.diferencaMensal)}</td>
+        <td><span class="badge ${cls}">${label}</span></td>
+      </tr>`;
+    }).join('');
+  }
+
+  setText('capital-narrativa', narrativaCapitalEmprestimo(resultados));
 }
 
 /* ======================================================================
