@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Mapa do Grupo · Infolink + Dnet + Jebnet + Giga Net</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
 <style>
   :root{
     --bg:#0e1116; --panel:#161b22; --panel2:#1e2530; --text:#e8ecf1; --muted:#8b95a3; --border:#2a3240;
@@ -57,7 +55,6 @@
   .login-card .err{color:#ff6b6b;font-size:12px;margin-top:8px;min-height:14px;}
 
   .marker-dot{border-radius:50%;border:2px solid rgba(255,255,255,.85);box-shadow:0 0 0 1px rgba(0,0,0,.4);}
-  .cluster-dot{border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px;border:2px solid rgba(255,255,255,.85);}
 </style>
 </head>
 <body>
@@ -90,7 +87,6 @@
 <div class="status-pill" style="display:none;" id="status">Carregando…</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script type="module">
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 
@@ -148,19 +144,13 @@ async function iniciarMapa(){
   satelite.addTo(map);
   L.control.layers({'Satélite': satelite, 'Ruas': ruas}, null, {collapsed: true, position: 'topright'}).addTo(map);
 
+  // Sem agrupamento (cluster) -- todas as caixas ficam visíveis em qualquer
+  // zoom, igual o mapa-campo já faz (ver comentário lá: "todas as caixas
+  // ficam visíveis o tempo todo, em qualquer nível de zoom").
   const grupos = {};
   const contagens = {};
   for(const cliente of Object.keys(CORES)){
-    grupos[cliente] = L.markerClusterGroup({
-      iconCreateFunction: cluster => {
-        const n = cluster.getChildCount();
-        const size = n < 10 ? 28 : n < 100 ? 34 : 42;
-        return L.divIcon({
-          html: `<div class="cluster-dot" style="width:${size}px;height:${size}px;background:${CORES[cliente]};">${n}</div>`,
-          className: '', iconSize: [size, size],
-        });
-      },
-    });
+    grupos[cliente] = L.layerGroup();
     contagens[cliente] = 0;
   }
 
