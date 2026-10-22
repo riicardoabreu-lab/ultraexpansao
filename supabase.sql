@@ -38,3 +38,32 @@ create policy "Leitura pública" on mapa_rede
 -- Tempo real: sem isso, o mapa não atualiza sozinho quando o backend grava -
 -- precisaria dar refresh manual pra ver itens novos.
 alter publication supabase_realtime add table mapa_rede;
+
+-- Tabela separada pro "mapa do grupo" (mapa-grupo/, preview standalone) -
+-- Infolink + Dnet + Jebnet + Giga Net Fortaleza juntos, com a coluna
+-- "cliente" pra distinguir a marca. Deliberadamente SEPARADA de mapa_rede
+-- (que é só Jebnet, usada em produção por mapa-campo/numeracao-ctos) pra
+-- não arriscar degradar aqueles apps com 10x mais volume. Populada hoje por
+-- carga manual (script local geogrid_extrair_grupo.py + MCP do Supabase),
+-- ainda sem sincronização automática - ver mapa-grupo/index.html.
+create table if not exists mapa_rede_grupo (
+  id text primary key,
+  item text not null,
+  sigla text,
+  latitude double precision,
+  longitude double precision,
+  municipio text,
+  localidade text,
+  status text,
+  cliente text not null,
+  atualizado_em timestamptz not null default now()
+);
+
+create index if not exists mapa_rede_grupo_cliente_idx on mapa_rede_grupo (cliente);
+
+alter table mapa_rede_grupo enable row level security;
+
+create policy "Leitura pública" on mapa_rede_grupo
+  for select
+  to anon, authenticated
+  using (true);
