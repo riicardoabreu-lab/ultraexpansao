@@ -139,11 +139,14 @@ async function iniciarMapa(){
   const map = L.map('map', {preferCanvas: true, zoomControl: false}).setView([-3.75, -38.9], 10);
   window._mapaGrupoRef = map;
   L.control.zoom({position:'bottomright'}).addTo(map);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap',
-    maxZoom: 19,
-    className: 'tiles-dark',
-  }).addTo(map);
+  const satelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Esri World Imagery', maxZoom: 20, maxNativeZoom: 17,
+  });
+  const ruas = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap', maxZoom: 19, className: 'tiles-dark',
+  });
+  satelite.addTo(map);
+  L.control.layers({'Satélite': satelite, 'Ruas': ruas}, null, {collapsed: true, position: 'topright'}).addTo(map);
 
   const grupos = {};
   const contagens = {};
