@@ -891,11 +891,13 @@ function proposalCalc(pr, p, m){
   const investTotalHip = investTotalParaProposta(p, pr);
   const banco = calcEmprestimo(p, investTotalHip).reservaMensalAno1;
   const caixaReal = caixaMensal - banco;
-  // ROI em MESES: quanto tempo leva pra reaver a entrada (o dinheiro que
-  // sai do bolso de verdade) usando o caixa real -- que já é líquido da
-  // parcela do banco. Só faz sentido com caixa real positivo (negativo
-  // significaria "nunca se paga sozinho", fica N/A igual o Payback).
-  const roiMeses = (entradaR>0 && caixaReal>0) ? entradaR/caixaReal : NaN;
+  // ROI em MESES: quanto tempo leva pra reaver o investimento TOTAL dessa
+  // proposta (não só a entrada -- investTotalHip, o mesmo "Investimento
+  // total" da aba Investimento & Valuation, calculado com a entrada desta
+  // proposta) usando o caixa real, que já é líquido da parcela do banco.
+  // Só faz sentido com caixa real positivo (negativo significaria "nunca
+  // se paga sozinho", fica N/A igual o Payback).
+  const roiMeses = (investTotalHip>0 && caixaReal>0) ? investTotalHip/caixaReal : NaN;
   let viavel;
   if(caixaMensal<=0) viavel="NÃO";
   else if(isFinite(paybackI) && paybackI<=(p.metaPayback||0)) viavel="SIM";
