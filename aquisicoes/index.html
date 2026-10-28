@@ -329,6 +329,10 @@
   #tbl-propostas td:nth-child(3) input, #tbl-propostas td:nth-child(6) input{ text-align:center; }
   #tbl-propostas .badge{ padding:3px 6px; font-size:9.5px; }
   #tbl-propostas .rm-btn{ width:20px; height:20px; font-size:11px; }
+  #tbl-propostas .banco-cell{ display:flex; align-items:center; gap:3px; width:100%; }
+  #tbl-propostas .banco-cell input{ flex:1; min-width:0; width:auto; }
+  #tbl-propostas .banco-reset{ flex:0 0 auto; background:transparent; border:1px solid var(--border); color:var(--text-faint); width:18px; height:18px; border-radius:5px; cursor:pointer; font-size:11px; line-height:1; padding:0; }
+  #tbl-propostas .banco-reset:hover{ border-color:var(--accent); color:var(--accent); }
   .add-row{ margin-top:10px; background:var(--bg-inset); border:1px dashed var(--border); color:var(--text-dim); padding:9px 14px; border-radius:7px; font-size:12.5px; cursor:pointer; }
   .add-row:hover{ border-color:var(--accent); color:var(--accent); }
 
@@ -447,7 +451,7 @@ function blankEmpresa(nome){
     clientes:0, mrr:0, impostosPct:0, pddPct:0,
     metaMargem:0, metaPayback:12, multMRR:14, multEBITDA:4,
     custosAtual:[], custosComprador:[], investimentos:[],
-    propostas:[], propostaSugEntrada:50, propostaSugParcelas:12,
+    propostas:[], propostaSugEntrada:50, propostaSugParcelas:12, propostaSugBancoManual:null,
     finSelic:14.5, finTaxaCarenciaPct:4.6,
     finCarenciaTri:3, finParcelasTri:13, finFlatPct:1.6, finIRPct:17.647,
     finTaxaAplicPct:14.5,
@@ -830,7 +834,8 @@ function compute(p){
   const tetoEBITDA = ebitdaComprador>0 ? ebitdaComprador*12*(p.multEBITDA||0) : 0;
   const tetoSustentavel = ebitdaComprador>0 ? ebitdaComprador*(p.metaPayback||0) : 0;
   const propostaSugerida = { nome:"Proposta Sugerida*", valor: Math.round(tetoSustentavel/1000)*1000,
-    entrada: p.propostaSugEntrada!=null?p.propostaSugEntrada:50, parcelas: p.propostaSugParcelas!=null?p.propostaSugParcelas:12 };
+    entrada: p.propostaSugEntrada!=null?p.propostaSugEntrada:50, parcelas: p.propostaSugParcelas!=null?p.propostaSugParcelas:12,
+    bancoManual: p.propostaSugBancoManual!=null?p.propostaSugBancoManual:null };
 
   // Linhas de investimento vinculadas a uma proposta (real ou a Proposta
   // Sugerida*) puxam o valor de entrada (R$) automaticamente, sempre que mudar.
@@ -889,7 +894,9 @@ function proposalCalc(pr, p, m){
   // linhas fixas/manuais — e roda o cálculo de empréstimo em cima disso.
   // Não depende de vincular manualmente essa proposta específica.
   const investTotalHip = investTotalParaProposta(p, pr);
-  const banco = calcEmprestimo(p, investTotalHip).reservaMensalAno1;
+  const bancoAuto = calcEmprestimo(p, investTotalHip).reservaMensalAno1;
+  const bancoManualAtivo = pr.bancoManual!=null;
+  const banco = bancoManualAtivo ? pr.bancoManual : bancoAuto;
   const caixaReal = caixaMensal - banco;
   // ROI em MESES: quanto tempo leva pra reaver o investimento TOTAL dessa
   // proposta (não só a entrada -- investTotalHip, o mesmo "Investimento
@@ -902,7 +909,7 @@ function proposalCalc(pr, p, m){
   if(caixaMensal<=0) viavel="NÃO";
   else if(isFinite(paybackI) && paybackI<=(p.metaPayback||0)) viavel="SIM";
   else viavel="REVISAR";
-  return {entradaR, saldoFin, parcela, porCliente, evMRRi, evEBITDAi, paybackI, caixaMensal, banco, caixaReal, roiMeses, viavel};
+  return {entradaR, saldoFin, parcela, porCliente, evMRRi, evEBITDAi, paybackI, caixaMensal, banco, bancoAuto, bancoManualAtivo, caixaReal, roiMeses, viavel};
 }
 
 /* ======================================================================
@@ -1516,7 +1523,10 @@ function refreshPropostaRowComputed(tr, pr){
   tr.querySelector('[data-role="paybackI"]').textContent = isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A';
   tr.querySelector('[data-role="custoComprador"]').textContent = fmtBRL(m.custoCompradorTotal);
   tr.querySelector('[data-role="caixaMensal"]').textContent = fmtBRL(c.caixaMensal);
-  tr.querySelector('[data-role="banco"]').textContent = fmtBRLouTraco(c.banco);
+  const bancoInput = tr.querySelector('[data-role="banco"]');
+  if(bancoInput && document.activeElement!==bancoInput) bancoInput.value = fmtMoneyInput(c.banco);
+  const bancoResetBtn = tr.querySelector('[data-role="bancoReset"]');
+  if(bancoResetBtn) bancoResetBtn.style.display = c.bancoManualAtivo ? '' : 'none';
   tr.querySelector('[data-role="caixaReal"]').textContent = fmtBRLouTraco(c.caixaReal);
   tr.querySelector('[data-role="roiMeses"]').textContent = isFinite(c.roiMeses)?c.roiMeses.toFixed(1):'N/A';
   const badge = tr.querySelector('[data-role="badge"]');
@@ -1545,7 +1555,10 @@ function buildPropostasTable(){
       <td class="computed" data-role="paybackI">${isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A'}</td>
       <td class="computed" data-role="custoComprador">${fmtBRL(m.custoCompradorTotal)}</td>
       <td class="computed" data-role="caixaMensal">${fmtBRL(c.caixaMensal)}</td>
-      <td class="computed" data-role="banco">${fmtBRLouTraco(c.banco)}</td>
+      <td><div class="banco-cell">
+        <input data-role="banco" type="text" inputmode="numeric" value="${fmtMoneyInput(c.banco)}" title="Editável — zere pra financiar 100% próprio, ou digite o valor que vem do banco. Apague tudo (ou clique em ↺) pra voltar ao cálculo automático.">
+        <button type="button" class="banco-reset" data-role="bancoReset" style="${c.bancoManualAtivo?'':'display:none;'}" title="Voltar pro cálculo automático">↺</button>
+      </div></td>
       <td class="computed" data-role="caixaReal">${fmtBRLouTraco(c.caixaReal)}</td>
       <td class="computed" data-role="roiMeses">${isFinite(c.roiMeses)?c.roiMeses.toFixed(1):'N/A'}</td>
       <td><span class="badge ${cls}" data-role="badge">${c.viavel}</span></td>
@@ -1570,7 +1583,10 @@ function buildPropostasTable(){
       <td class="computed" data-role="paybackI">${isFinite(cs.paybackI)?cs.paybackI.toFixed(1):'N/A'}</td>
       <td class="computed" data-role="custoComprador">${fmtBRL(m.custoCompradorTotal)}</td>
       <td class="computed" data-role="caixaMensal">${fmtBRL(cs.caixaMensal)}</td>
-      <td class="computed" data-role="banco">${fmtBRLouTraco(cs.banco)}</td>
+      <td><div class="banco-cell">
+        <input data-role="banco" type="text" inputmode="numeric" value="${fmtMoneyInput(cs.banco)}" title="Editável — zere pra financiar 100% próprio, ou digite o valor que vem do banco. Apague tudo (ou clique em ↺) pra voltar ao cálculo automático.">
+        <button type="button" class="banco-reset" data-role="bancoReset" style="${cs.bancoManualAtivo?'':'display:none;'}" title="Voltar pro cálculo automático">↺</button>
+      </div></td>
       <td class="computed" data-role="caixaReal">${fmtBRLouTraco(cs.caixaReal)}</td>
       <td class="computed" data-role="roiMeses">${isFinite(cs.roiMeses)?cs.roiMeses.toFixed(1):'N/A'}</td>
       <td><span class="badge ${clsS}" data-role="badge">${cs.viavel}</span></td>
@@ -1585,6 +1601,15 @@ function buildPropostasTable(){
     if(tr.dataset.i==='sug'){
       if(role==='entrada') p2.propostaSugEntrada = parseFloat(e.target.value)||0;
       else if(role==='parcelas') p2.propostaSugParcelas = parseFloat(e.target.value)||1;
+      else if(role==='banco'){
+        const digitsBeforeCursor = e.target.value.slice(0, e.target.selectionStart).replace(/\D/g,'').length;
+        const raw = e.target.value.replace(/\D/g,'')? parseMoneyInput(e.target.value) : null;
+        e.target.value = raw==null? '' : fmtMoneyInput(raw);
+        let pos=0, digits=0;
+        while(pos<e.target.value.length && digits<digitsBeforeCursor){ if(/\d/.test(e.target.value[pos])) digits++; pos++; }
+        e.target.setSelectionRange(pos,pos);
+        p2.propostaSugBancoManual = raw;
+      }
       else return;
       recomputeAll(); saveApp();
       refreshPropostaRowComputed(tr, compute(p2).propostaSugerida);
@@ -1603,11 +1628,31 @@ function buildPropostasTable(){
     }
     else if(role==='entrada') row.entrada=parseFloat(e.target.value)||0;
     else if(role==='parcelas') row.parcelas=parseFloat(e.target.value)||1;
+    else if(role==='banco'){
+      const digitsBeforeCursor = e.target.value.slice(0, e.target.selectionStart).replace(/\D/g,'').length;
+      const raw = e.target.value.replace(/\D/g,'')? parseMoneyInput(e.target.value) : null;
+      e.target.value = raw==null? '' : fmtMoneyInput(raw);
+      let pos=0, digits=0;
+      while(pos<e.target.value.length && digits<digitsBeforeCursor){ if(/\d/.test(e.target.value[pos])) digits++; pos++; }
+      e.target.setSelectionRange(pos,pos);
+      row.bancoManual = raw;
+    }
     recomputeAll(); saveApp();
     refreshPropostaRowComputed(tr, row);
   };
   tbody.onclick = e => {
-    if(e.target.dataset.role!=='rm') return;
+    const role = e.target.dataset.role;
+    if(role==='bancoReset'){
+      const tr = e.target.closest('tr'); if(!tr) return;
+      const p2 = current();
+      if(tr.dataset.i==='sug'){ p2.propostaSugBancoManual = null; recomputeAll(); saveApp(); refreshPropostaRowComputed(tr, compute(p2).propostaSugerida); return; }
+      const row = p2.propostas[+tr.dataset.i];
+      row.bancoManual = null;
+      recomputeAll(); saveApp();
+      refreshPropostaRowComputed(tr, row);
+      return;
+    }
+    if(role!=='rm') return;
     const tr = e.target.closest('tr'); if(tr.dataset.i==='sug') return;
     current().propostas.splice(+tr.dataset.i,1);
     buildPropostasTable(); recomputeAll(); saveApp();
@@ -1883,7 +1928,7 @@ function refreshProposalsComputed(p, m){
   [...tbody.querySelectorAll('tr')].forEach(tr=>{
     const i = tr.dataset.i; let pr;
     if(i==='sug'){
-      pr = {valor: Math.round(m.tetoSustentavel/1000)*1000, entrada: p.propostaSugEntrada!=null?p.propostaSugEntrada:50, parcelas: p.propostaSugParcelas!=null?p.propostaSugParcelas:12};
+      pr = {valor: Math.round(m.tetoSustentavel/1000)*1000, entrada: p.propostaSugEntrada!=null?p.propostaSugEntrada:50, parcelas: p.propostaSugParcelas!=null?p.propostaSugParcelas:12, bancoManual: p.propostaSugBancoManual!=null?p.propostaSugBancoManual:null};
       const vEl = tr.querySelector('[data-role="valor"]'); if(vEl) vEl.textContent = fmtBRL(pr.valor);
     } else { pr = p.propostas[+i]; if(!pr) return; }
     const c = proposalCalc(pr,p,m);
@@ -1898,14 +1943,17 @@ function refreshProposalsComputed(p, m){
       set('[data-role="paybackI"]', isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A');
       set('[data-role="custoComprador"]', fmtBRL(m.custoCompradorTotal));
       set('[data-role="caixaMensal"]', fmtBRL(c.caixaMensal));
-      set('[data-role="banco"]', fmtBRLouTraco(c.banco));
       set('[data-role="caixaReal"]', fmtBRLouTraco(c.caixaReal));
       set('[data-role="roiMeses"]', isFinite(c.roiMeses)?c.roiMeses.toFixed(1):'N/A');
     } else {
       const tds = tr.querySelectorAll('td.computed');
-      const vals = [fmtBRL(c.entradaR), fmtBRL(c.saldoFin), fmtBRL(c.parcela), fmtBRL2(c.porCliente), fmtMult(c.evMRRi), fmtMult(c.evEBITDAi), isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A', fmtBRL(m.custoCompradorTotal), fmtBRL(c.caixaMensal), fmtBRLouTraco(c.banco), fmtBRLouTraco(c.caixaReal), isFinite(c.roiMeses)?c.roiMeses.toFixed(1):'N/A'];
+      const vals = [fmtBRL(c.entradaR), fmtBRL(c.saldoFin), fmtBRL(c.parcela), fmtBRL2(c.porCliente), fmtMult(c.evMRRi), fmtMult(c.evEBITDAi), isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A', fmtBRL(m.custoCompradorTotal), fmtBRL(c.caixaMensal), fmtBRLouTraco(c.caixaReal), isFinite(c.roiMeses)?c.roiMeses.toFixed(1):'N/A'];
       tds.forEach((td,idx)=>{ if(idx>0 && vals[idx-1]!==undefined) td.textContent = vals[idx-1]; });
     }
+    const bancoInput = tr.querySelector('[data-role="banco"]');
+    if(bancoInput && document.activeElement!==bancoInput) bancoInput.value = fmtMoneyInput(c.banco);
+    const bancoResetBtn = tr.querySelector('[data-role="bancoReset"]');
+    if(bancoResetBtn) bancoResetBtn.style.display = c.bancoManualAtivo ? '' : 'none';
     const cls = c.viavel==='SIM'?'sim':(c.viavel==='NÃO'?'nao':'rev');
     const badge = tr.querySelector('.badge');
     if(badge){ badge.className='badge '+cls; badge.textContent=c.viavel; }
