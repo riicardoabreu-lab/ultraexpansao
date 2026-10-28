@@ -891,16 +891,16 @@ function proposalCalc(pr, p, m){
   const investTotalHip = investTotalParaProposta(p, pr);
   const banco = calcEmprestimo(p, investTotalHip).reservaMensalAno1;
   const caixaReal = caixaMensal - banco;
-  // ROI anualizado sobre o caixa de verdade que sai do bolso (a entrada) --
-  // caixa real já é líquido da parcela do banco, então isso é "cash-on-cash"
-  // (quanto o dinheiro que você realmente investiu rende por ano), não
-  // sobre o valor cheio da oferta.
-  const roiAno = entradaR>0 ? (caixaReal*12)/entradaR : NaN;
+  // ROI em MESES: quanto tempo leva pra reaver a entrada (o dinheiro que
+  // sai do bolso de verdade) usando o caixa real -- que já é líquido da
+  // parcela do banco. Só faz sentido com caixa real positivo (negativo
+  // significaria "nunca se paga sozinho", fica N/A igual o Payback).
+  const roiMeses = (entradaR>0 && caixaReal>0) ? entradaR/caixaReal : NaN;
   let viavel;
   if(caixaMensal<=0) viavel="NÃO";
   else if(isFinite(paybackI) && paybackI<=(p.metaPayback||0)) viavel="SIM";
   else viavel="REVISAR";
-  return {entradaR, saldoFin, parcela, porCliente, evMRRi, evEBITDAi, paybackI, caixaMensal, banco, caixaReal, roiAno, viavel};
+  return {entradaR, saldoFin, parcela, porCliente, evMRRi, evEBITDAi, paybackI, caixaMensal, banco, caixaReal, roiMeses, viavel};
 }
 
 /* ======================================================================
@@ -1221,7 +1221,7 @@ function tplPropostas(){
         <thead><tr>
           <th>Proposta</th><th>Oferta (R$)</th><th>Entr. %</th><th>Entrada R$</th><th>Saldo Fin.</th>
           <th>Parc.</th><th>Vr. Parcela</th><th>R$/Cliente</th><th>EV/MRR</th><th>EV/EBITDA</th>
-          <th>Payback (m)</th><th>Custo Compr.</th><th>Caixa Mensal</th><th>Banco</th><th>Caixa Real</th><th>ROI a.a.</th><th>Viável?</th><th></th>
+          <th>Payback (m)</th><th>Custo Compr.</th><th>Caixa Mensal</th><th>Banco</th><th>Caixa Real</th><th>ROI (meses)</th><th>Viável?</th><th></th>
         </tr></thead>
         <tbody id="propostas-body"></tbody>
       </table></div>
@@ -1516,7 +1516,7 @@ function refreshPropostaRowComputed(tr, pr){
   tr.querySelector('[data-role="caixaMensal"]').textContent = fmtBRL(c.caixaMensal);
   tr.querySelector('[data-role="banco"]').textContent = fmtBRLouTraco(c.banco);
   tr.querySelector('[data-role="caixaReal"]').textContent = fmtBRLouTraco(c.caixaReal);
-  tr.querySelector('[data-role="roiAno"]').textContent = isFinite(c.roiAno)?fmtPct(c.roiAno):'—';
+  tr.querySelector('[data-role="roiMeses"]').textContent = isFinite(c.roiMeses)?c.roiMeses.toFixed(1):'N/A';
   const badge = tr.querySelector('[data-role="badge"]');
   if(badge){ badge.className = 'badge '+(c.viavel==='SIM'?'sim':(c.viavel==='NÃO'?'nao':'rev')); badge.textContent = c.viavel; }
 }
@@ -1545,7 +1545,7 @@ function buildPropostasTable(){
       <td class="computed" data-role="caixaMensal">${fmtBRL(c.caixaMensal)}</td>
       <td class="computed" data-role="banco">${fmtBRLouTraco(c.banco)}</td>
       <td class="computed" data-role="caixaReal">${fmtBRLouTraco(c.caixaReal)}</td>
-      <td class="computed" data-role="roiAno">${isFinite(c.roiAno)?fmtPct(c.roiAno):'—'}</td>
+      <td class="computed" data-role="roiMeses">${isFinite(c.roiMeses)?c.roiMeses.toFixed(1):'N/A'}</td>
       <td><span class="badge ${cls}" data-role="badge">${c.viavel}</span></td>
       <td><button class="rm-btn" data-role="rm">×</button></td>
     </tr>`;
@@ -1570,7 +1570,7 @@ function buildPropostasTable(){
       <td class="computed" data-role="caixaMensal">${fmtBRL(cs.caixaMensal)}</td>
       <td class="computed" data-role="banco">${fmtBRLouTraco(cs.banco)}</td>
       <td class="computed" data-role="caixaReal">${fmtBRLouTraco(cs.caixaReal)}</td>
-      <td class="computed" data-role="roiAno">${isFinite(cs.roiAno)?fmtPct(cs.roiAno):'—'}</td>
+      <td class="computed" data-role="roiMeses">${isFinite(cs.roiMeses)?cs.roiMeses.toFixed(1):'N/A'}</td>
       <td><span class="badge ${clsS}" data-role="badge">${cs.viavel}</span></td>
       <td></td>
     </tr>`;
@@ -1898,10 +1898,10 @@ function refreshProposalsComputed(p, m){
       set('[data-role="caixaMensal"]', fmtBRL(c.caixaMensal));
       set('[data-role="banco"]', fmtBRLouTraco(c.banco));
       set('[data-role="caixaReal"]', fmtBRLouTraco(c.caixaReal));
-      set('[data-role="roiAno"]', isFinite(c.roiAno)?fmtPct(c.roiAno):'—');
+      set('[data-role="roiMeses"]', isFinite(c.roiMeses)?c.roiMeses.toFixed(1):'N/A');
     } else {
       const tds = tr.querySelectorAll('td.computed');
-      const vals = [fmtBRL(c.entradaR), fmtBRL(c.saldoFin), fmtBRL(c.parcela), fmtBRL2(c.porCliente), fmtMult(c.evMRRi), fmtMult(c.evEBITDAi), isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A', fmtBRL(m.custoCompradorTotal), fmtBRL(c.caixaMensal), fmtBRLouTraco(c.banco), fmtBRLouTraco(c.caixaReal), isFinite(c.roiAno)?fmtPct(c.roiAno):'—'];
+      const vals = [fmtBRL(c.entradaR), fmtBRL(c.saldoFin), fmtBRL(c.parcela), fmtBRL2(c.porCliente), fmtMult(c.evMRRi), fmtMult(c.evEBITDAi), isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A', fmtBRL(m.custoCompradorTotal), fmtBRL(c.caixaMensal), fmtBRLouTraco(c.banco), fmtBRLouTraco(c.caixaReal), isFinite(c.roiMeses)?c.roiMeses.toFixed(1):'N/A'];
       tds.forEach((td,idx)=>{ if(idx>0 && vals[idx-1]!==undefined) td.textContent = vals[idx-1]; });
     }
     const cls = c.viavel==='SIM'?'sim':(c.viavel==='NÃO'?'nao':'rev');
