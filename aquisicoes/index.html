@@ -879,6 +879,21 @@ function investTotalParaProposta(p, pr){
   }, 0);
 }
 
+// ROI em MESES em duas fases: enquanto a parcela da proposta (ex.: 12x) ainda
+// está sendo paga, o caixa livre é "caixaReal"; quando ela termina, esse
+// valor da parcela volta a entrar no caixa (o banco, se houver, continua
+// sendo descontado igual antes). Se o investimento já foi recuperado dentro
+// da 1ª fase, o resultado é igual à conta simples de sempre; senão soma o
+// tempo restante usando o caixa mais folgado da 2ª fase.
+function calcRoiMeses(investTotalHip, caixaReal, caixaRealPosParcela, parcelasQtd){
+  if(!(investTotalHip>0)) return NaN;
+  const qtd = Math.max(0, parcelasQtd||0);
+  const recuperadoFase1 = caixaReal*qtd;
+  if(caixaReal>0 && recuperadoFase1>=investTotalHip) return investTotalHip/caixaReal;
+  const restante = investTotalHip - recuperadoFase1;
+  if(caixaRealPosParcela>0) return qtd + restante/caixaRealPosParcela;
+  return NaN;
+}
 function proposalCalc(pr, p, m){
   const entradaR = pr.valor*(pr.entrada/100);
   const saldoFin = pr.valor-entradaR;
@@ -901,10 +916,10 @@ function proposalCalc(pr, p, m){
   // ROI em MESES: quanto tempo leva pra reaver o investimento TOTAL dessa
   // proposta (não só a entrada -- investTotalHip, o mesmo "Investimento
   // total" da aba Investimento & Valuation, calculado com a entrada desta
-  // proposta) usando o caixa real, que já é líquido da parcela do banco.
-  // Só faz sentido com caixa real positivo (negativo significaria "nunca
-  // se paga sozinho", fica N/A igual o Payback).
-  const roiMeses = (investTotalHip>0 && caixaReal>0) ? investTotalHip/caixaReal : NaN;
+  // proposta), considerando que depois que a parcela (ex.: 12x) termina de
+  // ser paga, esse valor volta a entrar no caixa -- ver calcRoiMeses.
+  const caixaRealPosParcela = m.ebitdaComprador - banco;
+  const roiMeses = calcRoiMeses(investTotalHip, caixaReal, caixaRealPosParcela, pr.parcelas);
   let viavel;
   if(caixaMensal<=0) viavel="NÃO";
   else if(isFinite(paybackI) && paybackI<=(p.metaPayback||0)) viavel="SIM";
@@ -1230,7 +1245,7 @@ function tplPropostas(){
         <thead><tr>
           <th>Proposta</th><th>Oferta (R$)</th><th>Entr. %</th><th>Entrada R$</th><th>Saldo Fin.</th>
           <th>Parc.</th><th>Vr. Parcela</th><th>R$/Cliente</th><th>EV/MRR</th><th>EV/EBITDA</th>
-          <th>Payback (m)</th><th>Custo Compr.</th><th>Caixa Mensal</th><th>Banco</th><th>Caixa Real</th><th>ROI (meses)</th><th>Viável?</th><th></th>
+          <th>Payback (m)</th><th>Custo Compr.</th><th>Caixa Mensal</th><th>Banco</th><th>Caixa Real</th><th title="Considera que, quando a parcela da proposta termina de ser paga, esse valor volta a entrar no caixa.">ROI (meses)</th><th>Viável?</th><th></th>
         </tr></thead>
         <tbody id="propostas-body"></tbody>
       </table></div>
