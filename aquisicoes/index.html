@@ -1346,6 +1346,7 @@ function tplRede(){
         <div class="field"><label>Custo por caixa/CTO (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-kmz-custo-caixa" type="text" inputmode="numeric"></div></div>
         <div class="field"><label>Custo por CEO (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-kmz-custo-ceo" type="text" inputmode="numeric"></div></div>
       </div>
+      <p class="note" id="kmzCabosAvisoMultiCidade" style="display:none;color:var(--warn,#d97706);">Este KMZ tem várias cidades — os preços abaixo não entram mais no "Valor estimado da rede" (que agora vem do orçamento por cidade, mais abaixo); ficam só como detalhe por bitola, se quiser.</p>
       <div class="table-scroll" style="margin-top:16px;"><table>
         <thead><tr><th>Categoria de cabo</th><th style="text-align:right">Segmentos</th><th style="text-align:right">Metragem</th><th style="text-align:right">Custo/metro (R$)</th><th style="text-align:right">Total</th><th></th></tr></thead>
         <tbody id="kmz-cabos-body"></tbody>
@@ -1353,7 +1354,7 @@ function tplRede(){
       <button class="add-row" id="kmzCaboAddBtn">+ adicionar item</button>
       <p class="note">Linhas vindas do KMZ: dá pra renomear a categoria (ex. identificar uma cor) e remover da tabela/total (não apaga nada do arquivo original, só tira da conta). Linhas adicionadas com "+ adicionar item" são 100% manuais — categoria, segmentos e metragem editáveis.</p>
       <div class="kpi-row" style="margin-top:16px;">
-        <div class="kpi hi"><div class="label">Valor estimado da rede</div><div class="value" id="kpi-kmz-valor">—</div><div class="sub">Caixas×custo + CEOs×custo + Σ(metragem×custo/metro por categoria)</div></div>
+        <div class="kpi hi"><div class="label">Valor estimado da rede</div><div class="value" id="kpi-kmz-valor">—</div><div class="sub" id="kpi-kmz-valor-sub">Caixas×custo + CEOs×custo + Σ(metragem×custo/metro por categoria)</div></div>
       </div>
       <p class="note">Pontos: nomes tipo "CT10B"/"CTO" → caixa; "CEO" → emenda. Cabos: primeiro procura a bitola escrita direto no nome/descrição da linha (ex: "12 FO"); se não achar, usa a <b>cor da linha</b> no KMZ cruzada com uma legenda de cores escrita em alguma descrição do arquivo (ex: "VERDE = 6 FO"). Cor sem legenda correspondente vira "Cabo cor X (bitola não identificada)" — ainda dá pra precificar, só não sabe a bitola exata. Confira visualmente no mapa acima se a classificação bateu.</p>
     </div>
@@ -2688,6 +2689,7 @@ function renderKmzStatsPanel(){
   if(!p.kmzCabosManuais) p.kmzCabosManuais = [];
   if(!p.kmzCabosExcluidos) p.kmzCabosExcluidos = [];
   if(!p.kmzCabosRenomeados) p.kmzCabosRenomeados = {};
+  if(!p.kmzOrcCidadePrecos) p.kmzOrcCidadePrecos = {};
 
   const chaves = Object.keys(s.cabosPorModelo)
     .filter(chave => !p.kmzCabosExcluidos.includes(chave))
@@ -2696,9 +2698,19 @@ function renderKmzStatsPanel(){
       return Number(a)-Number(b);
     });
 
+  // Quando o KMZ junta várias cidades, o "Orçamento geral do KMZ" (tabela
+  // por cidade, mais completo -- considera Alça/Poste/Bap/Supa/Splitter/
+  // Acoplador) é o valor de rede mais confiável, então vira o "Valor
+  // estimado da rede" em vez da tabela simples de "Categoria de cabo"
+  // abaixo (que fica só como detalhe/edição por bitola, sem alimentar o
+  // valor usado no Comparativo e nas Propostas).
+  const cidadeKeysParaValor = Object.keys(s.porCidade||{});
+  const orcCidadesParaValor = cidadeKeysParaValor.length>=2 ? computarOrcamentoCidades(s.porCidade, p.kmzOrcCidadePrecos) : null;
+
   // Valor total da rede = caixas + CEOs + Σ(metragem × custo/metro) de TODA
   // linha de cabo visível (auto do KMZ, já sem as excluídas, + manuais).
   const calcValorRede = () => {
+    if(orcCidadesParaValor) return orcCidadesParaValor.totalGeral;
     const vCabosAuto = chaves.reduce((sum,chave)=> sum + s.cabosPorModelo[chave].metros*(p.kmzCustoMetroPorModelo[chave]||0), 0);
     const vCabosManuais = p.kmzCabosManuais.reduce((sum,r)=> sum + (r.metros||0)*(p.kmzCustoMetroPorModelo[r.id]||0), 0);
     return s.caixas*(p.kmzCustoCaixa||0) + s.ceos*(p.kmzCustoCeo||0) + vCabosAuto + vCabosManuais;
@@ -2776,6 +2788,11 @@ function renderKmzStatsPanel(){
 
   const valor = calcValorRede();
   setText('kpi-kmz-valor', fmtBRL(valor));
+  setText('kpi-kmz-valor-sub', orcCidadesParaValor
+    ? 'Vem do "Orçamento geral do KMZ" (quantitativo e orçamento por cidade, mais abaixo) -- a tabela "Categoria de cabo" acima fica só como detalhe por bitola.'
+    : 'Caixas×custo + CEOs×custo + Σ(metragem×custo/metro por categoria)');
+  const avisoMultiCidade = document.getElementById('kmzCabosAvisoMultiCidade');
+  if(avisoMultiCidade) avisoMultiCidade.style.display = orcCidadesParaValor ? '' : 'none';
 
   // Cacheia no próprio provedor (persiste com o resto dos dados) pra dar pra
   // comparar entre provedores na aba "Comparativo" sem precisar reabrir o
