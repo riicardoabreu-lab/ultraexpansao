@@ -140,6 +140,10 @@
   .tab-btn.active{background:var(--azul);color:#fff;}
   .tab-panel{display:none;}
   .tab-panel.active{display:block;}
+  .sim-modo-btn{border:1px solid var(--borda);background:#fff;color:var(--cinza);padding:8px 16px;border-radius:7px;font-size:12.5px;font-weight:700;cursor:pointer;}
+  .sim-modo-btn.active{background:var(--azul);color:#fff;border-color:var(--azul);}
+  .sim-resultado-headline{font-size:15px;font-weight:700;color:var(--azul);margin-bottom:10px;}
+  .sim-resultado-sub{font-size:12px;color:var(--cinza);margin-bottom:14px;}
 
   .resumo{
     display:grid;
@@ -348,6 +352,7 @@
     <button class="tab-btn active" data-tab="catalogo" type="button">📦 Catálogo &amp; Preços</button>
     <button class="tab-btn" data-tab="setores" type="button">🧮 Setores</button>
     <button class="tab-btn" data-tab="geral" type="button">📊 Geral</button>
+    <button class="tab-btn" data-tab="simulador" type="button">🔮 Simulador</button>
   </div>
 
   <!-- =========================== ABA CATÁLOGO =========================== -->
@@ -465,6 +470,46 @@
         </tbody>
       </table>
       <div style="height:14px;"></div>
+    </section>
+  </div>
+
+  <!-- =========================== ABA SIMULADOR =========================== -->
+  <div id="tab-simulador" class="tab-panel">
+    <section class="bloco">
+      <div class="bloco-header">Perfil da rede (por CTO)</div>
+      <div class="bloco-sub">Quanto de cada material entra, em média, pra cada CTO nova — baseado no seu histórico de projetos (ajuste pra bater com a realidade; cada obra tem sua densidade). Alça/Poste/Bap/Supa continuam calculados automaticamente a partir do cabo, pelas mesmas fórmulas da aba Catálogo.</div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Cabo (por FO)</th><th class="num">Metros por CTO</th></tr></thead>
+          <tbody id="tbody-perfil-cabo"></tbody>
+        </table>
+      </div>
+      <div class="obs-box" style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;">
+        <div><label style="display:block;font-size:11.5px;color:var(--cinza);margin-bottom:4px;">CEO 24FO a cada quantas CTOs</label><input id="perfil-ceo-a-cada" type="number" class="qty-in" min="0" step="1"></div>
+        <div><label style="display:block;font-size:11.5px;color:var(--cinza);margin-bottom:4px;">Splitter 1x16 por CTO</label><input id="perfil-splitter-por-cto" type="number" class="qty-in" min="0" step="1"></div>
+        <div><label style="display:block;font-size:11.5px;color:var(--cinza);margin-bottom:4px;">Acopladores por CTO</label><input id="perfil-acoplador-por-cto" type="number" class="qty-in" min="0" step="1"></div>
+      </div>
+      <div class="resumo" style="margin:16px 22px 20px;">
+        <div class="card-resumo"><div class="label">Custo médio por CTO (só material)</div><div class="valor" id="perfil-custo-sem-mao">R$ 0,00</div></div>
+        <div class="card-resumo mao"><div class="label">Custo médio por CTO (com mão de obra)</div><div class="valor" id="perfil-custo-com-mao">R$ 0,00</div></div>
+      </div>
+    </section>
+
+    <section class="bloco">
+      <div class="bloco-header sub2">Simulador</div>
+      <div class="bloco-sub">"Tenho um orçamento" responde quantas CTOs dá pra construir com um valor em R$. "Quero construir N CTOs" responde quanto custa. Os dois usam o perfil acima.</div>
+      <div style="padding:14px 22px 0;display:flex;gap:8px;">
+        <button type="button" class="sim-modo-btn active" data-modo="orcamento">💰 Tenho um orçamento</button>
+        <button type="button" class="sim-modo-btn" data-modo="qtd">🏗️ Quero construir N CTOs</button>
+      </div>
+      <div style="padding:16px 22px 0;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+        <div>
+          <label style="display:block;font-size:11.5px;color:var(--cinza);margin-bottom:4px;" id="sim-input-label">Orçamento disponível (R$)</label>
+          <input id="sim-input" type="text" class="qty-in" style="width:160px;" placeholder="0">
+        </div>
+        <button type="button" class="add-btn" id="simularBtn" style="margin:0;">Calcular</button>
+      </div>
+      <div id="sim-resultado" style="padding:0 22px 20px;"></div>
     </section>
   </div>
   </div><!-- /viewDraft -->
@@ -632,6 +677,21 @@ function blankSetor(nome){
   return { id: novoId('s'), nome: nome||'Novo setor', qtds:{} };
 }
 
+// Perfil "médio" de uma CTO nova -- quantos metros de cabo (por bitola),
+// e com que frequência entra CEO/Splitter/Acoplador -- usado só pelo
+// Simulador (aba Simulador) pra converter R$ ↔ quantidade de CTOs. Chute
+// inicial: 120m de 12FO por CTO (bitola mais comum em distribuição),
+// demais bitolas zeradas -- ajuste pra bater com a densidade real da obra.
+function blankPerfilCto(){
+  const cabosPorFO = {};
+  catalogoPadrao().forEach(it=>{
+    const m = it.nome.match(/^Cabo de Fibra (\d+)FO$/);
+    if(m) cabosPorFO[m[1]] = 0;
+  });
+  if(cabosPorFO['12']!=null) cabosPorFO['12'] = 120;
+  return { cabosPorFO, ceoACada:15, splitterPorCto:1, acopladorPorCto:16 };
+}
+
 function loadApp(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -639,11 +699,12 @@ function loadApp(){
       const parsed = JSON.parse(raw);
       if(parsed.catalogo && parsed.catalogo.length){
         parsed.salvos = parsed.salvos || [];
+        parsed.perfil = parsed.perfil || blankPerfilCto();
         return parsed;
       }
     }
   }catch(e){}
-  return { catalogo: catalogoPadrao(), setores: [blankSetor('Setor 01')], salvos: [] };
+  return { catalogo: catalogoPadrao(), setores: [blankSetor('Setor 01')], salvos: [], perfil: blankPerfilCto() };
 }
 function saveApp(){
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }
@@ -657,7 +718,7 @@ function syncToCloud(){
   clearTimeout(_cloudSyncTimer);
   _cloudSyncTimer = setTimeout(async ()=>{
     try{
-      await window._cloudSave({ catalogo: app.catalogo, setores: app.setores, salvos: app.salvos, updated: Date.now() });
+      await window._cloudSave({ catalogo: app.catalogo, setores: app.setores, salvos: app.salvos, perfil: app.perfil, updated: Date.now() });
     }catch(e){ console.error('Falha ao sincronizar Orçamento FTTH com a nuvem:', e); }
   }, 1500);
 }
@@ -669,8 +730,9 @@ function applyRemoteState(data){
   app.catalogo = data.catalogo || app.catalogo;
   app.setores = data.setores || app.setores;
   app.salvos = data.salvos || [];
+  app.perfil = data.perfil || app.perfil || blankPerfilCto();
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }catch(e){}
-  renderCatalogo(); renderSetores(); renderGeral(); renderSalvosList();
+  renderCatalogo(); renderSetores(); renderGeral(); renderSalvosList(); renderSimulador();
   if(visualizandoSalvoId){
     const s = app.salvos.find(x=>x.id===visualizandoSalvoId);
     if(s) abrirSalvo(s.id); else fecharSalvo();
@@ -692,6 +754,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
     document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
     if(btn.dataset.tab==='setores') renderSetores();
     if(btn.dataset.tab==='geral') renderGeral();
+    if(btn.dataset.tab==='simulador') renderSimulador();
   });
 });
 
@@ -934,6 +997,209 @@ function renderGeral(){
 }
 
 /* ======================================================================
+   SIMULADOR — converte R$ ↔ quantidade de CTOs usando o "Perfil da rede"
+   (metros de cabo por CTO, CEO a cada N CTOs, Splitter/Acoplador por
+   CTO) × os preços do Catálogo. Mesmas fórmulas de Alça/Poste/Bap/Supa
+   e mão de obra da aba Geral, só que escaladas a partir de 1 CTO em vez
+   de somar setores.
+====================================================================== */
+function precoCatalogo(nome){
+  const it = app.catalogo.find(x=>x.nome===nome);
+  return it ? (it.custo||0) : 0;
+}
+
+// Monta o "pacote" de material + mão de obra proporcional a qtdCTO CTOs
+// novas, a partir do Perfil da rede. qtdCTO pode ser fracionário (o
+// modo "orçamento" soma um valor exato, só arredonda pra CTO inteira no
+// resultado final mostrado pra pessoa).
+function calcularBundlePorQtdCTO(qtdCTO){
+  const perfil = app.perfil;
+  const itens = [];
+  let totalMaterial = 0, caboGeralTotal = 0, postesTotal = 0;
+
+  Object.keys(perfil.cabosPorFO).sort((a,b)=>Number(a)-Number(b)).forEach(fo=>{
+    const metrosPorCto = perfil.cabosPorFO[fo]||0;
+    if(!metrosPorCto) return;
+    const metros = metrosPorCto*qtdCTO;
+    caboGeralTotal += metros;
+    const precoCabo = precoCatalogo(`Cabo de Fibra ${fo}FO`);
+    itens.push({nome:`Cabo de Fibra ${fo}FO`, unidade:'Metro', qtd:metros, custo:precoCabo});
+    totalMaterial += metros*precoCabo;
+
+    const alca = metros/20;
+    const precoAlca = precoCatalogo(`Alça ${fo}FO`);
+    itens.push({nome:`Alça ${fo}FO`, unidade:'Unid.', qtd:alca, custo:precoAlca});
+    totalMaterial += alca*precoAlca;
+
+    postesTotal += metros/(CABO_POSTE_DIVISOR[fo]||45);
+  });
+
+  [['Bap', postesTotal], ['Supa', postesTotal*1.5], ['Poste', postesTotal]].forEach(([nome,qtd])=>{
+    const preco = precoCatalogo(nome);
+    itens.push({nome, unidade:'Unid.', qtd, custo:preco});
+    totalMaterial += qtd*preco;
+  });
+
+  const precoCTO = precoCatalogo('CTO');
+  itens.push({nome:'CTO', unidade:'Unid.', qtd:qtdCTO, custo:precoCTO});
+  totalMaterial += qtdCTO*precoCTO;
+
+  const qtdCEO = perfil.ceoACada>0 ? qtdCTO/perfil.ceoACada : 0;
+  const precoCEO = precoCatalogo('CEO 24FO');
+  itens.push({nome:'CEO 24FO', unidade:'Unid.', qtd:qtdCEO, custo:precoCEO});
+  totalMaterial += qtdCEO*precoCEO;
+
+  const qtdSplitter = qtdCTO*(perfil.splitterPorCto||0);
+  const precoSplitter = precoCatalogo('Splitter 1x16 CC');
+  itens.push({nome:'Splitter 1x16 CC', unidade:'Unid.', qtd:qtdSplitter, custo:precoSplitter});
+  totalMaterial += qtdSplitter*precoSplitter;
+
+  const qtdAcoplador = qtdCTO*(perfil.acopladorPorCto||0);
+  const precoAcoplador = precoCatalogo('Acoplador');
+  itens.push({nome:'Acoplador', unidade:'Unid.', qtd:qtdAcoplador, custo:precoAcoplador});
+  totalMaterial += qtdAcoplador*precoAcoplador;
+
+  const maoLinhas = [
+    {nome:'Mão de Obra Terceirizada (Lançamento)', unidade:'Metro', qtd:caboGeralTotal, custo:precoCatalogo('Mão de Obra Terceirizada (Lançamento)')},
+    {nome:'Mão de Obra Terceirizada (CTO)', unidade:'Unid.', qtd:qtdCTO, custo:precoCatalogo('Mão de Obra Terceirizada (CTO)')},
+    {nome:'Mão de Obra Terceirizada (Cx Emenda/CEO)', unidade:'Unid.', qtd:qtdCEO, custo:precoCatalogo('Mão de Obra Terceirizada (Cx Emenda/CEO)')},
+  ];
+  const totalMao = maoLinhas.reduce((s,l)=>s+l.qtd*l.custo, 0);
+
+  return { itens, maoLinhas, totalMaterial, totalMao, totalGeral: totalMaterial+totalMao };
+}
+
+// Custo de 1 CTO "média", pro card de preview do Perfil.
+function custoMedioPorCTO(){
+  const r = calcularBundlePorQtdCTO(1);
+  return { semMao: r.totalMaterial, comMao: r.totalGeral };
+}
+
+function renderPerfilCto(){
+  const tbody = document.getElementById('tbody-perfil-cabo');
+  if(tbody){
+    const fos = Object.keys(app.perfil.cabosPorFO).sort((a,b)=>Number(a)-Number(b));
+    tbody.innerHTML = fos.map(fo=>`
+      <tr data-fo="${fo}">
+        <td class="desc">Cabo de Fibra ${fo}FO</td>
+        <td class="num"><input type="number" class="qty-in perfil-cabo-in" data-fo="${fo}" min="0" step="1" value="${app.perfil.cabosPorFO[fo]||0}"></td>
+      </tr>`).join('');
+  }
+  const elCeo = document.getElementById('perfil-ceo-a-cada');
+  const elSplitter = document.getElementById('perfil-splitter-por-cto');
+  const elAcoplador = document.getElementById('perfil-acoplador-por-cto');
+  if(elCeo) elCeo.value = app.perfil.ceoACada;
+  if(elSplitter) elSplitter.value = app.perfil.splitterPorCto;
+  if(elAcoplador) elAcoplador.value = app.perfil.acopladorPorCto;
+
+  atualizarPreviewCustoPorCTO();
+
+  const bind = (el, onChange) => { if(el) el.addEventListener('input', onChange); };
+  if(tbody) tbody.addEventListener('input', e=>{
+    if(!e.target.classList.contains('perfil-cabo-in')) return;
+    app.perfil.cabosPorFO[e.target.dataset.fo] = parseFloat(e.target.value)||0;
+    atualizarPreviewCustoPorCTO();
+    saveApp();
+  });
+  bind(elCeo, e=>{ app.perfil.ceoACada = parseFloat(e.target.value)||0; atualizarPreviewCustoPorCTO(); saveApp(); });
+  bind(elSplitter, e=>{ app.perfil.splitterPorCto = parseFloat(e.target.value)||0; atualizarPreviewCustoPorCTO(); saveApp(); });
+  bind(elAcoplador, e=>{ app.perfil.acopladorPorCto = parseFloat(e.target.value)||0; atualizarPreviewCustoPorCTO(); saveApp(); });
+}
+
+function atualizarPreviewCustoPorCTO(){
+  const c = custoMedioPorCTO();
+  const elSem = document.getElementById('perfil-custo-sem-mao');
+  const elCom = document.getElementById('perfil-custo-com-mao');
+  if(elSem) elSem.textContent = fmtBRL(c.semMao);
+  if(elCom) elCom.textContent = fmtBRL(c.comMao);
+}
+
+let simModo = 'orcamento';
+
+function renderSimulador(){
+  renderPerfilCto();
+
+  document.querySelectorAll('.sim-modo-btn').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.modo===simModo);
+    btn.onclick = () => {
+      simModo = btn.dataset.modo;
+      document.querySelectorAll('.sim-modo-btn').forEach(b=>b.classList.toggle('active', b===btn));
+      const label = document.getElementById('sim-input-label');
+      const input = document.getElementById('sim-input');
+      if(simModo==='orcamento'){
+        if(label) label.textContent = 'Orçamento disponível (R$)';
+        if(input) input.placeholder = '0';
+      } else {
+        if(label) label.textContent = 'Quantidade de CTOs';
+        if(input) input.placeholder = '0';
+      }
+      document.getElementById('sim-resultado').innerHTML = '';
+    };
+  });
+
+  document.getElementById('simularBtn').onclick = simular;
+}
+
+function tabelaBundleHTML(bundle){
+  const linhas = [...bundle.itens.filter(it=>it.qtd>0.0001), ...bundle.maoLinhas.filter(it=>it.qtd>0.0001)];
+  return `
+    <div class="table-scroll">
+      <table style="margin-top:0;">
+        <thead><tr><th>Item</th><th class="num">Unid.</th><th class="num">Quantidade</th><th class="money">Vlr. Unit.</th><th class="money">Vlr. Total</th></tr></thead>
+        <tbody>
+          ${linhas.map(l=>`<tr>
+            <td class="desc">${esc(l.nome)}</td>
+            <td class="num">${esc(l.unidade)}</td>
+            <td class="num">${fmtNumCalc(l.qtd)}</td>
+            <td class="money">${fmtBRL(l.custo)}</td>
+            <td class="money">${fmtBRL(l.qtd*l.custo)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <table style="margin:10px 0 0;">
+      <tbody>
+        <tr class="total-sem"><td>TOTAL SEM MÃO DE OBRA</td><td class="money">${fmtBRL(bundle.totalMaterial)}</td></tr>
+        <tr class="total-row"><td>TOTAL COM MÃO DE OBRA</td><td class="money">${fmtBRL(bundle.totalGeral)}</td></tr>
+      </tbody>
+    </table>`;
+}
+
+function simular(){
+  const raw = document.getElementById('sim-input').value;
+  const valor = parseFloat(String(raw).replace(/\./g,'').replace(',','.')) || parseFloat(raw) || 0;
+  const resultadoEl = document.getElementById('sim-resultado');
+  if(!resultadoEl) return;
+  if(valor<=0){
+    resultadoEl.innerHTML = `<p style="color:var(--cinza);font-size:12.5px;">Digite um valor maior que zero.</p>`;
+    return;
+  }
+  const custoCTO = custoMedioPorCTO();
+
+  if(simModo==='orcamento'){
+    if(custoCTO.comMao<=0){
+      resultadoEl.innerHTML = `<p style="color:#b91c1c;font-size:12.5px;">Preencha algum cabo no Perfil da rede acima (ou os preços no Catálogo) antes de simular.</p>`;
+      return;
+    }
+    const qtdCTOExata = valor/custoCTO.comMao;
+    const qtdCTOInteira = Math.floor(qtdCTOExata);
+    const bundle = calcularBundlePorQtdCTO(qtdCTOInteira);
+    const sobra = valor - bundle.totalGeral;
+    resultadoEl.innerHTML = `
+      <div class="sim-resultado-headline">Com ${fmtBRL(valor)} dá pra construir ≈ ${fmtNumCalc(qtdCTOInteira)} CTOs</div>
+      <div class="sim-resultado-sub">Considerando material + mão de obra (sobra ${fmtBRL(sobra)} do orçamento). Só material (sem mão de obra): ≈ ${fmtNumCalc(Math.floor(valor/custoCTO.semMao))} CTOs. Detalhamento abaixo é pra ${fmtNumCalc(qtdCTOInteira)} CTOs:</div>
+      ${tabelaBundleHTML(bundle)}`;
+  } else {
+    const qtdCTO = valor;
+    const bundle = calcularBundlePorQtdCTO(qtdCTO);
+    resultadoEl.innerHTML = `
+      <div class="sim-resultado-headline">${fmtNumCalc(qtdCTO)} CTOs custam ≈ ${fmtBRL(bundle.totalGeral)} (com mão de obra)</div>
+      <div class="sim-resultado-sub">Só material, sem mão de obra: ${fmtBRL(bundle.totalMaterial)}.</div>
+      ${tabelaBundleHTML(bundle)}`;
+  }
+}
+
+/* ======================================================================
    ORÇAMENTOS SALVOS — "comprovante" congelado no momento do salvamento
    (não usa o catálogo/setores atuais do app, e sim a cópia guardada no
    próprio salvo, pra não mudar se a fórmula ou os preços do catálogo
@@ -1070,6 +1336,7 @@ document.getElementById('voltarRascunhoLink').addEventListener('click', e=>{ e.p
 renderCatalogo();
 renderSetores();
 renderGeral();
+renderSimulador();
 renderSalvosList();
 
 document.getElementById('refreshPageBtn').onclick = () => location.reload();
