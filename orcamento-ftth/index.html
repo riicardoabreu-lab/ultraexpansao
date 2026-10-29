@@ -680,18 +680,28 @@ function blankSetor(nome){
 
 // Perfil "médio" de uma CTO nova -- quantos metros de cabo (por bitola),
 // e com que frequência entra CEO/Splitter/Acoplador -- usado só pelo
-// Simulador (aba Simulador) pra converter R$ ↔ quantidade de CTOs. Chute
-// inicial: 120m de 12FO por CTO (bitola mais comum em distribuição),
-// demais bitolas zeradas -- ajuste pra bater com a densidade real da obra.
+// Simulador (aba Simulador) pra converter R$ ↔ quantidade de CTOs.
+// Padrão calculado a partir de 4 projetos reais já executados (metros
+// totais ÷ CTO totais, CTO totais ÷ CEO totais -- somando os 4 projetos
+// antes de dividir, não média das médias, pra não deixar o projeto
+// pequeno pesar igual ao grande):
+//   Parque Manibura:          20.600m /  95 CTO /  7 CEO
+//   Cidade dos Funcionários:  33.460m / 136 CTO / 11 CEO
+//   Luciano Cavalcante:       33.000m / 140 CTO / 10 CEO
+//   Pacajus:                 130.000m / 506 CTO / 56 CEO
+//   TOTAL:                   217.060m / 877 CTO / 84 CEO
+//   -> 247,5 m de cabo por CTO · 1 CEO a cada ~10,4 CTOs (arredondado p/ 10)
+// Tudo em 12FO (bitola mais comum em distribuição) -- ajuste pra bater
+// com a densidade real da obra, ou separe entre bitolas se for o caso.
 function blankPerfilCto(){
   const cabosPorFO = {};
   catalogoPadrao().forEach(it=>{
     const m = it.nome.match(/^Cabo de Fibra (\d+)FO$/);
     if(m) cabosPorFO[m[1]] = 0;
   });
-  if(cabosPorFO['12']!=null) cabosPorFO['12'] = 120;
+  if(cabosPorFO['12']!=null) cabosPorFO['12'] = 247.5;
   // Splitter 1x2 SC: exemplo dado foi "a cada 16 CTO uso 8 splitter 1x2" = 0,5 por CTO.
-  return { cabosPorFO, ceoACada:15, splitterPorCto:1, splitter1x2PorCto:0.5, acopladorPorCto:16 };
+  return { cabosPorFO, ceoACada:10, splitterPorCto:1, splitter1x2PorCto:0.5, acopladorPorCto:16 };
 }
 
 // Preenche campos novos do perfil com o padrão, sem perder o que a pessoa
