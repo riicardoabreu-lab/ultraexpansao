@@ -467,6 +467,8 @@ function blankEmpresa(nome){
     kmzCabosManuais:[], // linhas adicionadas à mão na tabela "Categoria de cabo" (não vêm do KMZ): [{id,label,segmentos,metros}]
     kmzCabosExcluidos:[], // chaves de categorias auto-detectadas do KMZ que o usuário tirou da tabela/total
     kmzCabosRenomeados:{}, // chave (auto-detectada) -> label customizado, ex. renomear "Cabo cor Amarela (bitola não identificada)" pra "6 FO"
+    kmzOrcCidadePrecos:{}, // preço unitário editável do orçamento por cidade (chave do item -> R$), default = catálogo do Orçamento FTTH
+    kmzCidadesRenomeadas:{}, // nome bruto do Document do KMZ (uma cidade) -> label customizado
   };
 }
 
@@ -1354,6 +1356,29 @@ function tplRede(){
         <div class="kpi hi"><div class="label">Valor estimado da rede</div><div class="value" id="kpi-kmz-valor">—</div><div class="sub">Caixas×custo + CEOs×custo + Σ(metragem×custo/metro por categoria)</div></div>
       </div>
       <p class="note">Pontos: nomes tipo "CT10B"/"CTO" → caixa; "CEO" → emenda. Cabos: primeiro procura a bitola escrita direto no nome/descrição da linha (ex: "12 FO"); se não achar, usa a <b>cor da linha</b> no KMZ cruzada com uma legenda de cores escrita em alguma descrição do arquivo (ex: "VERDE = 6 FO"). Cor sem legenda correspondente vira "Cabo cor X (bitola não identificada)" — ainda dá pra precificar, só não sabe a bitola exata. Confira visualmente no mapa acima se a classificação bateu.</p>
+    </div>
+  </div>
+  <div class="sec-block" id="kmzCidadeBlock" style="display:none;">
+    <h3>Quantitativo e orçamento por cidade</h3>
+    <p class="hint">Aparece quando o KMZ carregado junta várias cidades num arquivo só (uma pasta/Document por cidade). Orçamento calculado com o mesmo catálogo e as mesmas fórmulas da aba Orçamento FTTH (Alça = cabo ÷ 20; Poste = cabo ÷ divisor por bitola; Bap = Poste; Supa = Poste × 1,5) — Splitter 1x16 CC e Acoplador saem da quantidade de CTO (1 splitter + 16 acopladores por CTO). Preço unitário é editável; nome da cidade também (clique e digite).</p>
+    <div class="panel">
+      <h4 style="margin:0 0 8px;font-size:13px;color:var(--text-dim);">Quantitativo por cidade</h4>
+      <div class="table-scroll"><table>
+        <thead><tr id="kmz-cidade-qtd-head"></tr></thead>
+        <tbody id="kmz-cidade-qtd-body"></tbody>
+      </table></div>
+
+      <h4 style="margin:20px 0 8px;font-size:13px;color:var(--text-dim);">Orçamento por cidade (R$)</h4>
+      <div class="table-scroll"><table>
+        <thead><tr id="kmz-cidade-orc-head"></tr></thead>
+        <tbody id="kmz-cidade-orc-body"></tbody>
+        <tfoot><tr id="kmz-cidade-orc-foot"></tr></tfoot>
+      </table></div>
+      <p class="note">"Cabo (bitola não identificada)" = trechos sem FO escrito no nome/descrição e sem cor com legenda correspondente (ver tabela "Categoria de cabo" acima) — preço inicial R$ 0, edite se quiser incluir no total; não gera Alça/Poste/Bap/Supa (essas fórmulas dependem de saber a bitola).</p>
+
+      <div class="kpi-row" style="margin-top:16px;">
+        <div class="kpi hi"><div class="label">Orçamento geral do KMZ</div><div class="value" id="kpi-kmz-orc-geral">—</div><div class="sub">Soma do material de todas as cidades (sem mão de obra)</div></div>
+      </div>
     </div>
   </div>`;
 }
@@ -2290,6 +2315,19 @@ async function extractKMLFromBlob(blob, filename){
 function classifyPlacemark(name, folderNames, iconCat){
   if(iconCat === 'cto') return 'caixa';
   if(iconCat === 'ceo') return 'ceo';
+  // Nome que começa com CTO/CT<n> é caixa mesmo citando um CEO depois (ex.:
+  // "CTO 01 - CEO 3" = a CTO 01, alimentada pelo CEO 3 -- menção ao CEO aí
+  // é só referência de qual emenda alimenta aquela caixa, não quer dizer
+  // que o PONTO em si é o CEO). Sem esse check, a regra de CEO abaixo
+  // (que roda antes da de CTO) classificava toda essa série como CEO.
+  if(/^\s*(CTOS?\b|CT\d)/i.test(name||'')) return 'caixa';
+  // Pasta-mãe IMEDIATA chamada só "CTO"/"CEO" (sem mais nada) é sinal mais
+  // forte que a cadeia inteira -- pastas-avó às vezes têm nome resumo tipo
+  // "CIDADE / 23000m / 30 CTO / 11 CEO", que citaria os dois termos pra
+  // QUALQUER ponto dali, mascarando a pasta-mãe real.
+  const nearest = (Array.isArray(folderNames) && folderNames[0]) ? folderNames[0].trim().toUpperCase() : '';
+  if(/^CEOS?$|^CAIXAS? DE EMENDA$/.test(nearest)) return 'ceo';
+  if(/^CTOS?$|^CAIXAS?$/.test(nearest)) return 'caixa';
   const chain = Array.isArray(folderNames) ? folderNames.join(' ') : (folderNames||'');
   const text = ((name||'') + ' ' + chain).toUpperCase();
   if(/\bCEOS?\b|CAIXAS? DE EMENDA/.test(text)) return 'ceo';
@@ -2403,6 +2441,14 @@ function polylineLengthMeters(latlngs){
 }
 
 function parseKML(xmlText){
+  // Alguns exports juntam vários KMZ num só arquivo (um <Document> por
+  // cidade) e, nessa costura manual, às vezes sobra um atributo xsi:...
+  // sem a declaração do namespace xmlns:xsi na tag raiz -- DOMParser
+  // rejeita isso como erro fatal (unbound prefix) mesmo o resto do
+  // arquivo estando válido. Corrige antes de parsear.
+  if(/\bxsi:/.test(xmlText) && !/xmlns:xsi\s*=/.test(xmlText)){
+    xmlText = xmlText.replace(/<kml\b([^>]*)>/, (m, attrs) => `<kml${attrs} xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">`);
+  }
   const doc = new DOMParser().parseFromString(xmlText, "text/xml");
   if(doc.querySelector('parsererror')) throw new Error('KML inválido ou corrompido.');
   const placemarks = [...doc.getElementsByTagName('Placemark')];
@@ -2410,6 +2456,7 @@ function parseKML(xmlText){
   let count = 0;
   let caixas = 0, ceos = 0, outros = 0, cabosCount = 0, metragemTotal = 0;
   const cabosPorModelo = {}; // preenchido dinamicamente conforme as bitolas encontradas
+  const porCidade = {}; // nome bruto do <Document> mais externo -> quantitativo daquela cidade (só preenchido quando o KMZ junta várias cidades, 1 Document por cidade)
   const styleMaps = buildStyleColorMaps(doc);
   const legendaCoresFO = extrairLegendaCoresFO(doc);
   const coordsToLatLngs = txt => txt.trim().split(/\s+/).filter(Boolean).map(c=>{
@@ -2430,11 +2477,32 @@ function parseKML(xmlText){
     }
     return names;
   };
+  // <Document> mais EXTERNO que contém o placemark (não o mais próximo) --
+  // quando um KMZ reúne várias cidades, cada uma vira um <Document> direto
+  // sob a pasta raiz, então isso separa por cidade. Num KMZ de uma cidade
+  // só (o caso comum) isso dá sempre a mesma chave ou null -- sem efeito.
+  const outermostDocumentName = pm => {
+    let el = pm.parentElement, achado = null;
+    while(el){
+      if(el.tagName === 'Document'){
+        const n = el.getElementsByTagName('name')[0]?.textContent?.trim();
+        if(n) achado = n;
+      }
+      el = el.parentElement;
+    }
+    return achado;
+  };
+  const cidadeStats = chave => {
+    if(!chave) return null;
+    if(!porCidade[chave]) porCidade[chave] = {caixas:0, ceo24:0, ceo144:0, outros:0, cabosPorFO:{}, cabosNaoIdentificados:0};
+    return porCidade[chave];
+  };
   placemarks.forEach(pm=>{
     const name = pm.getElementsByTagName('name')[0]?.textContent?.trim() || '';
     const desc = pm.getElementsByTagName('description')[0]?.textContent?.trim() || '';
     const popupHtml = `<b>${name||'Sem nome'}</b>${desc?'<br>'+desc.slice(0,200):''}`;
     const folderNames = ancestorFolderNames(pm);
+    const cs = cidadeStats(outermostDocumentName(pm));
 
     const point = pm.getElementsByTagName('Point')[0];
     if(point){
@@ -2447,6 +2515,11 @@ function parseKML(xmlText){
           const cor = tipo==='ceo' ? '#fb923c' : tipo==='caixa' ? '#00d4c8' : '#8b99b6';
           L.circleMarker([lat,lon], {radius:5, color:cor, fillColor:cor, fillOpacity:.9, weight:1.5}).bindPopup(popupHtml).addTo(layer);
           if(tipo==='ceo') ceos++; else if(tipo==='caixa') caixas++; else outros++;
+          if(cs){
+            if(tipo==='ceo'){ if(/144/.test(name)) cs.ceo144++; else cs.ceo24++; }
+            else if(tipo==='caixa') cs.caixas++;
+            else cs.outros++;
+          }
           count++;
         }
       }
@@ -2459,14 +2532,14 @@ function parseKML(xmlText){
         const colorHex = resolveLineColorHex(styleUrlRaw, styleMaps);
         const rgbReal = colorHex ? kmlColorToRgb(colorHex) : null;
 
-        let chave, label;
+        let chave, label, foIdentificado = null;
         const bitolaDireta = classifyLineModel(name, desc);
         if(bitolaDireta != null){
-          chave = String(bitolaDireta); label = bitolaDireta+' FO';
+          chave = String(bitolaDireta); label = bitolaDireta+' FO'; foIdentificado = bitolaDireta;
         } else {
           const nomeCor = rgbReal ? nomeCorMaisProxima(rgbReal) : null;
           const fo = nomeCor ? legendaCoresFO[nomeCor] : undefined;
-          if(fo != null){ chave = String(fo); label = fo+' FO'; }
+          if(fo != null){ chave = String(fo); label = fo+' FO'; foIdentificado = fo; }
           else if(nomeCor){ chave = 'cor_'+nomeCor; label = 'Cabo cor '+nomeCor.charAt(0).toUpperCase()+nomeCor.slice(1)+' (bitola não identificada)'; }
           else { chave = 'outro'; label = 'Não identificado'; }
         }
@@ -2478,6 +2551,10 @@ function parseKML(xmlText){
         if(!cabosPorModelo[chave]) cabosPorModelo[chave] = {label, count:0, metros:0};
         cabosPorModelo[chave].count++;
         cabosPorModelo[chave].metros += metros;
+        if(cs){
+          if(foIdentificado != null) cs.cabosPorFO[foIdentificado] = (cs.cabosPorFO[foIdentificado]||0) + metros;
+          else cs.cabosNaoIdentificados += metros;
+        }
         count++;
       } }
     }
@@ -2487,11 +2564,105 @@ function parseKML(xmlText){
       if(c){ const ll = coordsToLatLngs(c); if(ll.length>2){ L.polygon(ll, {color:'#fb7185', fillOpacity:.15, weight:2}).bindPopup(popupHtml).addTo(layer); count++; } }
     }
   });
-  return {layer, count, stats:{caixas, ceos, outros, cabosCount, metragemTotal, cabosPorModelo}};
+  return {layer, count, stats:{caixas, ceos, outros, cabosCount, metragemTotal, cabosPorModelo, porCidade}};
 }
 
 function fmtMetros(m){
   return m>=1000 ? (m/1000).toLocaleString('pt-BR',{maximumFractionDigits:2})+' km' : fmtNum(Math.round(m))+' m';
+}
+
+/* ======================================================================
+   ORÇAMENTO POR CIDADE — quando um KMZ junta várias cidades num arquivo
+   só (um <Document> por cidade, ver outermostDocumentName em parseKML),
+   monta o quantitativo e o orçamento (R$) separados por cidade, usando o
+   MESMO catálogo de preços e as MESMAS fórmulas de Alça/Poste/Bap/Supa da
+   aba Orçamento FTTH (orcamento-ftth/index.html): Alça = cabo ÷ 20; Poste
+   = Σ[cabo ÷ divisor(FO)]; Bap = Poste; Supa = Poste × 1,5. Splitter
+   1x16 CC e Acoplador não têm fórmula lá (são específicos de rede já
+   em campo) -- aqui 1 splitter por CTO e 16 acopladores por CTO (1 por
+   porta), igual ao levantamento manual que originou essa funcionalidade.
+   Diferente do Catálogo (que mantém fração), aqui as quantidades
+   derivadas são arredondadas pra unidade inteira antes de precificar --
+   não dá pra comprar meia Alça, e orçamento é pra comprar.
+====================================================================== */
+const KMZ_ORC_DIVISOR_POSTE = {6:45, 12:45, 24:45, 36:40, 48:45, 72:40, 144:40};
+const KMZ_ORC_PRECO_CABO = {6:1.44, 12:1.79, 24:4.38, 36:5.15, 48:5.79, 72:9.68, 144:10.82};
+const KMZ_ORC_PRECO_ALCA = {6:0, 12:1.87, 24:3.86, 36:5.46, 48:5.36, 72:14.31, 144:0};
+const padFO = fo => String(fo).padStart(2,'0');
+
+// Nome bruto do <Document> do KMZ (ex.: "PARAMOTI-FIBRA.kmz") -> rótulo
+// mais legível pra exibir (tira extensão e lixo solto no fim); o usuário
+// ainda pode renomear por cima disso (kmzCidadesRenomeadas).
+function limparNomeCidade(nome){
+  let n = (nome||'').trim();
+  n = n.replace(/\.(kmz|kml)\b.*$/i, '');
+  n = n.replace(/[-_\s]+$/, '').trim();
+  n = n.replace(/\s{2,}/g, ' ');
+  return n || 'Sem nome';
+}
+
+function posteTotalCidade(cidade){
+  let total = 0;
+  Object.keys(cidade.cabosPorFO).forEach(fo=>{
+    total += (cidade.cabosPorFO[fo]||0) / (KMZ_ORC_DIVISOR_POSTE[fo]||45);
+  });
+  return total;
+}
+
+// Monta a lista de itens (linhas da tabela de orçamento) a partir do
+// quantitativo por cidade já calculado em parseKML -- só gera linha pra
+// bitola de cabo/CEO que realmente aparece em alguma cidade.
+function montarItensOrcamentoCidade(porCidade, precos){
+  const cidades = Object.keys(porCidade);
+  const fosPresentes = new Set();
+  let temCeo24 = false, temCeo144 = false, temNaoIdentificado = false;
+  cidades.forEach(ck=>{
+    const c = porCidade[ck];
+    Object.keys(c.cabosPorFO).forEach(fo=>fosPresentes.add(Number(fo)));
+    if(c.ceo24>0) temCeo24 = true;
+    if(c.ceo144>0) temCeo144 = true;
+    if(c.cabosNaoIdentificados>0) temNaoIdentificado = true;
+  });
+  const fos = [...fosPresentes].sort((a,b)=>a-b);
+
+  const defs = [];
+  fos.forEach(fo=>{
+    defs.push({chave:'cabo_'+fo, nome:`Cabo de Fibra ${padFO(fo)}FO`, unidade:'Metro',
+      precoDefault: KMZ_ORC_PRECO_CABO[fo]||0, calc: c => Math.round(c.cabosPorFO[fo]||0)});
+  });
+  fos.forEach(fo=>{
+    defs.push({chave:'alca_'+fo, nome:`Alça ${padFO(fo)}FO`, unidade:'Unid.',
+      precoDefault: KMZ_ORC_PRECO_ALCA[fo]||0, calc: c => Math.round((c.cabosPorFO[fo]||0)/20)});
+  });
+  defs.push({chave:'bap', nome:'Bap', unidade:'Unid.', precoDefault:7.49, calc: c => Math.round(posteTotalCidade(c))});
+  defs.push({chave:'supa', nome:'Supa', unidade:'Unid.', precoDefault:2.89, calc: c => Math.round(posteTotalCidade(c)*1.5)});
+  defs.push({chave:'poste', nome:'Poste', unidade:'Unid.', precoDefault:0, calc: c => Math.round(posteTotalCidade(c))});
+  defs.push({chave:'cto', nome:'CTO', unidade:'Unid.', precoDefault:59.00, calc: c => c.caixas});
+  if(temCeo24) defs.push({chave:'ceo24', nome:'CEO 24FO', unidade:'Unid.', precoDefault:152.90, calc: c => c.ceo24});
+  if(temCeo144) defs.push({chave:'ceo144', nome:'CEO 144FO', unidade:'Unid.', precoDefault:373.90, calc: c => c.ceo144});
+  defs.push({chave:'splitter1x16', nome:'Splitter 1x16 CC', unidade:'Unid.', precoDefault:39.91, calc: c => c.caixas});
+  defs.push({chave:'acoplador', nome:'Acoplador', unidade:'Unid.', precoDefault:0.64, calc: c => c.caixas*16});
+  if(temNaoIdentificado) defs.push({chave:'cabo_naoident', nome:'Cabo (bitola não identificada)', unidade:'Metro', precoDefault:0, calc: c => Math.round(c.cabosNaoIdentificados)});
+
+  return defs.map(def=>{
+    const porCidadeQtd = {};
+    let qtdTotal = 0;
+    cidades.forEach(ck=>{ const q = def.calc(porCidade[ck])||0; porCidadeQtd[ck]=q; qtdTotal += q; });
+    const preco = def.precoDefault==null ? null : (precos[def.chave] ?? def.precoDefault);
+    const valorTotal = preco==null ? null : qtdTotal*preco;
+    return {chave:def.chave, nome:def.nome, unidade:def.unidade, preco, porCidade:porCidadeQtd, qtdTotal, valorTotal};
+  }).filter(it=>it.qtdTotal>0);
+}
+
+function computarOrcamentoCidades(porCidade, precos){
+  const cidades = Object.keys(porCidade);
+  const itens = montarItensOrcamentoCidade(porCidade, precos||{});
+  const subtotalPorCidade = {};
+  cidades.forEach(ck=>{
+    subtotalPorCidade[ck] = itens.reduce((s,it)=> s + (it.preco!=null ? (it.porCidade[ck]||0)*it.preco : 0), 0);
+  });
+  const totalGeral = cidades.reduce((s,ck)=>s+subtotalPorCidade[ck], 0);
+  return {cidades, itens, subtotalPorCidade, totalGeral};
 }
 
 function renderKmzStatsPanel(){
@@ -2613,7 +2784,104 @@ function renderKmzStatsPanel(){
     p.kmzValorRedeCache = valor;
     saveApp();
   }
+  renderKmzCidadeBlock();
   renderComparativoTab();
+}
+
+// Quantitativo e orçamento por cidade — só aparece quando o KMZ carregado
+// junta mais de uma cidade (ver porCidade em parseKML). Num KMZ de cidade
+// única o bloco fica escondido; o resto do painel (acima) já cobre esse
+// caso sem repetir a mesma informação numa tabela de 1 coluna só.
+function renderKmzCidadeBlock(){
+  const block = document.getElementById('kmzCidadeBlock');
+  if(!block) return;
+  const porCidade = currentKmzStats?.porCidade || {};
+  const cidadeKeys = Object.keys(porCidade);
+  if(cidadeKeys.length < 2){ block.style.display = 'none'; return; }
+  block.style.display = '';
+  const p = current();
+  if(!p.kmzOrcCidadePrecos) p.kmzOrcCidadePrecos = {};
+  if(!p.kmzCidadesRenomeadas) p.kmzCidadesRenomeadas = {};
+
+  const cidadesOrdenadas = [...cidadeKeys].sort((a,b)=>
+    (p.kmzCidadesRenomeadas[a]||limparNomeCidade(a)).localeCompare(p.kmzCidadesRenomeadas[b]||limparNomeCidade(b), 'pt-BR'));
+  const labelCidade = ck => p.kmzCidadesRenomeadas[ck] ?? limparNomeCidade(ck);
+
+  // ---- Quantitativo por cidade ----
+  const fos = [...new Set(cidadesOrdenadas.flatMap(ck=>Object.keys(porCidade[ck].cabosPorFO)))]
+    .map(Number).sort((a,b)=>a-b);
+  const qtdHead = document.getElementById('kmz-cidade-qtd-head');
+  if(qtdHead){
+    qtdHead.innerHTML = '<th>Cidade</th><th style="text-align:right">CEO</th><th style="text-align:right">Caixas/CTO</th>' +
+      fos.map(fo=>`<th style="text-align:right">Cabo ${fo}FO (m)</th>`).join('') +
+      '<th style="text-align:right">Cabo não ident. (m)</th><th style="text-align:right">Total cabos (m)</th>';
+  }
+  const qtdBody = document.getElementById('kmz-cidade-qtd-body');
+  if(qtdBody){
+    const totais = {ceo:0, caixas:0, naoIdent:0, total:0, porFo:{}};
+    fos.forEach(fo=>totais.porFo[fo]=0);
+    const linhas = cidadesOrdenadas.map(ck=>{
+      const c = porCidade[ck];
+      const ceo = c.ceo24 + c.ceo144;
+      const totalCabos = Object.values(c.cabosPorFO).reduce((s,m)=>s+m,0) + c.cabosNaoIdentificados;
+      totais.ceo += ceo; totais.caixas += c.caixas; totais.naoIdent += c.cabosNaoIdentificados; totais.total += totalCabos;
+      fos.forEach(fo=>totais.porFo[fo] += (c.cabosPorFO[fo]||0));
+      return `<tr data-cidade="${esc(ck)}">
+        <td><input data-role="cidadeNome" type="text" value="${esc(labelCidade(ck))}"></td>
+        <td style="text-align:right">${fmtNum(ceo)}</td>
+        <td style="text-align:right">${fmtNum(c.caixas)}</td>
+        ${fos.map(fo=>`<td style="text-align:right">${fmtMetros(c.cabosPorFO[fo]||0)}</td>`).join('')}
+        <td style="text-align:right">${fmtMetros(c.cabosNaoIdentificados)}</td>
+        <td style="text-align:right;font-weight:700;">${fmtMetros(totalCabos)}</td>
+      </tr>`;
+    });
+    const linhaTotal = `<tr style="font-weight:700;background:var(--panel-2,rgba(255,255,255,.04));">
+      <td>TOTAL</td><td style="text-align:right">${fmtNum(totais.ceo)}</td><td style="text-align:right">${fmtNum(totais.caixas)}</td>
+      ${fos.map(fo=>`<td style="text-align:right">${fmtMetros(totais.porFo[fo])}</td>`).join('')}
+      <td style="text-align:right">${fmtMetros(totais.naoIdent)}</td><td style="text-align:right">${fmtMetros(totais.total)}</td>
+    </tr>`;
+    qtdBody.innerHTML = linhas.join('') + linhaTotal;
+    qtdBody.oninput = e => {
+      if(e.target.dataset.role!=='cidadeNome') return;
+      const tr = e.target.closest('tr'); const ck = tr?.dataset.cidade; if(!ck) return;
+      current().kmzCidadesRenomeadas[ck] = e.target.value;
+      saveApp();
+    };
+  }
+
+  // ---- Orçamento por cidade ----
+  const orc = computarOrcamentoCidades(porCidade, p.kmzOrcCidadePrecos);
+  const orcHead = document.getElementById('kmz-cidade-orc-head');
+  if(orcHead){
+    orcHead.innerHTML = '<th>Item</th><th style="text-align:right">Preço unit.</th>' +
+      cidadesOrdenadas.map(ck=>`<th style="text-align:right">${esc(labelCidade(ck))}</th>`).join('') +
+      '<th style="text-align:right">Qtd total</th><th style="text-align:right">Valor total</th>';
+  }
+  const orcBody = document.getElementById('kmz-cidade-orc-body');
+  if(orcBody){
+    orcBody.innerHTML = orc.itens.map(it=>`
+      <tr data-item="${esc(it.chave)}">
+        <td>${esc(it.nome)}</td>
+        <td style="text-align:right">${it.preco==null?'<span style="color:var(--text-dim)">—</span>':`<input type="number" data-role="preco" step="0.01" value="${it.preco}" style="width:80px;text-align:right;">`}</td>
+        ${cidadesOrdenadas.map(ck=>`<td style="text-align:right">${fmtNum(it.porCidade[ck]||0)}</td>`).join('')}
+        <td style="text-align:right;font-weight:600;">${fmtNum(it.qtdTotal)}</td>
+        <td style="text-align:right;font-weight:600;">${it.valorTotal==null?'<span style="color:var(--text-dim)">—</span>':fmtBRL(it.valorTotal)}</td>
+      </tr>`).join('') || `<tr><td colspan="99" style="color:var(--text-dim);">Nenhum item com quantidade.</td></tr>`;
+    orcBody.oninput = e => {
+      if(e.target.dataset.role!=='preco') return;
+      const tr = e.target.closest('tr'); const chave = tr?.dataset.item; if(!chave) return;
+      current().kmzOrcCidadePrecos[chave] = parseFloat(e.target.value)||0;
+      saveApp();
+      renderKmzCidadeBlock();
+    };
+  }
+  const orcFoot = document.getElementById('kmz-cidade-orc-foot');
+  if(orcFoot){
+    orcFoot.innerHTML = `<td style="font-weight:700;">TOTAL POR CIDADE (R$)</td><td></td>` +
+      cidadesOrdenadas.map(ck=>`<td style="text-align:right;font-weight:700;">${fmtBRL(orc.subtotalPorCidade[ck])}</td>`).join('') +
+      `<td></td><td style="text-align:right;font-weight:700;">${fmtBRL(orc.totalGeral)}</td>`;
+  }
+  setText('kpi-kmz-orc-geral', fmtBRL(orc.totalGeral));
 }
 
 // Limite de folga pra sincronizar o KMZ com a nuvem (documento à parte,
