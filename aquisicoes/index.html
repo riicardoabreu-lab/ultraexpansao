@@ -1396,6 +1396,7 @@ function tplComparativo(){
       <div class="kpi-row" style="margin-top:16px;">
         <div class="kpi"><div class="label">Preço da proposta</div><div class="value" id="kpi-comp-preco">—</div></div>
         <div class="kpi"><div class="label">Valor da rede</div><div class="value" id="kpi-comp-rede">—</div><div class="sub" id="kpi-comp-rede-pct">—</div></div>
+        <div class="kpi"><div class="label">Custo operacional / Receita</div><div class="value" id="kpi-comp-custorec">—</div><div class="sub">custo mensal atual ÷ MRR</div></div>
         <div class="kpi hi"><div class="label">Valor implícito dos clientes</div><div class="value" id="kpi-comp-clientes">—</div><div class="sub" id="kpi-comp-clientes-pct">—</div></div>
         <div class="kpi"><div class="label">R$ por cliente (implícito)</div><div class="value" id="kpi-comp-rcliente">—</div></div>
       </div>
@@ -1409,12 +1410,12 @@ function tplComparativo(){
     <div class="panel">
       <div class="table-scroll"><table>
         <thead><tr>
-          <th>Provedor</th><th>Proposta usada</th><th>Preço</th><th>Valor da rede</th><th>% rede</th>
+          <th>Provedor</th><th>Proposta usada</th><th>Preço</th><th>Valor da rede</th><th>Custo op. / Receita</th><th>% rede</th>
           <th>Valor clientes (implícito)</th><th>% clientes</th><th>R$/cliente (implícito)</th>
         </tr></thead>
         <tbody id="comparativo-body"></tbody>
       </table></div>
-      <p class="note">"Sem rede carregada" = esse provedor ainda não teve um arquivo KMZ/KML enviado na aba Rede (KMZ) dele. A proposta usada em cada linha é a mesma selecionada acima ou na aba Comparativo daquele provedor — troque lá se quiser comparar com outra oferta.</p>
+      <p class="note">"Sem rede carregada" = esse provedor ainda não teve um arquivo KMZ/KML enviado na aba Rede (KMZ) dele. A proposta usada em cada linha é a mesma selecionada acima ou na aba Comparativo daquele provedor — troque lá se quiser comparar com outra oferta. "Custo op. / Receita" = custo operacional mensal atual (aba Custos &amp; EBITDA) ÷ MRR — quanto menor, mais enxuta a operação em relação ao que fatura; dá pra ver de olho qual provedor foge do padrão dos outros.</p>
     </div>
   </div>`;
 }
@@ -3456,6 +3457,7 @@ function renderComparativoTab(){
       pctRede: preco>0 ? valorRede/preco : 0,
       valorClientes, pctClientes: preco>0 ? valorClientes/preco : 0,
       rCliente: p.clientes ? valorClientes/p.clientes : null,
+      pctCustoReceita: m.mrr ? m.custoAtualTotal/m.mrr : null,
     };
   };
 
@@ -3468,6 +3470,7 @@ function renderComparativoTab(){
   setText('kpi-comp-preco', fmtBRL(atualLinha.preco));
   setText('kpi-comp-rede', atualLinha.temRede ? fmtBRL(atualLinha.valorRede) : '—');
   setText('kpi-comp-rede-pct', atualLinha.temRede ? fmtPct(atualLinha.pctRede)+' do preço' : 'rede ainda não carregada (aba Rede/KMZ)');
+  setText('kpi-comp-custorec', atualLinha.pctCustoReceita!=null ? fmtPct(atualLinha.pctCustoReceita) : '—');
   setText('kpi-comp-clientes', atualLinha.temRede ? fmtBRL(atualLinha.valorClientes) : '—');
   setText('kpi-comp-clientes-pct', atualLinha.temRede ? fmtPct(atualLinha.pctClientes)+' do preço' : '—');
   setText('kpi-comp-rcliente', atualLinha.temRede && atualLinha.rCliente!=null ? fmtBRL2(atualLinha.rCliente) : '—');
@@ -3485,6 +3488,7 @@ function renderComparativoTab(){
       <td>${esc(r.propostaLabel)}</td>
       <td class="computed">${fmtBRL(r.preco)}</td>
       <td class="computed">${r.temRede ? fmtBRL(r.valorRede) : '<span style="color:var(--text-faint);font-weight:400;">sem rede carregada</span>'}</td>
+      <td class="computed">${r.pctCustoReceita!=null ? fmtPct(r.pctCustoReceita) : '—'}</td>
       <td class="computed">${r.temRede ? fmtPct(r.pctRede) : '—'}</td>
       <td class="computed" style="color:${r.temRede && r.valorClientes<0 ? 'var(--bad)' : ''}">${r.temRede ? fmtBRL(r.valorClientes) : '—'}</td>
       <td class="computed">${r.temRede ? fmtPct(r.pctClientes) : '—'}</td>
