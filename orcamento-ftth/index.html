@@ -487,6 +487,7 @@
       <div class="obs-box" style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;">
         <div><label style="display:block;font-size:11.5px;color:var(--cinza);margin-bottom:4px;">CEO 24FO a cada quantas CTOs</label><input id="perfil-ceo-a-cada" type="number" class="qty-in" min="0" step="1"></div>
         <div><label style="display:block;font-size:11.5px;color:var(--cinza);margin-bottom:4px;">Splitter 1x16 por CTO</label><input id="perfil-splitter-por-cto" type="number" class="qty-in" min="0" step="1"></div>
+        <div><label style="display:block;font-size:11.5px;color:var(--cinza);margin-bottom:4px;">Splitter 1x2 por CTO</label><input id="perfil-splitter1x2-por-cto" type="number" class="qty-in" min="0" step="0.1"></div>
         <div><label style="display:block;font-size:11.5px;color:var(--cinza);margin-bottom:4px;">Acopladores por CTO</label><input id="perfil-acoplador-por-cto" type="number" class="qty-in" min="0" step="1"></div>
       </div>
       <div class="resumo" style="margin:16px 22px 20px;">
@@ -689,7 +690,16 @@ function blankPerfilCto(){
     if(m) cabosPorFO[m[1]] = 0;
   });
   if(cabosPorFO['12']!=null) cabosPorFO['12'] = 120;
-  return { cabosPorFO, ceoACada:15, splitterPorCto:1, acopladorPorCto:16 };
+  // Splitter 1x2 SC: exemplo dado foi "a cada 16 CTO uso 8 splitter 1x2" = 0,5 por CTO.
+  return { cabosPorFO, ceoACada:15, splitterPorCto:1, splitter1x2PorCto:0.5, acopladorPorCto:16 };
+}
+
+// Preenche campos novos do perfil com o padrão, sem perder o que a pessoa
+// já tinha ajustado -- necessário pra quem salvou o perfil antes de um
+// campo (ex.: Splitter 1x2) existir.
+function mesclarPerfilComPadrao(perfil){
+  const padrao = blankPerfilCto();
+  return { ...padrao, ...(perfil||{}), cabosPorFO: { ...padrao.cabosPorFO, ...((perfil||{}).cabosPorFO||{}) } };
 }
 
 function loadApp(){
@@ -699,7 +709,7 @@ function loadApp(){
       const parsed = JSON.parse(raw);
       if(parsed.catalogo && parsed.catalogo.length){
         parsed.salvos = parsed.salvos || [];
-        parsed.perfil = parsed.perfil || blankPerfilCto();
+        parsed.perfil = mesclarPerfilComPadrao(parsed.perfil);
         return parsed;
       }
     }
@@ -730,7 +740,7 @@ function applyRemoteState(data){
   app.catalogo = data.catalogo || app.catalogo;
   app.setores = data.setores || app.setores;
   app.salvos = data.salvos || [];
-  app.perfil = data.perfil || app.perfil || blankPerfilCto();
+  app.perfil = mesclarPerfilComPadrao(data.perfil || app.perfil);
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }catch(e){}
   renderCatalogo(); renderSetores(); renderGeral(); renderSalvosList(); renderSimulador();
   if(visualizandoSalvoId){
@@ -1054,6 +1064,11 @@ function calcularBundlePorQtdCTO(qtdCTO){
   itens.push({nome:'Splitter 1x16 CC', unidade:'Unid.', qtd:qtdSplitter, custo:precoSplitter});
   totalMaterial += qtdSplitter*precoSplitter;
 
+  const qtdSplitter1x2 = qtdCTO*(perfil.splitter1x2PorCto||0);
+  const precoSplitter1x2 = precoCatalogo('Splitter 1x2 SC');
+  itens.push({nome:'Splitter 1x2 SC', unidade:'Unid.', qtd:qtdSplitter1x2, custo:precoSplitter1x2});
+  totalMaterial += qtdSplitter1x2*precoSplitter1x2;
+
   const qtdAcoplador = qtdCTO*(perfil.acopladorPorCto||0);
   const precoAcoplador = precoCatalogo('Acoplador');
   itens.push({nome:'Acoplador', unidade:'Unid.', qtd:qtdAcoplador, custo:precoAcoplador});
@@ -1087,9 +1102,11 @@ function renderPerfilCto(){
   }
   const elCeo = document.getElementById('perfil-ceo-a-cada');
   const elSplitter = document.getElementById('perfil-splitter-por-cto');
+  const elSplitter1x2 = document.getElementById('perfil-splitter1x2-por-cto');
   const elAcoplador = document.getElementById('perfil-acoplador-por-cto');
   if(elCeo) elCeo.value = app.perfil.ceoACada;
   if(elSplitter) elSplitter.value = app.perfil.splitterPorCto;
+  if(elSplitter1x2) elSplitter1x2.value = app.perfil.splitter1x2PorCto;
   if(elAcoplador) elAcoplador.value = app.perfil.acopladorPorCto;
 
   atualizarPreviewCustoPorCTO();
@@ -1103,6 +1120,7 @@ function renderPerfilCto(){
   });
   bind(elCeo, e=>{ app.perfil.ceoACada = parseFloat(e.target.value)||0; atualizarPreviewCustoPorCTO(); saveApp(); });
   bind(elSplitter, e=>{ app.perfil.splitterPorCto = parseFloat(e.target.value)||0; atualizarPreviewCustoPorCTO(); saveApp(); });
+  bind(elSplitter1x2, e=>{ app.perfil.splitter1x2PorCto = parseFloat(e.target.value)||0; atualizarPreviewCustoPorCTO(); saveApp(); });
   bind(elAcoplador, e=>{ app.perfil.acopladorPorCto = parseFloat(e.target.value)||0; atualizarPreviewCustoPorCTO(); saveApp(); });
 }
 
@@ -1165,6 +1183,22 @@ function tabelaBundleHTML(bundle){
     </table>`;
 }
 
+function fmtMetrosSim(m){
+  return m>=1000 ? (m/1000).toLocaleString('pt-BR',{maximumFractionDigits:2})+' km' : fmtNumCalc(m)+' m';
+}
+
+// Resumo só da parte de cabo do bundle, pra destacar no título do
+// resultado (o pedido foi "quantas caixas e cabos vou usar", não só
+// o total em R$ escondido numa tabela).
+function resumoCabosBundle(bundle){
+  const linhasCabo = bundle.itens.filter(it => /^Cabo de Fibra/.test(it.nome) && it.qtd>0.0001);
+  const totalMetros = linhasCabo.reduce((s,l)=>s+l.qtd,0);
+  const porBitolaTexto = linhasCabo.length>1
+    ? ' (' + linhasCabo.map(l=>`${fmtMetrosSim(l.qtd)} ${l.nome.replace('Cabo de Fibra ','')}`).join(' + ') + ')'
+    : '';
+  return { linhasCabo, totalMetros, porBitolaTexto };
+}
+
 function simular(){
   const raw = document.getElementById('sim-input').value;
   const valor = parseFloat(String(raw).replace(/\./g,'').replace(',','.')) || parseFloat(raw) || 0;
@@ -1185,15 +1219,17 @@ function simular(){
     const qtdCTOInteira = Math.floor(qtdCTOExata);
     const bundle = calcularBundlePorQtdCTO(qtdCTOInteira);
     const sobra = valor - bundle.totalGeral;
+    const resumoCabo = resumoCabosBundle(bundle);
     resultadoEl.innerHTML = `
-      <div class="sim-resultado-headline">Com ${fmtBRL(valor)} dá pra construir ≈ ${fmtNumCalc(qtdCTOInteira)} CTOs</div>
+      <div class="sim-resultado-headline">Com ${fmtBRL(valor)} dá pra construir ≈ ${fmtNumCalc(qtdCTOInteira)} caixas (CTOs) e ${fmtMetrosSim(resumoCabo.totalMetros)} de cabo${resumoCabo.porBitolaTexto}</div>
       <div class="sim-resultado-sub">Considerando material + mão de obra (sobra ${fmtBRL(sobra)} do orçamento). Só material (sem mão de obra): ≈ ${fmtNumCalc(Math.floor(valor/custoCTO.semMao))} CTOs. Detalhamento abaixo é pra ${fmtNumCalc(qtdCTOInteira)} CTOs:</div>
       ${tabelaBundleHTML(bundle)}`;
   } else {
     const qtdCTO = valor;
     const bundle = calcularBundlePorQtdCTO(qtdCTO);
+    const resumoCabo = resumoCabosBundle(bundle);
     resultadoEl.innerHTML = `
-      <div class="sim-resultado-headline">${fmtNumCalc(qtdCTO)} CTOs custam ≈ ${fmtBRL(bundle.totalGeral)} (com mão de obra)</div>
+      <div class="sim-resultado-headline">${fmtNumCalc(qtdCTO)} caixas (CTOs) vão usar ${fmtMetrosSim(resumoCabo.totalMetros)} de cabo${resumoCabo.porBitolaTexto} e custam ≈ ${fmtBRL(bundle.totalGeral)} (com mão de obra)</div>
       <div class="sim-resultado-sub">Só material, sem mão de obra: ${fmtBRL(bundle.totalMaterial)}.</div>
       ${tabelaBundleHTML(bundle)}`;
   }
