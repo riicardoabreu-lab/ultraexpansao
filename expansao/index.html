@@ -71,7 +71,7 @@
       if(!data.cidades || !data.cidades.length) return;
       if((data.updated||0) <= (window._lastKnownUpdated||0)) return;
       window._lastKnownUpdated = data.updated;
-      if(window._applyRemoteState) window._applyRemoteState(data.cidades, data.updated, data.planoOrdem, data.planoOrcamentoMes);
+      if(window._applyRemoteState) window._applyRemoteState(data.cidades, data.updated, data.planoCidades, data.planoOrcamentoMes);
     }, err => console.error('Falha no listener de sincronização (Expansão):', err));
   });
 </script>
@@ -352,8 +352,14 @@ function blankCidade(nome, municipioId){
     municipioId: municipioId || null, // se preenchido, essa cidade é um bairro dentro de outra (o município)
     concorrentes: [], // [{id,nome,caixas,clientes,planos}] — lista editável (adicionar/editar/excluir),
                        // pode ser semeada a partir do CFO, mas depois de importada é independente dele
-    planoOrcamentoManual: null, // R$ digitado à mão no Plano de Expansão -- sobrepõe o total calculado de materiais (útil pra cidade ainda sem KMZ/orçamento detalhado)
   };
+}
+
+// Item do Plano de Expansão -- cidade-alvo futura, independente da lista
+// de cidades em "Cidades para expansão" (essa já é das expansões em
+// andamento/feitas; o plano é só pra simular próximos passos).
+function blankPlanoCidade(nome){
+  return { id: novoId('pc'), nome: nome || 'Nova cidade', orcamento: 0 };
 }
 
 // Bairros cadastrados dentro de um município (cidades com municipioId apontando pra ele).
@@ -366,13 +372,13 @@ function loadApp(){
       const parsed = JSON.parse(raw);
       if(parsed.cidades && parsed.cidades.length){
         parsed.vistaPlano = parsed.vistaPlano || false;
-        parsed.planoOrdem = parsed.planoOrdem || [];
+        parsed.planoCidades = parsed.planoCidades || [];
         parsed.planoOrcamentoMes = parsed.planoOrcamentoMes || 0;
         return parsed;
       }
     }
   }catch(e){}
-  return { cidades:[], currentId:null, vistaPlano:false, planoOrdem:[], planoOrcamentoMes:0 };
+  return { cidades:[], currentId:null, vistaPlano:false, planoCidades:[], planoOrcamentoMes:0 };
 }
 function saveApp(){
   app.updated = Date.now();
@@ -388,22 +394,22 @@ function current(){ return app.cidades.find(c=>c.id===app.currentId) || null; }
 // com o estado antigo vindo da nuvem. Fica na fila e só aplica (ou
 // descarta, se ficou desatualizada) depois que a gravação local terminar.
 let _pendingRemoteState = null;
-function applyRemoteState(remoteCidades, updated, planoOrdem, planoOrcamentoMes){
-  if(_localSyncPending){ _pendingRemoteState = { cidades: remoteCidades, updated, planoOrdem, planoOrcamentoMes }; return; }
-  applyRemoteStateNow(remoteCidades, planoOrdem, planoOrcamentoMes);
+function applyRemoteState(remoteCidades, updated, planoCidades, planoOrcamentoMes){
+  if(_localSyncPending){ _pendingRemoteState = { cidades: remoteCidades, updated, planoCidades, planoOrcamentoMes }; return; }
+  applyRemoteStateNow(remoteCidades, planoCidades, planoOrcamentoMes);
 }
 function flushPendingRemoteState(){
   if(!_pendingRemoteState || _localSyncPending) return;
   const d = _pendingRemoteState; _pendingRemoteState = null;
   if((d.updated||0) <= (window._lastKnownUpdated||0)) return; // desatualizou enquanto esperava
-  applyRemoteStateNow(d.cidades, d.planoOrdem, d.planoOrcamentoMes);
+  applyRemoteStateNow(d.cidades, d.planoCidades, d.planoOrcamentoMes);
 }
-function applyRemoteStateNow(remoteCidades, planoOrdem, planoOrcamentoMes){
+function applyRemoteStateNow(remoteCidades, planoCidades, planoOrcamentoMes){
   app.cidades = remoteCidades.map(rc => ({ ...rc, kmz: rc.kmz || null, materiais: rc.materiais || [], concorrentes: rc.concorrentes || null }));
   if(!app.cidades.find(c=>c.id===app.currentId)){
     app.currentId = app.cidades[0]?.id || null;
   }
-  if(planoOrdem) app.planoOrdem = planoOrdem;
+  if(planoCidades) app.planoCidades = planoCidades;
   if(planoOrcamentoMes!=null) app.planoOrcamentoMes = planoOrcamentoMes;
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }catch(e){}
   renderAll();
@@ -423,7 +429,7 @@ function syncToCloud(){
     try{
       const updated = Date.now();
       window._lastKnownUpdated = updated; // ignora o eco dessa mesma gravação no listener
-      await window._cloudSave({ cidades: app.cidades, currentId: app.currentId, planoOrdem: app.planoOrdem, planoOrcamentoMes: app.planoOrcamentoMes, updated });
+      await window._cloudSave({ cidades: app.cidades, currentId: app.currentId, planoCidades: app.planoCidades, planoOrcamentoMes: app.planoOrcamentoMes, updated });
     }catch(e){ console.error('Falha ao sincronizar Expansão com a nuvem:', e); }
     finally{ _localSyncPending = false; flushPendingRemoteState(); }
   }, 1500);
@@ -1285,85 +1291,40 @@ function bindKmzControls(){
 }
 
 /* ======================================================================
-   PLANO DE EXPANSÃO — visão geral de todas as cidades planejadas: quanto
-   cada uma custa, e um cronograma estimado empilhando o custo de cada
-   cidade contra um orçamento mensal disponível (uma cidade começa a ser
-   construída quando a anterior, na ordem de prioridade, termina).
+   PLANO DE EXPANSÃO — cidades-alvo FUTURAS que a pessoa digita aqui (lista
+   própria, app.planoCidades — não tem nada a ver com "Cidades para
+   expansão" na barra lateral, que são as expansões já em andamento/feitas).
+   Cada uma tem só um nome e um orçamento estimado; o plano empilha esse
+   custo, na ordem de prioridade, contra um orçamento mensal disponível,
+   pra estimar quando cada cidade começa/termina.
 ====================================================================== */
-function custoMateriaisTotal(c){
-  return (c.materiais||[]).reduce((s,r)=>s+(r.qtd||0)*(r.custo||0),0);
-}
-function statsRedeCidade(c){
-  let metros = 0, ctos = 0;
-  (c.materiais||[]).forEach(r=>{
-    const nome = r.nome||'';
-    if(/^Cabo de Fibra/i.test(nome)) metros += r.qtd||0;
-    if(/^CTO/i.test(nome)) ctos += r.qtd||0;
-  });
-  return { metros, ctos };
-}
-// R$ "efetivo" de uma cidade no plano: o que a pessoa digitou à mão no
-// Plano (pra cidade que ainda não tem KMZ/orçamento detalhado) tem
-// prioridade sobre o total calculado dos materiais.
-function custoEfetivoCidade(c){
-  return c.planoOrcamentoManual!=null ? c.planoOrcamentoManual : custoMateriaisTotal(c);
-}
-
-// Só entram no plano cidades "folha" -- sem bairros filhos e sem grade de
-// projetos própria (essas são hubs/containers, o orçamento de verdade
-// está nos filhos ou no relatório HTML consolidado, que este plano
-// automático não sabe ler).
-function cidadesDoPlano(){
-  return app.cidades.filter(c => filhosDe(c.id).length===0 && !(c.projetos||[]).length);
-}
-
-// Mantém app.planoOrdem em sincronia com as cidades existentes -- cidade
-// nova entra no fim da lista, cidade removida (ou virou hub) sai; a
-// ordem relativa de quem já estava na lista nunca muda sozinha (só pelos
-// botões ▲▼).
-function ordemPlanoAtual(){
-  const validos = new Set(cidadesDoPlano().map(c=>c.id));
-  const ordem = (app.planoOrdem||[]).filter(id=>validos.has(id));
-  const jaNaOrdem = new Set(ordem);
-  cidadesDoPlano().forEach(c=>{ if(!jaNaOrdem.has(c.id)) ordem.push(c.id); });
-  app.planoOrdem = ordem;
-  return ordem.map(id => app.cidades.find(c=>c.id===id)).filter(Boolean);
-}
-
-function calcularCronograma(cidadesOrdenadas, orcamentoMes){
+function calcularCronograma(planoCidades, orcamentoMes){
   let cumulativo = 0;
-  return cidadesOrdenadas.map(c=>{
-    const custo = custoEfetivoCidade(c);
+  return planoCidades.map(pc=>{
+    const custo = pc.orcamento||0;
     const inicioMes = orcamentoMes>0 ? cumulativo/orcamentoMes : null;
     cumulativo += custo;
     const fimMes = orcamentoMes>0 ? cumulativo/orcamentoMes : null;
-    const stats = statsRedeCidade(c);
-    return { c, custo, inicioMes, fimMes, ...stats };
+    return { pc, custo, inicioMes, fimMes };
   });
 }
 
 function renderPlano(){
   const main = document.getElementById('main');
-  const cidades = ordemPlanoAtual();
+  if(!Array.isArray(app.planoCidades)) app.planoCidades = [];
   const orcamentoMes = app.planoOrcamentoMes||0;
-  const linhas = calcularCronograma(cidades, orcamentoMes);
+  const linhas = calcularCronograma(app.planoCidades, orcamentoMes);
   const totalGeral = linhas.reduce((s,l)=>s+l.custo,0);
-  const totalCtos = linhas.reduce((s,l)=>s+l.ctos,0);
-  const totalMetros = linhas.reduce((s,l)=>s+l.metros,0);
   const duracaoMeses = linhas.length ? Math.max(...linhas.map(l=>l.fimMes||0)) : 0;
-
-  const hubsExcluidos = app.cidades.filter(c => filhosDe(c.id).length>0 || (c.projetos||[]).length>0);
 
   main.innerHTML = `
     <div class="page-banner">
       <h1 style="color:#fff;margin:0;font-size:clamp(22px,3vw,30px);font-weight:700;">Plano de Expansão</h1>
-      <p class="page-banner-sub">Orçamento e cronograma estimado pra expandir pelas cidades cadastradas, na ordem de prioridade abaixo.</p>
+      <p class="page-banner-sub">Cidades-alvo futuras — adicione pelo nome, estime o orçamento de cada uma e veja o cronograma com o ritmo de investimento mensal.</p>
     </div>
 
     <div class="resumo-row">
-      <div class="card-resumo"><div class="label">Cidades no plano</div><div class="valor">${fmtNum(cidades.length)}</div></div>
-      <div class="card-resumo"><div class="label">Caixas/CTO no total</div><div class="valor">${fmtNum(totalCtos)}</div></div>
-      <div class="card-resumo"><div class="label">Cabo no total</div><div class="valor">${fmtMetros(totalMetros)}</div></div>
+      <div class="card-resumo"><div class="label">Cidades no plano</div><div class="valor">${fmtNum(linhas.length)}</div></div>
       <div class="card-resumo total"><div class="label">Orçamento total</div><div class="valor" id="plano-resumo-total">${fmtBRL(totalGeral)}</div></div>
     </div>
 
@@ -1380,19 +1341,19 @@ function renderPlano(){
 
     <div class="bloco">
       <div class="bloco-header">Cidades no plano (ordem de prioridade)</div>
-      <div class="bloco-sub">Orçamento vem do total de materiais da própria cidade (aba Orçamento dela); pra cidade ainda sem KMZ/orçamento detalhado, digite uma estimativa direto na coluna R$ — um ↺ aparece pra voltar ao valor calculado. Use ▲▼ pra reordenar a prioridade.</div>
+      <div class="bloco-sub">Digite o nome e uma estimativa de orçamento pra cada cidade-alvo. Use ▲▼ pra reordenar a prioridade de execução.</div>
       <div class="bloco-body">
         <div class="table-scroll"><table>
-          <thead><tr><th>#</th><th>Cidade</th><th>Caixas/CTO</th><th>Cabo</th><th>Orçamento (R$)</th><th>Início</th><th>Fim</th><th></th></tr></thead>
+          <thead><tr><th>#</th><th>Cidade</th><th>Orçamento (R$)</th><th>Início</th><th>Fim</th><th></th></tr></thead>
           <tbody id="planoBody"></tbody>
-          <tfoot><tr><td colspan="4">TOTAL</td><td class="computed" id="plano-footer-total">${fmtBRL(totalGeral)}</td><td colspan="3" class="computed" id="plano-footer-duracao">${orcamentoMes>0 ? fmtNumCalcMeses(duracaoMeses)+' meses' : '—'}</td></tr></tfoot>
+          <tfoot><tr><td colspan="2">TOTAL</td><td class="computed" id="plano-footer-total">${fmtBRL(totalGeral)}</td><td colspan="3" class="computed" id="plano-footer-duracao">${orcamentoMes>0 ? fmtNumCalcMeses(duracaoMeses)+' meses' : '—'}</td></tr></tfoot>
         </table></div>
-        ${!cidades.length ? `<p class="hint" style="margin-top:12px;">Nenhuma cidade "folha" cadastrada ainda — clique em <b>+ Nova cidade</b> na barra lateral.</p>` : ''}
-        ${hubsExcluidos.length ? `<p class="hint" style="margin-top:12px;">Não entram no plano automático (têm orçamento próprio em relatório/bairros separados): ${hubsExcluidos.map(c=>esc(c.nome)).join(', ')}.</p>` : ''}
+        <button class="add-row" id="addPlanoCidadeBtn" type="button">+ Adicionar cidade ao plano</button>
+        ${!linhas.length ? `<p class="hint" style="margin-top:12px;">Nenhuma cidade no plano ainda — clique em <b>+ Adicionar cidade ao plano</b>.</p>` : ''}
       </div>
     </div>
 
-    <footer>Plano de expansão — cronograma estimado a partir do orçamento de cada cidade · Expansão Infolink</footer>
+    <footer>Plano de expansão — cronograma estimado a partir do orçamento informado pra cada cidade · Expansão Infolink</footer>
   `;
 
   const orcInput = document.getElementById('plano-orcamento-mes');
@@ -1410,75 +1371,74 @@ function renderPlano(){
   };
 
   const tbody = document.getElementById('planoBody');
-  tbody.innerHTML = linhas.map((l,i)=>{
-    const manual = l.c.planoOrcamentoManual!=null;
-    return `<tr data-id="${l.c.id}">
+  tbody.innerHTML = linhas.map((l,i)=>`<tr data-id="${l.pc.id}">
       <td>${i+1}</td>
-      <td>${esc(l.c.nome)||'(sem nome)'}</td>
-      <td style="text-align:right;">${l.ctos ? fmtNum(l.ctos) : '—'}</td>
-      <td style="text-align:right;">${l.metros ? fmtMetros(l.metros) : '—'}</td>
-      <td style="text-align:right;">
-        <div style="display:flex;gap:4px;align-items:center;justify-content:flex-end;">
-          <input type="text" inputmode="numeric" class="conc-in" data-role="orc" style="width:120px;text-align:right;" value="${fmtMoneyInput(l.custo)}">
-          <button type="button" class="del-btn" data-role="reset" title="Voltar ao total calculado de materiais" style="${manual?'':'display:none;'}">↺</button>
-        </div>
-      </td>
+      <td><input type="text" class="conc-in" data-role="nome" style="min-width:160px;text-align:left;" value="${esc(l.pc.nome)}" placeholder="Nome da cidade"></td>
+      <td style="text-align:right;"><input type="text" inputmode="numeric" class="conc-in" data-role="orc" style="width:130px;text-align:right;" value="${fmtMoneyInput(l.custo)}"></td>
       <td style="text-align:right;" data-role="inicio">${l.inicioMes!=null ? fmtNumCalcMeses(l.inicioMes) : '—'}</td>
       <td style="text-align:right;" data-role="fim">${l.fimMes!=null ? fmtNumCalcMeses(l.fimMes) : '—'}</td>
       <td style="white-space:nowrap;">
         <button type="button" class="del-btn" data-role="up" title="Subir prioridade" ${i===0?'disabled':''}>▲</button>
         <button type="button" class="del-btn" data-role="down" title="Descer prioridade" ${i===linhas.length-1?'disabled':''}>▼</button>
+        <button type="button" class="del-btn" data-role="rm" title="Remover do plano">✕</button>
       </td>
-    </tr>`;
-  }).join('') || '';
+    </tr>`).join('') || '';
 
   tbody.querySelectorAll('tr[data-id]').forEach(tr=>{
     const id = tr.dataset.id;
-    const c = app.cidades.find(x=>x.id===id); if(!c) return;
-    const orcInputRow = tr.querySelector('[data-role="orc"]');
-    orcInputRow.addEventListener('input', e=>{
+    const pc = app.planoCidades.find(x=>x.id===id); if(!pc) return;
+    tr.querySelector('[data-role="nome"]').addEventListener('input', e=>{ pc.nome = e.target.value; saveApp(); });
+    tr.querySelector('[data-role="orc"]').addEventListener('input', e=>{
       const digitsBeforeCursor = e.target.value.slice(0, e.target.selectionStart).replace(/\D/g,'').length;
       const raw = parseMoneyInput(e.target.value);
       e.target.value = fmtMoneyInput(raw);
       let pos=0, digits=0;
       while(pos<e.target.value.length && digits<digitsBeforeCursor){ if(/\d/.test(e.target.value[pos])) digits++; pos++; }
       e.target.setSelectionRange(pos,pos);
-      c.planoOrcamentoManual = raw;
+      pc.orcamento = raw;
       saveApp();
-      const resetBtn = tr.querySelector('[data-role="reset"]');
-      if(resetBtn) resetBtn.style.display = '';
       atualizarCronogramaDOM();
     });
-    const resetBtn = tr.querySelector('[data-role="reset"]');
-    if(resetBtn) resetBtn.onclick = ()=>{ c.planoOrcamentoManual = null; saveApp(); renderPlano(); };
-    const upBtn = tr.querySelector('[data-role="up"]');
-    const downBtn = tr.querySelector('[data-role="down"]');
+    const idx0 = () => app.planoCidades.indexOf(pc);
     const mover = delta => {
-      const idx = app.planoOrdem.indexOf(id); if(idx<0) return;
+      const idx = idx0(); if(idx<0) return;
       const novoIdx = idx+delta;
-      if(novoIdx<0 || novoIdx>=app.planoOrdem.length) return;
-      [app.planoOrdem[idx], app.planoOrdem[novoIdx]] = [app.planoOrdem[novoIdx], app.planoOrdem[idx]];
+      if(novoIdx<0 || novoIdx>=app.planoCidades.length) return;
+      [app.planoCidades[idx], app.planoCidades[novoIdx]] = [app.planoCidades[novoIdx], app.planoCidades[idx]];
       saveApp();
       renderPlano();
     };
-    if(upBtn) upBtn.onclick = () => mover(-1);
-    if(downBtn) downBtn.onclick = () => mover(1);
+    tr.querySelector('[data-role="up"]').onclick = () => mover(-1);
+    tr.querySelector('[data-role="down"]').onclick = () => mover(1);
+    tr.querySelector('[data-role="rm"]').onclick = () => {
+      app.planoCidades = app.planoCidades.filter(x=>x.id!==id);
+      saveApp();
+      renderPlano();
+    };
   });
+
+  const addBtn = document.getElementById('addPlanoCidadeBtn');
+  if(addBtn) addBtn.onclick = () => {
+    app.planoCidades.push(blankPlanoCidade(''));
+    saveApp();
+    renderPlano();
+    const inputs = tbody.querySelectorAll('[data-role="nome"]');
+    if(inputs.length) inputs[inputs.length-1].focus();
+  };
 }
 
 // Recalcula início/fim de cada cidade + totais, sem reconstruir a tabela
 // (reconstruir a cada tecla digitada no campo de orçamento derrubaria o
 // foco/cursor de quem está digitando).
 function atualizarCronogramaDOM(){
-  const cidades = ordemPlanoAtual();
   const orcamentoMes = app.planoOrcamentoMes||0;
-  const linhas = calcularCronograma(cidades, orcamentoMes);
+  const linhas = calcularCronograma(app.planoCidades||[], orcamentoMes);
   const totalGeral = linhas.reduce((s,l)=>s+l.custo,0);
   const duracaoMeses = linhas.length ? Math.max(...linhas.map(l=>l.fimMes||0)) : 0;
   const duracaoTexto = orcamentoMes>0 ? fmtNumCalcMeses(duracaoMeses)+' meses' : '—';
 
   linhas.forEach(l=>{
-    const tr = document.querySelector(`#planoBody tr[data-id="${l.c.id}"]`);
+    const tr = document.querySelector(`#planoBody tr[data-id="${l.pc.id}"]`);
     if(!tr) return;
     const inicioEl = tr.querySelector('[data-role="inicio"]');
     const fimEl = tr.querySelector('[data-role="fim"]');
