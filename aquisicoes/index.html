@@ -2882,14 +2882,34 @@ function renderKmzCidadeBlock(){
         <td style="text-align:right">${it.preco==null?'<span style="color:var(--text-dim)">—</span>':`<input type="number" data-role="preco" step="0.01" value="${it.preco}" style="width:80px;text-align:right;">`}</td>
         ${cidadesOrdenadas.map(ck=>`<td style="text-align:right">${fmtNum(it.porCidade[ck]||0)}</td>`).join('')}
         <td style="text-align:right;font-weight:600;">${fmtNum(it.qtdTotal)}</td>
-        <td style="text-align:right;font-weight:600;">${it.valorTotal==null?'<span style="color:var(--text-dim)">—</span>':fmtBRL(it.valorTotal)}</td>
+        <td style="text-align:right;font-weight:600;" data-role="valorTotal">${it.valorTotal==null?'<span style="color:var(--text-dim)">—</span>':fmtBRL(it.valorTotal)}</td>
       </tr>`).join('') || `<tr><td colspan="99" style="color:var(--text-dim);">Nenhum item com quantidade.</td></tr>`;
+    // Patch em vez de reconstruir a tabela inteira a cada tecla -- um
+    // rebuild do innerHTML a cada keystroke derruba o foco/cursor de quem
+    // está digitando o preço (o input vira um elemento novo). Recalcula só
+    // os números derivados: a célula "Valor total" dessa linha, o rodapé
+    // por cidade, e os totais que outras partes da tela leem (KPI "Valor
+    // estimado da rede" acima e a aba Comparativo).
     orcBody.oninput = e => {
       if(e.target.dataset.role!=='preco') return;
       const tr = e.target.closest('tr'); const chave = tr?.dataset.item; if(!chave) return;
-      current().kmzOrcCidadePrecos[chave] = parseFloat(e.target.value)||0;
+      const pp = current();
+      pp.kmzOrcCidadePrecos[chave] = parseFloat(e.target.value)||0;
       saveApp();
-      renderKmzCidadeBlock();
+      const orcAtual = computarOrcamentoCidades(porCidade, pp.kmzOrcCidadePrecos);
+      const itemAtual = orcAtual.itens.find(it=>it.chave===chave);
+      const valorCell = tr.querySelector('[data-role="valorTotal"]');
+      if(valorCell && itemAtual) valorCell.textContent = itemAtual.valorTotal==null ? '—' : fmtBRL(itemAtual.valorTotal);
+      const foot = document.getElementById('kmz-cidade-orc-foot');
+      if(foot){
+        foot.innerHTML = `<td style="font-weight:700;">TOTAL POR CIDADE (R$)</td><td></td>` +
+          cidadesOrdenadas.map(ck=>`<td style="text-align:right;font-weight:700;">${fmtBRL(orcAtual.subtotalPorCidade[ck])}</td>`).join('') +
+          `<td></td><td style="text-align:right;font-weight:700;">${fmtBRL(orcAtual.totalGeral)}</td>`;
+      }
+      setText('kpi-kmz-orc-geral', fmtBRL(orcAtual.totalGeral));
+      setText('kpi-kmz-valor', fmtBRL(orcAtual.totalGeral));
+      if(pp.kmzValorRedeCache !== orcAtual.totalGeral){ pp.kmzValorRedeCache = orcAtual.totalGeral; saveApp(); }
+      renderComparativoTab();
     };
   }
   const orcFoot = document.getElementById('kmz-cidade-orc-foot');
