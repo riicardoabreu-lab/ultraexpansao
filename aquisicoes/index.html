@@ -41,7 +41,20 @@
   // no MESMO documento. Em caso de edição simultânea, vale a última que
   // salvou (last write wins).
   const SHARED_DOC_ID = 'equipe';
-  window._lastKnownUpdated = 0;
+  // Semeia com o "updated" já salvo localmente (não com 0) -- senão, se a
+  // gravação na nuvem de uma edição recente (ex.: o seed de custos da
+  // PLANETA NET feito no carregamento da página) ainda não tiver
+  // terminado quando o listener abaixo recebe o snapshot antigo da
+  // nuvem, esse snapshot passaria no filtro de "é mais novo que o que eu
+  // já vi" (0 é sempre menor) e sobrescreveria em silêncio o que acabou
+  // de ser salvo no navegador.
+  window._lastKnownUpdated = (function(){
+    try{
+      const raw = localStorage.getItem('plataforma-isp-v1');
+      if(raw) return JSON.parse(raw).updated || 0;
+    }catch(e){}
+    return 0;
+  })();
 
   window._cloudSave = (data) => {
     if(!window._fbUser) return Promise.resolve();
@@ -596,10 +609,16 @@ let app = loadApp();
   saveApp();
 })();
 // Custos operacionais reais da PLANETA NET (operação atual, por sede) --
-// roda só uma vez (marcador _custosSeedPlanetaNetV) e só ACRESCENTA linhas
-// em custosAtual, nunca substitui -- não apaga nada que a pessoa já tenha
-// editado/adicionado na aba Custos & EBITDA depois desse seed rodar.
-(function seedCustosPlanetaNet(){
+// roda só uma vez por registro (marcador _custosSeedPlanetaNetV) e só
+// ACRESCENTA linhas em custosAtual, nunca substitui -- não apaga nada que
+// a pessoa já tenha editado/adicionado na aba Custos & EBITDA depois
+// desse seed rodar. Chamada tanto no carregamento inicial quanto depois
+// de aplicar um estado vindo da nuvem (applyRemoteStateNow) -- o doc
+// Firestore é compartilhado pela equipe toda (SHARED_DOC_ID), então um
+// snapshot mais recente de outra pessoa pode chegar e sobrescrever
+// app.empresas antes/logo depois do seed inicial rodar; rodar de novo
+// ali garante que a marca registrada fique mesmo que isso aconteça.
+function seedCustosPlanetaNet(){
   const e = app.empresas.find(e=>(e.nome||'').toLowerCase().includes('planeta net'));
   if(!e || e._custosSeedPlanetaNetV) return;
   if(!Array.isArray(e.custosAtual)) e.custosAtual = [];
@@ -641,7 +660,8 @@ let app = loadApp();
   );
   e._custosSeedPlanetaNetV = 1;
   saveApp();
-})();
+}
+seedCustosPlanetaNet();
 // Migração: qualquer KMZ que tenha ficado no formato antigo (dataUrl
 // pesado dentro do próprio localStorage) vai pro IndexedDB, e o registro
 // aqui fica só com o nome (evita re-salvar o JSON gigante de novo).
@@ -666,6 +686,13 @@ function loadApp(){
   return { empresas:[demo], currentId: demo.id };
 }
 function saveApp(){
+  // Marca quando essa gravação LOCAL aconteceu -- usado só pra semear
+  // window._lastKnownUpdated no próximo carregamento da página (ver
+  // script do <head>), pra um snapshot antigo vindo da nuvem logo após o
+  // load não passar no filtro de "é mais novo" e sobrescrever uma edição
+  // local recente (ex.: o seed de custos da PLANETA NET) antes dela ter
+  // chance de subir pra nuvem.
+  app.updated = Date.now();
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }
   catch(e){ alert('Não foi possível salvar (armazenamento local cheio). Exporte seus dados em "Exportar tudo".'); }
   syncToCloud();
@@ -698,6 +725,7 @@ function applyRemoteStateNow(remoteEmpresas){
     app.currentId = app.empresas[0]?.id || null;
   }
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(app)); }catch(e){}
+  seedCustosPlanetaNet();
   renderAll();
 }
 window._applyRemoteState = applyRemoteState;
