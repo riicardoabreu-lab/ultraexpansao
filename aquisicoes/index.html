@@ -595,6 +595,53 @@ let app = loadApp();
   ];
   saveApp();
 })();
+// Custos operacionais reais da PLANETA NET (operação atual, por sede) --
+// roda só uma vez (marcador _custosSeedPlanetaNetV) e só ACRESCENTA linhas
+// em custosAtual, nunca substitui -- não apaga nada que a pessoa já tenha
+// editado/adicionado na aba Custos & EBITDA depois desse seed rodar.
+(function seedCustosPlanetaNet(){
+  const e = app.empresas.find(e=>(e.nome||'').trim().toLowerCase()==='planeta net');
+  if(!e || e._custosSeedPlanetaNetV) return;
+  if(!Array.isArray(e.custosAtual)) e.custosAtual = [];
+  e.custosAtual.push(
+    {cat:'DP',item:'Folha de Pagamento — Apuiarés',qtd:1,valor:13242.00},
+    {cat:'DO',item:'Energia Enel Sede — Apuiarés',qtd:1,valor:507.00},
+    {cat:'DO',item:'Energia Prédio Comercial — Apuiarés',qtd:1,valor:443.29},
+    {cat:'DO',item:'Saneamento Água — Apuiarés',qtd:1,valor:173.50},
+    {cat:'DO',item:'Combustível de Frota — Apuiarés',qtd:1,valor:1650.00},
+    {cat:'DO',item:'Material de Insumos — Apuiarés',qtd:1,valor:771.00},
+    {cat:'DO',item:'Licença de Software (IXC, Opa Suite, Consult Center) — Apuiarés',qtd:1,valor:4319.08},
+    {cat:'DO',item:'Link Dedicado — Apuiarés',qtd:1,valor:4000.00},
+    {cat:'DO',item:'Diarista de Limpeza — Apuiarés',qtd:1,valor:520.00},
+    {cat:'DP',item:'Recepção de Loja — Tuturu',qtd:1,valor:1621.00},
+    {cat:'DO',item:'Aluguel Comercial — Tuturu',qtd:1,valor:1200.00},
+    {cat:'DO',item:'Energia Enel — Tuturu',qtd:1,valor:454.33},
+    {cat:'DO',item:'Saneamento Água — Tuturu',qtd:1,valor:58.60},
+    {cat:'DO',item:'Combustível de Frota — Tuturu',qtd:1,valor:1800.00},
+    {cat:'DO',item:'Material de Insumo — Tuturu',qtd:1,valor:130.00},
+    {cat:'DO',item:'Link Dedicado — Tuturu',qtd:1,valor:1400.00},
+    {cat:'DO',item:'Transporte L2 — Tuturu',qtd:1,valor:1000.00},
+    {cat:'DP',item:'Técnico de Campo — Santana do Acaraú',qtd:1,valor:1341.00},
+    {cat:'DO',item:'Aluguel + Energia — Santana do Acaraú',qtd:1,valor:703.83},
+    {cat:'DO',item:'Aluguel de Carro — Santana do Acaraú',qtd:1,valor:300.00},
+    {cat:'DO',item:'Combustível de Frota — Santana do Acaraú',qtd:1,valor:100.00},
+    {cat:'DO',item:'Link Dedicado — Santana do Acaraú',qtd:1,valor:1400.00},
+    {cat:'DO',item:'Transporte L2 — Santana do Acaraú',qtd:1,valor:1000.00},
+    {cat:'DO',item:'Prestador de Serviço — Paramoti',qtd:1,valor:2000.00},
+    {cat:'DO',item:'Link Dedicado — Paramoti',qtd:1,valor:1400.00},
+    {cat:'DO',item:'Transporte L2 — Paramoti',qtd:1,valor:1000.00},
+    {cat:'DP',item:'Técnico de Campo — Itapipoca',qtd:1,valor:1341.00},
+    {cat:'DO',item:'Energia + Combustível — Itapipoca',qtd:1,valor:700.00},
+    {cat:'DO',item:'Link Dedicado — Itapipoca',qtd:1,valor:1400.00},
+    {cat:'DO',item:'Aluguel + Garagem + Escritório — Tejuçuoca',qtd:1,valor:450.00},
+    {cat:'DO',item:'Combustível de Frota — Tejuçuoca',qtd:1,valor:442.00},
+    {cat:'DO',item:'Link Dedicado — Tejuçuoca',qtd:1,valor:1400.00},
+    {cat:'DO',item:'Aluguel + Energia — General Sampaio',qtd:1,valor:460.00},
+    {cat:'DO',item:'Link Dedicado — General Sampaio',qtd:1,valor:1400.00},
+  );
+  e._custosSeedPlanetaNetV = 1;
+  saveApp();
+})();
 // Migração: qualquer KMZ que tenha ficado no formato antigo (dataUrl
 // pesado dentro do próprio localStorage) vai pro IndexedDB, e o registro
 // aqui fica só com o nome (evita re-salvar o JSON gigante de novo).
