@@ -600,7 +600,7 @@ let app = loadApp();
 // em custosAtual, nunca substitui -- não apaga nada que a pessoa já tenha
 // editado/adicionado na aba Custos & EBITDA depois desse seed rodar.
 (function seedCustosPlanetaNet(){
-  const e = app.empresas.find(e=>(e.nome||'').trim().toLowerCase()==='planeta net');
+  const e = app.empresas.find(e=>(e.nome||'').toLowerCase().includes('planeta net'));
   if(!e || e._custosSeedPlanetaNetV) return;
   if(!Array.isArray(e.custosAtual)) e.custosAtual = [];
   e.custosAtual.push(
