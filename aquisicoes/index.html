@@ -2574,6 +2574,22 @@ function parseKML(xmlText){
     if(!porCidade[chave]) porCidade[chave] = {caixas:0, ceo24:0, ceo144:0, outros:0, cabosPorFO:{}, cabosNaoIdentificados:0};
     return porCidade[chave];
   };
+  // Alguns KMZ são gerados já com a bitola exata em
+  // <ExtendedData><Data name="vias"><value>N</value></Data></ExtendedData>
+  // (ex.: exports que guardam vias/tubetes/cor/POP por cabo) -- quando
+  // existe, é mais confiável que tentar achar "12 FO" no nome/descrição
+  // ou adivinhar pela cor da linha (a cor pode identificar outra coisa,
+  // tipo a rota/trecho, não a bitola -- já vi arquivo onde a mesma cor
+  // tinha cabos de bitolas bem diferentes).
+  const viasExtendedData = pm => {
+    for(const d of pm.getElementsByTagName('Data')){
+      if((d.getAttribute('name')||'').toLowerCase() === 'vias'){
+        const n = parseInt(d.getElementsByTagName('value')[0]?.textContent?.trim(), 10);
+        if(isFinite(n)) return n;
+      }
+    }
+    return null;
+  };
   placemarks.forEach(pm=>{
     const name = pm.getElementsByTagName('name')[0]?.textContent?.trim() || '';
     const desc = pm.getElementsByTagName('description')[0]?.textContent?.trim() || '';
@@ -2610,7 +2626,7 @@ function parseKML(xmlText){
         const rgbReal = colorHex ? kmlColorToRgb(colorHex) : null;
 
         let chave, label, foIdentificado = null;
-        const bitolaDireta = classifyLineModel(name, desc);
+        const bitolaDireta = viasExtendedData(pm) ?? classifyLineModel(name, desc);
         if(bitolaDireta != null){
           chave = String(bitolaDireta); label = bitolaDireta+' FO'; foIdentificado = bitolaDireta;
         } else {
