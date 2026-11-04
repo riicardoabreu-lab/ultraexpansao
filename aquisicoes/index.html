@@ -482,6 +482,8 @@ function blankEmpresa(nome){
     kmzCabosRenomeados:{}, // chave (auto-detectada) -> label customizado, ex. renomear "Cabo cor Amarela (bitola não identificada)" pra "6 FO"
     kmzOrcCidadePrecos:{}, // preço unitário editável do orçamento por cidade (chave do item -> R$), default = catálogo do Orçamento FTTH
     kmzCidadesRenomeadas:{}, // nome bruto do Document do KMZ (uma cidade) -> label customizado
+    kmzColetaEquipes:1, // tempo de coleta: quantas equipes de campo fazem a vistoria das caixas/CTOs em paralelo
+    kmzColetaCaixasPorDia:15, // tempo de coleta: quantas caixas 1 equipe sozinha consegue vistoriar por dia útil
   };
 }
 
@@ -1430,6 +1432,13 @@ function tplRede(){
       <p class="note">Linhas vindas do KMZ: dá pra renomear a categoria (ex. identificar uma cor) e remover da tabela/total (não apaga nada do arquivo original, só tira da conta). Linhas adicionadas com "+ adicionar item" são 100% manuais — categoria, segmentos e metragem editáveis.</p>
       <div class="kpi-row" style="margin-top:16px;">
         <div class="kpi hi"><div class="label">Valor estimado da rede</div><div class="value" id="kpi-kmz-valor">—</div><div class="sub" id="kpi-kmz-valor-sub">Caixas×custo + CEOs×custo + Σ(metragem×custo/metro por categoria)</div></div>
+      </div>
+      <div class="field-grid" style="margin-top:16px;">
+        <div class="field"><label>Nº de equipes de coleta</label><input id="in-kmz-coleta-equipes" type="number" min="1" step="1"></div>
+        <div class="field"><label>Caixas vistoriadas por equipe / dia</label><input id="in-kmz-coleta-ritmo" type="number" min="1" step="1"></div>
+      </div>
+      <div class="kpi-row" style="margin-top:16px;">
+        <div class="kpi hi"><div class="label">Tempo de coleta</div><div class="value" id="kpi-kmz-coleta-dias">—</div><div class="sub" id="kpi-kmz-coleta-sub">dias úteis pra vistoriar todas as caixas/CTOs</div></div>
       </div>
       <p class="note">Pontos: nomes tipo "CT10B"/"CTO" → caixa; "CEO" → emenda. Cabos: primeiro procura a bitola escrita direto no nome/descrição da linha (ex: "12 FO"); se não achar, usa a <b>cor da linha</b> no KMZ cruzada com uma legenda de cores escrita em alguma descrição do arquivo (ex: "VERDE = 6 FO"). Cor sem legenda correspondente vira "Cabo cor X (bitola não identificada)" — ainda dá pra precificar, só não sabe a bitola exata. Confira visualmente no mapa acima se a classificação bateu.</p>
     </div>
@@ -2894,6 +2903,22 @@ function renderKmzStatsPanel(){
   const avisoMultiCidade = document.getElementById('kmzCabosAvisoMultiCidade');
   if(avisoMultiCidade) avisoMultiCidade.style.display = orcCidadesParaValor ? '' : 'none';
 
+  // Tempo de coleta: quanto tempo o time de campo leva pra vistoriar TODAS
+  // as caixas/CTOs do KMZ, dado um nº de equipes trabalhando em paralelo e
+  // um ritmo (caixas/equipe/dia). Total de caixas ÷ (equipes × ritmo),
+  // arredondado pra cima -- dia parcial ainda é um dia de trabalho.
+  {
+    const equipes = Math.max(1, p.kmzColetaEquipes||1);
+    const ritmo = Math.max(1, p.kmzColetaCaixasPorDia||1);
+    const capacidadeDiaria = equipes*ritmo;
+    const diasUteis = s.caixas>0 ? Math.ceil(s.caixas/capacidadeDiaria) : 0;
+    const semanas = diasUteis/5;
+    setText('kpi-kmz-coleta-dias', diasUteis>0 ? `${fmtNum(diasUteis)} ${diasUteis===1?'dia útil':'dias úteis'}` : '—');
+    setText('kpi-kmz-coleta-sub', s.caixas>0
+      ? `${fmtNum(s.caixas)} caixas ÷ (${fmtNum(equipes)} equipe${equipes===1?'':'s'} × ${fmtNum(ritmo)}/dia) = ${fmtNum(capacidadeDiaria)}/dia${semanas>=1.4?` — ≈${semanas.toLocaleString('pt-BR',{maximumFractionDigits:1})} semanas úteis`:''}`
+      : 'dias úteis pra vistoriar todas as caixas/CTOs');
+  }
+
   // Cacheia no próprio provedor (persiste com o resto dos dados) pra dar pra
   // comparar entre provedores na aba "Comparativo" sem precisar reabrir o
   // KMZ de cada um.
@@ -3127,6 +3152,14 @@ function bindKmzControls(){
       while(pos < el.value.length && digits < digitsBeforeCursor){ if(/\d/.test(el.value[pos])) digits++; pos++; }
       el.setSelectionRange(pos, pos);
       current()[field] = raw; renderKmzStatsPanel(); saveApp();
+    };
+  });
+  [['in-kmz-coleta-equipes','kmzColetaEquipes'],['in-kmz-coleta-ritmo','kmzColetaCaixasPorDia']].forEach(([id, field])=>{
+    const el = document.getElementById(id); if(!el) return;
+    el.value = current()[field] || '';
+    el.oninput = () => {
+      current()[field] = Math.max(0, parseInt(el.value,10)||0);
+      renderKmzStatsPanel(); saveApp();
     };
   });
   renderKmzStatsPanel();
