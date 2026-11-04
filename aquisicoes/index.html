@@ -1423,7 +1423,7 @@ function tplRede(){
         <div class="field"><label>Custo por caixa/CTO (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-kmz-custo-caixa" type="text" inputmode="numeric"></div></div>
         <div class="field"><label>Custo por CEO (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-kmz-custo-ceo" type="text" inputmode="numeric"></div></div>
       </div>
-      <p class="note" id="kmzCabosAvisoMultiCidade" style="display:none;color:var(--warn,#d97706);">Este KMZ tem várias cidades — as linhas de cabo AUTO-detectadas (vindas do arquivo) não entram mais no "Valor estimado da rede" aqui embaixo (esse valor já vem do orçamento por cidade, mais abaixo, pra não contar o mesmo cabo duas vezes); ficam só como detalhe por bitola, se quiser. Linhas adicionadas com "+ adicionar item" (equipamento, etc.) continuam entrando no total normalmente.</p>
+      <p class="note" id="kmzCabosAvisoMultiCidade" style="display:none;color:var(--warn,#d97706);">Este KMZ tem várias cidades/redes — as linhas de cabo AUTO-detectadas (vindas do arquivo) não entram mais no "Valor estimado da rede" aqui embaixo (esse valor já vem do orçamento por cidade/rede, mais abaixo, pra não contar o mesmo cabo duas vezes); ficam só como detalhe por bitola, se quiser. Linhas adicionadas com "+ adicionar item" (equipamento, etc.) continuam entrando no total normalmente.</p>
       <div class="table-scroll" style="margin-top:16px;"><table>
         <thead><tr><th>Categoria de cabo</th><th style="text-align:right">Segmentos</th><th style="text-align:right">Metragem</th><th style="text-align:right">Custo/metro (R$)</th><th style="text-align:right">Total</th><th></th></tr></thead>
         <tbody id="kmz-cabos-body"></tbody>
@@ -1444,16 +1444,16 @@ function tplRede(){
     </div>
   </div>
   <div class="sec-block" id="kmzCidadeBlock" style="display:none;">
-    <h3>Quantitativo e orçamento por cidade</h3>
-    <p class="hint">Aparece quando o KMZ carregado junta várias cidades num arquivo só (uma pasta/Document por cidade). Orçamento calculado com o mesmo catálogo e as mesmas fórmulas da aba Orçamento FTTH (Alça = cabo ÷ 20; Poste = cabo ÷ divisor por bitola; Bap = Poste; Supa = Poste × 1,5) — Splitter 1x16 CC e Acoplador saem da quantidade de CTO (1 splitter + 16 acopladores por CTO). Preço unitário é editável; nome da cidade também (clique e digite).</p>
+    <h3>Quantitativo e orçamento por cidade/rede</h3>
+    <p class="hint">Aparece quando o KMZ carregado junta várias cidades ou redes num arquivo só (um Document por cidade, OU um Document só com várias pastas de topo tipo "FORTALEZA"/"CONNECT" — cada pasta de topo vira uma linha). Orçamento calculado com o mesmo catálogo e as mesmas fórmulas da aba Orçamento FTTH (Alça = cabo ÷ 20; Poste = cabo ÷ divisor por bitola; Bap = Poste; Supa = Poste × 1,5) — Splitter 1x16 CC e Acoplador saem da quantidade de CTO (1 splitter + 16 acopladores por CTO). Preço unitário é editável; nome também (clique e digite).</p>
     <div class="panel">
-      <h4 style="margin:0 0 8px;font-size:13px;color:var(--text-dim);">Quantitativo por cidade</h4>
+      <h4 style="margin:0 0 8px;font-size:13px;color:var(--text-dim);">Quantitativo por cidade/rede</h4>
       <div class="table-scroll"><table>
         <thead><tr id="kmz-cidade-qtd-head"></tr></thead>
         <tbody id="kmz-cidade-qtd-body"></tbody>
       </table></div>
 
-      <h4 style="margin:20px 0 8px;font-size:13px;color:var(--text-dim);">Orçamento por cidade (R$)</h4>
+      <h4 style="margin:20px 0 8px;font-size:13px;color:var(--text-dim);">Orçamento por cidade/rede (R$)</h4>
       <div class="table-scroll"><table>
         <thead><tr id="kmz-cidade-orc-head"></tr></thead>
         <tbody id="kmz-cidade-orc-body"></tbody>
@@ -1462,7 +1462,7 @@ function tplRede(){
       <p class="note">"Cabo (bitola não identificada)" = trechos sem FO escrito no nome/descrição e sem cor com legenda correspondente (ver tabela "Categoria de cabo" acima) — preço inicial R$ 0, edite se quiser incluir no total; não gera Alça/Poste/Bap/Supa (essas fórmulas dependem de saber a bitola).</p>
 
       <div class="kpi-row" style="margin-top:16px;">
-        <div class="kpi hi"><div class="label">Orçamento geral do KMZ</div><div class="value" id="kpi-kmz-orc-geral">—</div><div class="sub">Soma do material de todas as cidades (sem mão de obra)</div></div>
+        <div class="kpi hi"><div class="label">Orçamento geral do KMZ</div><div class="value" id="kpi-kmz-orc-geral">—</div><div class="sub">Soma do material de todas as cidades/redes (sem mão de obra)</div></div>
       </div>
     </div>
   </div>`;
@@ -2583,6 +2583,31 @@ function parseKML(xmlText){
     if(!porCidade[chave]) porCidade[chave] = {caixas:0, ceo24:0, ceo144:0, outros:0, cabosPorFO:{}, cabosNaoIdentificados:0};
     return porCidade[chave];
   };
+  // Alguns exports juntam várias REDES (não cidades) num arquivo só com um
+  // único <Document>, mas uma pasta de topo por rede (ex.: "FORTALEZA" /
+  // "INHAMUNS" / "CONNECT", cada uma com sua própria subpasta CTOs/CEOs/
+  // Cabos) -- diferente do padrão "1 Document por cidade". Quando isso
+  // acontece (só 1 Document, mas ≥2 pastas de topo que NÃO parecem ser só
+  // uma categoria tipo "CTOs"/"CEOs"/"Cabos"/"12 FO"), agrupa por essa
+  // pasta de topo em vez do Document, pra separar o quantitativo/orçamento
+  // por rede do mesmo jeito que já faz por cidade.
+  const CATEGORIA_FOLDER_RE = /^(CTOS?|CEOS?|CABOS?|POPS?|CLIENTES?|RESERVAS?|PASSIVOS?|CAIXAS?|PONTOS?|\d+\s*FO)\b/i;
+  let groupByFolder = false;
+  {
+    const docNames = new Set(), outerFolders = new Set();
+    placemarks.forEach(pm=>{
+      const dn = outermostDocumentName(pm);
+      if(dn) docNames.add(dn);
+      const fns = ancestorFolderNames(pm);
+      const outer = fns.length ? fns[fns.length-1] : null;
+      if(outer) outerFolders.add(outer);
+    });
+    groupByFolder = docNames.size<=1 && outerFolders.size>=2 &&
+      [...outerFolders].every(n=>!CATEGORIA_FOLDER_RE.test(n.trim()));
+  }
+  const groupKeyOf = (pm, folderNames) => groupByFolder
+    ? (folderNames.length ? folderNames[folderNames.length-1] : null)
+    : outermostDocumentName(pm);
   // Alguns KMZ são gerados já com a bitola exata em
   // <ExtendedData><Data name="vias"><value>N</value></Data></ExtendedData>
   // (ex.: exports que guardam vias/tubetes/cor/POP por cabo) -- quando
@@ -2604,7 +2629,7 @@ function parseKML(xmlText){
     const desc = pm.getElementsByTagName('description')[0]?.textContent?.trim() || '';
     const popupHtml = `<b>${name||'Sem nome'}</b>${desc?'<br>'+desc.slice(0,200):''}`;
     const folderNames = ancestorFolderNames(pm);
-    const cs = cidadeStats(outermostDocumentName(pm));
+    const cs = cidadeStats(groupKeyOf(pm, folderNames));
 
     const point = pm.getElementsByTagName('Point')[0];
     if(point){
@@ -2912,7 +2937,7 @@ function renderKmzStatsPanel(){
   const valor = calcValorRede();
   setText('kpi-kmz-valor', fmtBRL(valor));
   setText('kpi-kmz-valor-sub', orcCidadesParaValor
-    ? 'Vem do "Orçamento geral do KMZ" (quantitativo e orçamento por cidade, mais abaixo) -- a tabela "Categoria de cabo" acima fica só como detalhe por bitola.'
+    ? 'Vem do "Orçamento geral do KMZ" (quantitativo e orçamento por cidade/rede, mais abaixo) -- a tabela "Categoria de cabo" acima fica só como detalhe por bitola.'
     : 'Caixas×custo + CEOs×custo + Σ(metragem×custo/metro por categoria)');
   const avisoMultiCidade = document.getElementById('kmzCabosAvisoMultiCidade');
   if(avisoMultiCidade) avisoMultiCidade.style.display = orcCidadesParaValor ? '' : 'none';
@@ -2975,7 +3000,7 @@ function renderKmzCidadeBlock(){
     .map(Number).sort((a,b)=>a-b);
   const qtdHead = document.getElementById('kmz-cidade-qtd-head');
   if(qtdHead){
-    qtdHead.innerHTML = '<th>Cidade</th><th style="text-align:right">CEO</th><th style="text-align:right">Caixas/CTO</th>' +
+    qtdHead.innerHTML = '<th>Cidade/Rede</th><th style="text-align:right">CEO</th><th style="text-align:right">Caixas/CTO</th>' +
       fos.map(fo=>`<th style="text-align:right">Cabo ${fo}FO (m)</th>`).join('') +
       '<th style="text-align:right">Cabo não ident. (m)</th><th style="text-align:right">Total cabos (m)</th>';
   }
@@ -3048,7 +3073,7 @@ function renderKmzCidadeBlock(){
       if(valorCell && itemAtual) valorCell.textContent = itemAtual.valorTotal==null ? '—' : fmtBRL(itemAtual.valorTotal);
       const foot = document.getElementById('kmz-cidade-orc-foot');
       if(foot){
-        foot.innerHTML = `<td style="font-weight:700;">TOTAL POR CIDADE (R$)</td><td></td>` +
+        foot.innerHTML = `<td style="font-weight:700;">TOTAL (R$)</td><td></td>` +
           cidadesOrdenadas.map(ck=>`<td style="text-align:right;font-weight:700;">${fmtBRL(orcAtual.subtotalPorCidade[ck])}</td>`).join('') +
           `<td></td><td style="text-align:right;font-weight:700;">${fmtBRL(orcAtual.totalGeral)}</td>`;
       }
@@ -3062,7 +3087,7 @@ function renderKmzCidadeBlock(){
   }
   const orcFoot = document.getElementById('kmz-cidade-orc-foot');
   if(orcFoot){
-    orcFoot.innerHTML = `<td style="font-weight:700;">TOTAL POR CIDADE (R$)</td><td></td>` +
+    orcFoot.innerHTML = `<td style="font-weight:700;">TOTAL (R$)</td><td></td>` +
       cidadesOrdenadas.map(ck=>`<td style="text-align:right;font-weight:700;">${fmtBRL(orc.subtotalPorCidade[ck])}</td>`).join('') +
       `<td></td><td style="text-align:right;font-weight:700;">${fmtBRL(orc.totalGeral)}</td>`;
   }
