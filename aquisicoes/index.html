@@ -3509,6 +3509,14 @@ document.getElementById('sheetImport').onchange = () => {
 ====================================================================== */
 function renderAll(){
   const main = document.getElementById('main');
+  // main.innerHTML é reconstruído do zero logo abaixo (troca de provedor,
+  // ou um snapshot em tempo real chegando de outro colega -- acontece até
+  // sem o usuário mexer em nada), o que destrói o <div id="map"> sem o
+  // Leaflet saber. Sem isso, initMapIfNeeded() acha que o mapa "já existe"
+  // (leafletMap não é null) e não recria dentro do novo <div id="map">,
+  // deixando a aba Rede (KMZ) com a caixa vazia até dar F5 (que reseta essa
+  // variável global zerando a página inteira).
+  if(leafletMap){ try{ leafletMap.stop(); leafletMap.remove(); }catch(e){} leafletMap = null; currentKmlLayer = null; }
   if(!app.empresas.length){
     main.innerHTML = `<div class="panel" style="margin-top:40px;text-align:center;padding:60px 20px;">
       <h3 style="font-family:var(--disp);font-size:18px;margin:0 0 10px;">Nenhum provedor cadastrado</h3>
