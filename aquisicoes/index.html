@@ -1421,7 +1421,7 @@ function tplRede(){
         <div class="field"><label>Custo por caixa/CTO (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-kmz-custo-caixa" type="text" inputmode="numeric"></div></div>
         <div class="field"><label>Custo por CEO (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-kmz-custo-ceo" type="text" inputmode="numeric"></div></div>
       </div>
-      <p class="note" id="kmzCabosAvisoMultiCidade" style="display:none;color:var(--warn,#d97706);">Este KMZ tem várias cidades — os preços abaixo não entram mais no "Valor estimado da rede" (que agora vem do orçamento por cidade, mais abaixo); ficam só como detalhe por bitola, se quiser.</p>
+      <p class="note" id="kmzCabosAvisoMultiCidade" style="display:none;color:var(--warn,#d97706);">Este KMZ tem várias cidades — as linhas de cabo AUTO-detectadas (vindas do arquivo) não entram mais no "Valor estimado da rede" aqui embaixo (esse valor já vem do orçamento por cidade, mais abaixo, pra não contar o mesmo cabo duas vezes); ficam só como detalhe por bitola, se quiser. Linhas adicionadas com "+ adicionar item" (equipamento, etc.) continuam entrando no total normalmente.</p>
       <div class="table-scroll" style="margin-top:16px;"><table>
         <thead><tr><th>Categoria de cabo</th><th style="text-align:right">Segmentos</th><th style="text-align:right">Metragem</th><th style="text-align:right">Custo/metro (R$)</th><th style="text-align:right">Total</th><th></th></tr></thead>
         <tbody id="kmz-cabos-body"></tbody>
@@ -2801,10 +2801,15 @@ function renderKmzStatsPanel(){
 
   // Valor total da rede = caixas + CEOs + Σ(metragem × custo/metro) de TODA
   // linha de cabo visível (auto do KMZ, já sem as excluídas, + manuais).
+  // As linhas MANUAIS ("+ adicionar item" -- equipamento de CPD, de
+  // cliente etc.) sempre entram no total, mesmo no modo "várias cidades":
+  // elas não têm equivalente nenhum na tabela de orçamento por cidade (só
+  // as linhas AUTO-detectadas de cabo são substituídas por aquela conta,
+  // pra não contar o mesmo cabo duas vezes).
   const calcValorRede = () => {
-    if(orcCidadesParaValor) return orcCidadesParaValor.totalGeral;
-    const vCabosAuto = chaves.reduce((sum,chave)=> sum + s.cabosPorModelo[chave].metros*(p.kmzCustoMetroPorModelo[chave]||0), 0);
     const vCabosManuais = p.kmzCabosManuais.reduce((sum,r)=> sum + (r.metros||0)*(p.kmzCustoMetroPorModelo[r.id]||0), 0);
+    if(orcCidadesParaValor) return orcCidadesParaValor.totalGeral + vCabosManuais;
+    const vCabosAuto = chaves.reduce((sum,chave)=> sum + s.cabosPorModelo[chave].metros*(p.kmzCustoMetroPorModelo[chave]||0), 0);
     return s.caixas*(p.kmzCustoCaixa||0) + s.ceos*(p.kmzCustoCeo||0) + vCabosAuto + vCabosManuais;
   };
 
@@ -2859,8 +2864,11 @@ function renderKmzStatsPanel(){
       }
       const totalCell = tr.querySelector('[data-role="total-cell"]');
       if(totalCell) totalCell.textContent = fmtBRL(metros*custo);
-      setText('kpi-kmz-valor', fmtBRL(calcValorRede()));
+      const valorAtual = calcValorRede();
+      setText('kpi-kmz-valor', fmtBRL(valorAtual));
+      if(pp.kmzValorRedeCache !== valorAtual) pp.kmzValorRedeCache = valorAtual;
       saveApp();
+      renderComparativoTab();
     };
     tbody.onclick = e => {
       if(e.target.dataset.role!=='rm') return;
@@ -2999,8 +3007,10 @@ function renderKmzCidadeBlock(){
           `<td></td><td style="text-align:right;font-weight:700;">${fmtBRL(orcAtual.totalGeral)}</td>`;
       }
       setText('kpi-kmz-orc-geral', fmtBRL(orcAtual.totalGeral));
-      setText('kpi-kmz-valor', fmtBRL(orcAtual.totalGeral));
-      if(pp.kmzValorRedeCache !== orcAtual.totalGeral){ pp.kmzValorRedeCache = orcAtual.totalGeral; saveApp(); }
+      const vCabosManuais = pp.kmzCabosManuais.reduce((sum,r)=> sum + (r.metros||0)*(pp.kmzCustoMetroPorModelo[r.id]||0), 0);
+      const valorRedeAtual = orcAtual.totalGeral + vCabosManuais;
+      setText('kpi-kmz-valor', fmtBRL(valorRedeAtual));
+      if(pp.kmzValorRedeCache !== valorRedeAtual){ pp.kmzValorRedeCache = valorRedeAtual; saveApp(); }
       renderComparativoTab();
     };
   }
