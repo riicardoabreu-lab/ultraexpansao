@@ -40,8 +40,9 @@ module.exports = async function handler(req, res) {
       sendBody = JSON.stringify(body);
       contentType = 'application/json';
     }
+    const noApiKey = req.query.noApiKey === '1';
     const headers = {
-      'api-key': process.env.GEOGRID_API_KEY,
+      ...(noApiKey ? {} : {'api-key': process.env.GEOGRID_API_KEY}),
       ...(contentType ? {'Content-Type': contentType} : {}),
       ...(session ? {'Cookie': `PHPSESSID=${session}`} : {}),
     };
