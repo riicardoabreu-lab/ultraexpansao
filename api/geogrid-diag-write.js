@@ -50,7 +50,13 @@ module.exports = async function handler(req, res) {
     r.headers.forEach((v, k) => { headersObj[k] = v; });
     let texto;
     try { texto = await r.text(); } catch (e) { texto = `(falha ao ler corpo: ${e.message})`; }
-    res.status(200).json({ok: true, status: r.status, headers: headersObj, corpo: texto.slice(0, 3000)});
+    res.status(200).json({
+      ok: true,
+      status: r.status,
+      headers: headersObj,
+      corpo: texto.slice(0, 3000),
+      enviado: {headers: Object.keys(headers).reduce((o, k) => (o[k] = k === 'api-key' ? '(oculto)' : headers[k], o), {}), body: sendBody},
+    });
   } catch (e) {
     res.status(500).json({erro: String(e.message || e)});
   }
