@@ -24,15 +24,30 @@ module.exports = async function handler(req, res) {
   if (req.query.body) {
     try { body = JSON.parse(req.query.body); } catch { body = req.query.body; }
   }
+  // ?form=1: manda como application/x-www-form-urlencoded (PHP clássico só
+  // popula $_POST a partir disso - JSON bruto no corpo fica invisível pro
+  // $_POST a menos que o controller leia php://input manualmente, que não
+  // parece ser o caso aqui - os dois primeiros testes com JSON devolveram o
+  // MESMO erro de "não encontrado" tanto vazio quanto preenchido).
+  const form = req.query.form === '1';
 
   try {
+    let sendBody;
+    let contentType;
+    if (body && form) {
+      sendBody = new URLSearchParams(body).toString();
+      contentType = 'application/x-www-form-urlencoded';
+    } else if (body) {
+      sendBody = JSON.stringify(body);
+      contentType = 'application/json';
+    }
     const r = await fetch(`${GEOGRID_BASE}${path}`, {
       method,
       headers: {
         'api-key': process.env.GEOGRID_API_KEY,
-        ...(body ? {'Content-Type': 'application/json'} : {}),
+        ...(contentType ? {'Content-Type': contentType} : {}),
       },
-      body: body ? JSON.stringify(body) : undefined,
+      body: sendBody,
     });
     const headersObj = {};
     r.headers.forEach((v, k) => { headersObj[k] = v; });
