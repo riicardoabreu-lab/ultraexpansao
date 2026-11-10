@@ -484,6 +484,7 @@ function blankEmpresa(nome){
     kmzCidadesRenomeadas:{}, // nome bruto do Document do KMZ (uma cidade) -> label customizado
     kmzColetaEquipes:1, // tempo de coleta: quantas equipes de campo fazem a vistoria das caixas/CTOs em paralelo
     kmzColetaCaixasPorDia:15, // tempo de coleta: quantas caixas 1 equipe sozinha consegue vistoriar por dia útil
+    kmzColetaJaFeitas:0, // tempo de coleta: quantas caixas a equipe já vistoriou de fato (pra calcular o que falta)
   };
 }
 
@@ -1436,9 +1437,11 @@ function tplRede(){
       <div class="field-grid" style="margin-top:16px;">
         <div class="field"><label>Nº de equipes de coleta</label><input id="in-kmz-coleta-equipes" type="number" min="1" step="1"></div>
         <div class="field"><label>Caixas vistoriadas por equipe / dia</label><input id="in-kmz-coleta-ritmo" type="number" min="1" step="1"></div>
+        <div class="field"><label>Caixas já coletadas</label><input id="in-kmz-coleta-feitas" type="number" min="0" step="1"></div>
       </div>
       <div class="kpi-row" style="margin-top:16px;">
-        <div class="kpi hi"><div class="label">Tempo de coleta</div><div class="value" id="kpi-kmz-coleta-dias">—</div><div class="sub" id="kpi-kmz-coleta-sub">dias úteis pra vistoriar todas as caixas/CTOs</div></div>
+        <div class="kpi hi"><div class="label">Tempo de coleta (total)</div><div class="value" id="kpi-kmz-coleta-dias">—</div><div class="sub" id="kpi-kmz-coleta-sub">dias úteis pra vistoriar todas as caixas/CTOs</div></div>
+        <div class="kpi hi"><div class="label">Falta coletar</div><div class="value" id="kpi-kmz-coleta-restante">—</div><div class="sub" id="kpi-kmz-coleta-restante-sub">caixas restantes e dias úteis até terminar</div></div>
       </div>
       <p class="note">Pontos: nomes tipo "CT10B"/"CTO" → caixa; "CEO" → emenda. Cabos: primeiro procura a bitola escrita direto no nome/descrição da linha (ex: "12 FO"); se não achar, usa a <b>cor da linha</b> no KMZ cruzada com uma legenda de cores escrita em alguma descrição do arquivo (ex: "VERDE = 6 FO"). Cor sem legenda correspondente vira "Cabo cor X (bitola não identificada)" — ainda dá pra precificar, só não sabe a bitola exata. Confira visualmente no mapa acima se a classificação bateu.</p>
     </div>
@@ -2963,6 +2966,27 @@ function renderKmzStatsPanel(){
         + `Só conta seg a sex — começando hoje, termina em ${termino.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})}.`;
     }
     setText('kpi-kmz-coleta-sub', sub);
+
+    // Quanto falta, dado o que a equipe já coletou de fato (kmzColetaJaFeitas)
+    // -- mesma conta de cima, mas só sobre o restante, e com data de término
+    // recalculada a partir de hoje no ritmo atual.
+    const jaFeitas = Math.min(Math.max(0, p.kmzColetaJaFeitas||0), s.caixas);
+    const faltam = Math.max(0, s.caixas - jaFeitas);
+    const pctFeito = s.caixas>0 ? jaFeitas/s.caixas : 0;
+    let restanteValue = '—', restanteSub = 'caixas restantes e dias úteis até terminar';
+    if(s.caixas>0){
+      if(faltam<=0){
+        restanteValue = 'Concluído';
+        restanteSub = `${fmtNum(jaFeitas)} de ${fmtNum(s.caixas)} caixas (100%) já vistoriadas.`;
+      } else {
+        const diasRestantes = Math.ceil(faltam/capacidadeDiaria);
+        const terminoRestante = addDiasUteis(new Date(), diasRestantes);
+        restanteValue = `${fmtNum(faltam)} caixas / ${fmtNum(diasRestantes)} ${diasRestantes===1?'dia útil':'dias úteis'}`;
+        restanteSub = `${fmtNum(jaFeitas)} de ${fmtNum(s.caixas)} já feitas (${fmtPct(pctFeito)}) — no ritmo atual, termina em ${terminoRestante.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})}.`;
+      }
+    }
+    setText('kpi-kmz-coleta-restante', restanteValue);
+    setText('kpi-kmz-coleta-restante-sub', restanteSub);
   }
 
   // Cacheia no próprio provedor (persiste com o resto dos dados) pra dar pra
@@ -3200,7 +3224,7 @@ function bindKmzControls(){
       current()[field] = raw; renderKmzStatsPanel(); saveApp();
     };
   });
-  [['in-kmz-coleta-equipes','kmzColetaEquipes'],['in-kmz-coleta-ritmo','kmzColetaCaixasPorDia']].forEach(([id, field])=>{
+  [['in-kmz-coleta-equipes','kmzColetaEquipes'],['in-kmz-coleta-ritmo','kmzColetaCaixasPorDia'],['in-kmz-coleta-feitas','kmzColetaJaFeitas']].forEach(([id, field])=>{
     const el = document.getElementById(id); if(!el) return;
     el.value = current()[field] || '';
     el.oninput = () => {
