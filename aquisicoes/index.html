@@ -2958,12 +2958,14 @@ function renderKmzStatsPanel(){
     const capacidadeDiaria = equipes*ritmo;
     const diasUteis = s.caixas>0 ? Math.ceil(s.caixas/capacidadeDiaria) : 0;
     const semanas = diasUteis/5;
+    const hoje = new Date();
+    const hojeFmt = hoje.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
     setText('kpi-kmz-coleta-dias', diasUteis>0 ? `${fmtNum(diasUteis)} ${diasUteis===1?'dia útil':'dias úteis'}` : '—');
     let sub = 'dias úteis (seg a sex) pra vistoriar todas as caixas/CTOs';
     if(s.caixas>0){
-      const termino = addDiasUteis(new Date(), diasUteis);
+      const termino = addDiasUteis(hoje, diasUteis);
       sub = `${fmtNum(s.caixas)} caixas ÷ (${fmtNum(equipes)} equipe${equipes===1?'':'s'} × ${fmtNum(ritmo)}/dia) = ${fmtNum(capacidadeDiaria)}/dia${semanas>=1.4?` — ≈${semanas.toLocaleString('pt-BR',{maximumFractionDigits:1})} semanas úteis`:''}. `
-        + `Só conta seg a sex — começando hoje, termina em ${termino.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})}.`;
+        + `Só conta seg a sex — começando hoje (${hojeFmt}), termina em ${termino.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})}.`;
     }
     setText('kpi-kmz-coleta-sub', sub);
 
@@ -2980,9 +2982,9 @@ function renderKmzStatsPanel(){
         restanteSub = `${fmtNum(jaFeitas)} de ${fmtNum(s.caixas)} caixas (100%) já vistoriadas.`;
       } else {
         const diasRestantes = Math.ceil(faltam/capacidadeDiaria);
-        const terminoRestante = addDiasUteis(new Date(), diasRestantes);
+        const terminoRestante = addDiasUteis(hoje, diasRestantes);
         restanteValue = `${fmtNum(faltam)} caixas / ${fmtNum(diasRestantes)} ${diasRestantes===1?'dia útil':'dias úteis'}`;
-        restanteSub = `${fmtNum(jaFeitas)} de ${fmtNum(s.caixas)} já feitas (${fmtPct(pctFeito)}) — no ritmo atual, termina em ${terminoRestante.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})}.`;
+        restanteSub = `${fmtNum(jaFeitas)} de ${fmtNum(s.caixas)} já feitas (${fmtPct(pctFeito)}) — hoje (${hojeFmt}), no ritmo atual, termina em ${terminoRestante.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})}.`;
       }
     }
     setText('kpi-kmz-coleta-restante', restanteValue);
@@ -3710,6 +3712,21 @@ function renderComparativoTab(){
 }
 
 renderAll();
+
+// "Tempo de coleta" (aba Rede/KMZ) calcula a previsão de término a partir
+// de "hoje" -- se a aba ficar aberta de um dia pro outro (sem fechar o
+// navegador), isso recalcula sozinho quando a data virar, sem precisar de
+// F5 nem o usuário mexer em nada.
+(function autoAtualizarDataColeta(){
+  let ultimoDia = new Date().toDateString();
+  setInterval(() => {
+    const hoje = new Date().toDateString();
+    if(hoje !== ultimoDia){
+      ultimoDia = hoje;
+      if(currentKmzStats) renderKmzStatsPanel();
+    }
+  }, 60000);
+})();
 </script>
 </body>
 </html>
