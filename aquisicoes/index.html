@@ -2456,6 +2456,22 @@ async function extractKMLFromBlob(blob, filename){
 //    (ex.: exports do Map Marker, onde a categoria vira o nome de uma
 //    pasta acima da pasta do provedor: bairro > categoria > provedor >
 //    pontos).
+// Nomes de TODAS as pastas-mãe do placemark, da mais próxima até a raiz
+// do documento (usado por classifyPlacemark acima e pelo Mapa Geral).
+function ancestorFolderNames(pm){
+  const names = [];
+  let el = pm.parentElement;
+  while(el){
+    if(el.tagName === 'Folder'){
+      const n = el.getElementsByTagName('name')[0]?.textContent?.trim();
+      if(n) names.push(n);
+    }
+    if(el.tagName === 'Document' || el.tagName === 'kml') break;
+    el = el.parentElement;
+  }
+  return names;
+}
+
 function classifyPlacemark(name, folderNames, iconCat){
   if(iconCat === 'cto') return 'caixa';
   if(iconCat === 'ceo') return 'ceo';
@@ -2471,11 +2487,15 @@ function classifyPlacemark(name, folderNames, iconCat){
   // QUALQUER ponto dali, mascarando a pasta-mãe real.
   const nearest = (Array.isArray(folderNames) && folderNames[0]) ? folderNames[0].trim().toUpperCase() : '';
   if(/^CEOS?$|^CAIXAS? DE EMENDA$/.test(nearest)) return 'ceo';
-  if(/^CTOS?$|^CAIXAS?$/.test(nearest)) return 'caixa';
+  if(/^CTOS?$|^CAIXAS?$|^TERMINA(L|IS) DE ATENDIMENTO$/.test(nearest)) return 'caixa';
   const chain = Array.isArray(folderNames) ? folderNames.join(' ') : (folderNames||'');
   const text = ((name||'') + ' ' + chain).toUpperCase();
   if(/\bCEOS?\b|CAIXAS? DE EMENDA/.test(text)) return 'ceo';
-  if(/\bCTOS?\b|CT\d|CX\d|CAIXAS? TERMINA(L|IS)|\bNAPS?\b|\bCAIXAS?\b/.test(text)) return 'caixa';
+  // "Terminais de atendimento" é o nome que o export da Infolink usa pra
+  // caixa de atendimento (CTO) -- sem ícone próprio nessas exportações
+  // (nome de arquivo vem em hash, iconCategory() não acha nada), então
+  // depende inteiramente do nome da pasta aqui.
+  if(/\bCTOS?\b|CT\d|CX\d|CAIXAS? TERMINA(L|IS)|TERMINA(L|IS) DE ATENDIMENTO|\bNAPS?\b|\bCAIXAS?\b/.test(text)) return 'caixa';
   return 'outro';
 }
 // Extrai a categoria (cto/ceo/dio/olt/...) do nome do arquivo de ícone,
@@ -2606,21 +2626,6 @@ function parseKML(xmlText){
   const coordsToLatLngs = txt => txt.trim().split(/\s+/).filter(Boolean).map(c=>{
     const parts = c.split(',').map(Number); return [parts[1], parts[0]];
   });
-  // Nomes de TODAS as pastas-mãe do placemark, da mais próxima até a raiz
-  // do documento (ver comentário em classifyPlacemark acima).
-  const ancestorFolderNames = pm => {
-    const names = [];
-    let el = pm.parentElement;
-    while(el){
-      if(el.tagName === 'Folder'){
-        const n = el.getElementsByTagName('name')[0]?.textContent?.trim();
-        if(n) names.push(n);
-      }
-      if(el.tagName === 'Document' || el.tagName === 'kml') break;
-      el = el.parentElement;
-    }
-    return names;
-  };
   // <Document> mais EXTERNO que contém o placemark (não o mais próximo) --
   // quando um KMZ reúne várias cidades, cada uma vira um <Document> direto
   // sob a pasta raiz, então isso separa por cidade. Num KMZ de uma cidade
@@ -2752,10 +2757,15 @@ function parseKML(xmlText){
   return {layer, count, stats:{caixas, ceos, outros, cabosCount, metragemTotal, cabosPorModelo, porCidade}};
 }
 
-// Versão enxuta de parseKML pro "Mapa geral": só desenha a geometria (ponto/
-// linha/polígono) numa cor ÚNICA por provedor, sem classificar caixa/CEO/
-// bitola nem acumular estatística nenhuma -- aqui o que importa é dar pra
-// diferenciar visualmente a rede de um provedor da de outro no mesmo mapa.
+// Versão enxuta de parseKML pro "Mapa geral": desenha só as CAIXAS DE
+// ATENDIMENTO (CTO) de cada rede, numa cor ÚNICA por provedor -- nem CEO,
+// nem cabo, nem reserva/POP/outro ponto entram aqui. KMZ real de rede (a
+// própria Infolink, o IP2) tem dezenas de milhares de elementos somados
+// (cabos com muitos vértices são o mais pesado de todos); carregar tudo
+// isso de uma vez no mesmo mapa, pra VÁRIAS redes ao mesmo tempo, deixa o
+// navegador pesado/lento. Caixa de atendimento sozinha já responde a
+// pergunta que esse mapa existe pra responder ("as redes se esbarram?")
+// sem precisar do resto.
 function kmlToColoredLayer(xmlText, color, opts){
   opts = opts || {};
   if(/\bxsi:/.test(xmlText) && !/xmlns:xsi\s*=/.test(xmlText)){
@@ -2765,30 +2775,23 @@ function kmlToColoredLayer(xmlText, color, opts){
   if(doc.querySelector('parsererror')) throw new Error('KML inválido ou corrompido.');
   const placemarks = [...doc.getElementsByTagName('Placemark')];
   const layer = L.featureGroup();
-  const coordsToLatLngs = txt => txt.trim().split(/\s+/).filter(Boolean).map(c=>{
-    const parts = c.split(',').map(Number); return [parts[1], parts[0]];
-  });
+  const styleMaps = buildStyleColorMaps(doc);
   placemarks.forEach(pm=>{
+    const point = pm.getElementsByTagName('Point')[0];
+    if(!point) return; // só caixa de atendimento -- cabo (LineString) e polígono nem entram
+    const c = point.getElementsByTagName('coordinates')[0]?.textContent;
+    if(!c) return;
+    const [lon,lat] = c.trim().split(',').map(Number);
+    if(!isFinite(lat)||!isFinite(lon)) return;
     const name = pm.getElementsByTagName('name')[0]?.textContent?.trim() || '';
+    const folderNames = ancestorFolderNames(pm);
+    const styleUrlPt = pm.getElementsByTagName('styleUrl')[0]?.textContent?.trim() || '';
+    const iconHref = resolveIconHref(styleUrlPt, styleMaps);
+    const tipo = classifyPlacemark(name, folderNames, iconCategory(iconHref));
+    if(tipo !== 'caixa') return;
     const desc = pm.getElementsByTagName('description')[0]?.textContent?.trim() || '';
     const popupHtml = `<b>${name||'Sem nome'}</b>${desc?'<br>'+desc.slice(0,200):''}`;
-    const point = pm.getElementsByTagName('Point')[0];
-    if(point){
-      const c = point.getElementsByTagName('coordinates')[0]?.textContent;
-      if(c){ const [lon,lat] = c.trim().split(',').map(Number);
-        if(isFinite(lat)&&isFinite(lon)) L.circleMarker([lat,lon], {radius:opts.radius||5, color, fillColor:color, fillOpacity:.85, weight:opts.markerWeight||1.5}).bindPopup(popupHtml).addTo(layer);
-      }
-    }
-    const line = pm.getElementsByTagName('LineString')[0];
-    if(line){
-      const c = line.getElementsByTagName('coordinates')[0]?.textContent;
-      if(c){ const ll = coordsToLatLngs(c); if(ll.length>1) L.polyline(ll, {color, weight:opts.weight||3, dashArray:opts.dashArray||null}).bindPopup(popupHtml).addTo(layer); }
-    }
-    const poly = pm.getElementsByTagName('Polygon')[0];
-    if(poly){
-      const c = poly.getElementsByTagName('coordinates')[0]?.textContent;
-      if(c){ const ll = coordsToLatLngs(c); if(ll.length>2) L.polygon(ll, {color, fillOpacity:.1, weight:opts.weight||2, dashArray:opts.dashArray||null}).bindPopup(popupHtml).addTo(layer); }
-    }
+    L.circleMarker([lat,lon], {radius:opts.radius||5, color, fillColor:color, fillOpacity:.85, weight:opts.markerWeight||1.5}).bindPopup(popupHtml).addTo(layer);
   });
   return layer;
 }
@@ -3749,7 +3752,7 @@ function tplMapaGeral(){
       </div>
     </div>
     <div class="sec-block">
-      <p class="hint">Marque os provedores (e/ou a rede da Infolink acima) que quer ver juntos no mapa — cada um aparece com uma cor diferente. Só entram aqui provedores que já têm uma rede KMZ/KML carregada na aba "Rede (KMZ)" deles.</p>
+      <p class="hint">Marque os provedores (e/ou a rede da Infolink acima) que quer ver juntos no mapa — cada um aparece com uma cor diferente. Só entram aqui provedores que já têm uma rede KMZ/KML carregada na aba "Rede (KMZ)" deles. Pra não pesar o navegador com várias redes de uma vez, só as caixas de atendimento (CTO) aparecem aqui — sem cabo, CEO ou outro ponto (isso já dá pra ver se as redes se esbarram).</p>
       <div class="panel">
         <div id="mapaGeralLegenda" style="display:flex;flex-wrap:wrap;gap:10px 20px;margin-bottom:16px;"></div>
         <div id="mapaGeralMapHolder" style="height:640px;border-radius:12px;overflow:hidden;background:var(--bg-inset);"></div>
@@ -3872,7 +3875,7 @@ function bindMapaGeralControls(){
           const blob = dataUrlToBlob(stored.dataUrl);
           const kmlText = await extractKMLFromBlob(blob, stored.name);
           const layer = isInfolink
-            ? kmlToColoredLayer(kmlText, INFOLINK_COLOR, {weight:4, dashArray:'7,5', radius:6, markerWeight:2})
+            ? kmlToColoredLayer(kmlText, INFOLINK_COLOR, {radius:6, markerWeight:2})
             : kmlToColoredLayer(kmlText, corDe(id));
           mapaGeralLayers[id] = { layer, visivel:false };
         }catch(err){
