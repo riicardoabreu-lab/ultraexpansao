@@ -3736,7 +3736,12 @@ document.getElementById('sheetImport').onchange = () => {
    outro, cada um com sua cor (diferente do mapa por provedor da aba Rede
    (KMZ), que fica dentro da Ficha da Operação de um só).
 ====================================================================== */
-const MAPA_GERAL_PALETA = ['#0d9488','#f97316','#6366f1','#e11d48','#059669','#d97706','#2563eb','#db2777','#65a30d','#9333ea','#0891b2','#ca8a04'];
+// Nenhuma cor aqui pode ficar perto do azul tiffany da Infolink (teal/
+// cyan, ~hue 175°) nem do laranja do Jebnet (~hue 25°) -- senão o
+// provedor marcado junto fica visualmente idêntico a uma das duas e some
+// na comparação (foi exatamente o que aconteceu com o teal #0d9488 que
+// tinha aqui antes, quase indistinguível do tiffany #0ABAB5 no mapa).
+const MAPA_GERAL_PALETA = ['#ca8a04','#65a30d','#16a34a','#2563eb','#4f46e5','#7c3aed','#9333ea','#c026d3','#db2777','#e11d48','#dc2626'];
 // Rede própria da Infolink: um KMZ de REFERÊNCIA, fora da lista de
 // provedores (não é um "provedor", é a nossa própria rede) -- carregado
 // pra comparar visualmente com a rede dos outros e ver se já tem área em
