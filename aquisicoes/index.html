@@ -2757,15 +2757,11 @@ function parseKML(xmlText){
   return {layer, count, stats:{caixas, ceos, outros, cabosCount, metragemTotal, cabosPorModelo, porCidade}};
 }
 
-// Versão enxuta de parseKML pro "Mapa geral": desenha só as CAIXAS DE
-// ATENDIMENTO (CTO) de cada rede, numa cor ÚNICA por provedor -- nem CEO,
-// nem cabo, nem reserva/POP/outro ponto entram aqui. KMZ real de rede (a
-// própria Infolink, o IP2) tem dezenas de milhares de elementos somados
-// (cabos com muitos vértices são o mais pesado de todos); carregar tudo
-// isso de uma vez no mesmo mapa, pra VÁRIAS redes ao mesmo tempo, deixa o
-// navegador pesado/lento. Caixa de atendimento sozinha já responde a
-// pergunta que esse mapa existe pra responder ("as redes se esbarram?")
-// sem precisar do resto.
+// Versão enxuta de parseKML pro "Mapa geral": desenha CAIXA DE ATENDIMENTO
+// (CTO) e CABO de cada rede, numa cor ÚNICA por provedor -- CEO, reserva
+// técnica, POP e qualquer outro ponto ficam de fora (são o que mais pesa
+// sem ajudar a responder "as redes se esbarram?" -- CEO e reserva técnica
+// em especial costumam ter tanto ponto quanto caixa de atendimento).
 function kmlToColoredLayer(xmlText, color, opts){
   opts = opts || {};
   if(/\bxsi:/.test(xmlText) && !/xmlns:xsi\s*=/.test(xmlText)){
@@ -2776,22 +2772,40 @@ function kmlToColoredLayer(xmlText, color, opts){
   const placemarks = [...doc.getElementsByTagName('Placemark')];
   const layer = L.featureGroup();
   const styleMaps = buildStyleColorMaps(doc);
+  const coordsToLatLngs = txt => txt.trim().split(/\s+/).filter(Boolean).map(c=>{
+    const parts = c.split(',').map(Number); return [parts[1], parts[0]];
+  });
   placemarks.forEach(pm=>{
-    const point = pm.getElementsByTagName('Point')[0];
-    if(!point) return; // só caixa de atendimento -- cabo (LineString) e polígono nem entram
-    const c = point.getElementsByTagName('coordinates')[0]?.textContent;
-    if(!c) return;
-    const [lon,lat] = c.trim().split(',').map(Number);
-    if(!isFinite(lat)||!isFinite(lon)) return;
     const name = pm.getElementsByTagName('name')[0]?.textContent?.trim() || '';
     const folderNames = ancestorFolderNames(pm);
-    const styleUrlPt = pm.getElementsByTagName('styleUrl')[0]?.textContent?.trim() || '';
-    const iconHref = resolveIconHref(styleUrlPt, styleMaps);
-    const tipo = classifyPlacemark(name, folderNames, iconCategory(iconHref));
-    if(tipo !== 'caixa') return;
     const desc = pm.getElementsByTagName('description')[0]?.textContent?.trim() || '';
     const popupHtml = `<b>${name||'Sem nome'}</b>${desc?'<br>'+desc.slice(0,200):''}`;
-    L.circleMarker([lat,lon], {radius:opts.radius||5, color, fillColor:color, fillOpacity:.85, weight:opts.markerWeight||1.5}).bindPopup(popupHtml).addTo(layer);
+
+    const point = pm.getElementsByTagName('Point')[0];
+    if(point){
+      const c = point.getElementsByTagName('coordinates')[0]?.textContent;
+      if(!c) return;
+      const [lon,lat] = c.trim().split(',').map(Number);
+      if(!isFinite(lat)||!isFinite(lon)) return;
+      const styleUrlPt = pm.getElementsByTagName('styleUrl')[0]?.textContent?.trim() || '';
+      const iconHref = resolveIconHref(styleUrlPt, styleMaps);
+      const tipo = classifyPlacemark(name, folderNames, iconCategory(iconHref));
+      if(tipo !== 'caixa') return; // CEO, reserva técnica, POP etc. -- todos caem em "outro" aqui, ficam de fora
+      L.circleMarker([lat,lon], {radius:opts.radius||5, color, fillColor:color, fillOpacity:.85, weight:opts.markerWeight||1.5}).bindPopup(popupHtml).addTo(layer);
+      return;
+    }
+
+    const line = pm.getElementsByTagName('LineString')[0];
+    if(line){
+      // "Reserva técnica" às vezes também guarda trecho de cabo PLANEJADO
+      // (ainda não instalado) como LineString -- não é rede de verdade, não
+      // conta pra "as redes se esbarram".
+      if(/RESERVAS?\s*T[ÉE]CNICAS?/i.test(folderNames.join(' '))) return;
+      const c = line.getElementsByTagName('coordinates')[0]?.textContent;
+      if(!c) return;
+      const ll = coordsToLatLngs(c);
+      if(ll.length>1) L.polyline(ll, {color, weight:opts.weight||2}).bindPopup(popupHtml).addTo(layer);
+    }
   });
   return layer;
 }
@@ -3752,7 +3766,7 @@ function tplMapaGeral(){
       </div>
     </div>
     <div class="sec-block">
-      <p class="hint">Marque os provedores (e/ou a rede da Infolink acima) que quer ver juntos no mapa — cada um aparece com uma cor diferente. Só entram aqui provedores que já têm uma rede KMZ/KML carregada na aba "Rede (KMZ)" deles. Pra não pesar o navegador com várias redes de uma vez, só as caixas de atendimento (CTO) aparecem aqui — sem cabo, CEO ou outro ponto (isso já dá pra ver se as redes se esbarram).</p>
+      <p class="hint">Marque os provedores (e/ou a rede da Infolink acima) que quer ver juntos no mapa — cada um aparece com uma cor diferente. Só entram aqui provedores que já têm uma rede KMZ/KML carregada na aba "Rede (KMZ)" deles. Pra não pesar o navegador com várias redes de uma vez, só caixa de atendimento (CTO) e cabo aparecem aqui — sem CEO, reserva técnica ou outro ponto.</p>
       <div class="panel">
         <div id="mapaGeralLegenda" style="display:flex;flex-wrap:wrap;gap:10px 20px;margin-bottom:16px;"></div>
         <div id="mapaGeralMapHolder" style="height:640px;border-radius:12px;overflow:hidden;background:var(--bg-inset);"></div>
@@ -3875,7 +3889,7 @@ function bindMapaGeralControls(){
           const blob = dataUrlToBlob(stored.dataUrl);
           const kmlText = await extractKMLFromBlob(blob, stored.name);
           const layer = isInfolink
-            ? kmlToColoredLayer(kmlText, INFOLINK_COLOR, {radius:6, markerWeight:2})
+            ? kmlToColoredLayer(kmlText, INFOLINK_COLOR, {radius:6, markerWeight:2, weight:3})
             : kmlToColoredLayer(kmlText, corDe(id));
           mapaGeralLayers[id] = { layer, visivel:false };
         }catch(err){
