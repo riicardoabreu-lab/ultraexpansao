@@ -2762,8 +2762,12 @@ function parseKML(xmlText){
 // técnica, POP e qualquer outro ponto ficam de fora (são o que mais pesa
 // sem ajudar a responder "as redes se esbarram?" -- CEO e reserva técnica
 // em especial costumam ter tanto ponto quanto caixa de atendimento).
-function kmlToColoredLayer(xmlText, color, opts){
+// "color" pode ser uma cor fixa (string) OU uma função (folderNames) =>
+// cor -- usado pra rede da Infolink, que mistura mais de uma origem no
+// mesmo arquivo mesclado (ex.: Jebnet/Itapipoca numa cor, o resto noutra).
+function kmlToColoredLayer(xmlText, corOuResolver, opts){
   opts = opts || {};
+  const resolverCor = typeof corOuResolver === 'function' ? corOuResolver : () => corOuResolver;
   if(/\bxsi:/.test(xmlText) && !/xmlns:xsi\s*=/.test(xmlText)){
     xmlText = xmlText.replace(/<kml\b([^>]*)>/, (m, attrs) => `<kml${attrs} xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">`);
   }
@@ -2791,7 +2795,8 @@ function kmlToColoredLayer(xmlText, color, opts){
       const iconHref = resolveIconHref(styleUrlPt, styleMaps);
       const tipo = classifyPlacemark(name, folderNames, iconCategory(iconHref));
       if(tipo !== 'caixa') return; // CEO, reserva técnica, POP etc. -- todos caem em "outro" aqui, ficam de fora
-      L.circleMarker([lat,lon], {radius:opts.radius||5, color, fillColor:color, fillOpacity:.85, weight:opts.markerWeight||1.5}).bindPopup(popupHtml).addTo(layer);
+      const cor = resolverCor(folderNames);
+      L.circleMarker([lat,lon], {radius:opts.radius||5, color:cor, fillColor:cor, fillOpacity:.85, weight:opts.markerWeight||1.5}).bindPopup(popupHtml).addTo(layer);
       return;
     }
 
@@ -2804,7 +2809,8 @@ function kmlToColoredLayer(xmlText, color, opts){
       const c = line.getElementsByTagName('coordinates')[0]?.textContent;
       if(!c) return;
       const ll = coordsToLatLngs(c);
-      if(ll.length>1) L.polyline(ll, {color, weight:opts.weight||2}).bindPopup(popupHtml).addTo(layer);
+      const cor = resolverCor(folderNames);
+      if(ll.length>1) L.polyline(ll, {color:cor, weight:opts.weight||2}).bindPopup(popupHtml).addTo(layer);
     }
   });
   return layer;
@@ -3738,7 +3744,13 @@ const MAPA_GERAL_PALETA = ['#0d9488','#f97316','#6366f1','#e11d48','#059669','#d
 // Firestore pros arquivos pequenos) de um provedor qualquer, só com um id
 // reservado que nunca colide com o id de um provedor de verdade.
 const INFOLINK_KMZ_ID = '_infolink_rede';
-const INFOLINK_COLOR = '#111827';
+const INFOLINK_COLOR = '#0ABAB5'; // azul tiffany
+const INFOLINK_JEBNET_COLOR = '#f97316'; // laranja -- rede Jebnet/Itapipoca, dentro do mesmo KMZ mesclado da Infolink
+// Cor por placemark da rede da Infolink: a pasta "Itapipoca - Jebnet"
+// (um dos 3 exports mesclados no mesmo KMZ) é uma rede à parte, dentro
+// do mesmo arquivo -- fica laranja pra diferenciar do resto (azul
+// tiffany), que também fica dentro desse arquivo mesclado.
+const corInfolinkPorFolder = folderNames => /jebnet/i.test(folderNames.join(' ')) ? INFOLINK_JEBNET_COLOR : INFOLINK_COLOR;
 
 function tplMapaGeral(){
   if(!app.empresas.length){
@@ -3833,8 +3845,8 @@ function bindMapaGeralControls(){
       (app.redeInfolink ? `
       <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;font-weight:700;">
         <input type="checkbox" data-id="${INFOLINK_KMZ_ID}" class="mapaGeralChk">
-        <span style="width:12px;height:12px;border-radius:50%;background:${INFOLINK_COLOR};display:inline-block;flex:none;box-shadow:0 0 0 2px var(--panel,#fff) inset, 0 0 0 1px ${INFOLINK_COLOR};"></span>
-        📡 Rede da Infolink
+        <span style="width:12px;height:12px;border-radius:50%;background:linear-gradient(135deg, ${INFOLINK_COLOR} 50%, ${INFOLINK_JEBNET_COLOR} 50%);display:inline-block;flex:none;box-shadow:0 0 0 2px var(--panel,#fff) inset;" title="Azul tiffany = Infolink · Laranja = Jebnet/Itapipoca"></span>
+        📡 Rede da Infolink <span style="font-weight:400;color:var(--text-dim);">(+ Jebnet)</span>
       </label>` : '')
     + comKmz.map(e=>`
       <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;">
@@ -3889,7 +3901,7 @@ function bindMapaGeralControls(){
           const blob = dataUrlToBlob(stored.dataUrl);
           const kmlText = await extractKMLFromBlob(blob, stored.name);
           const layer = isInfolink
-            ? kmlToColoredLayer(kmlText, INFOLINK_COLOR, {radius:6, markerWeight:2, weight:3})
+            ? kmlToColoredLayer(kmlText, corInfolinkPorFolder, {radius:6, markerWeight:2, weight:3})
             : kmlToColoredLayer(kmlText, corDe(id));
           mapaGeralLayers[id] = { layer, visivel:false };
         }catch(err){
