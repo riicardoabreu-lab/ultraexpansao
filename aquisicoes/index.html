@@ -87,7 +87,7 @@
       if(!data.empresas || !data.empresas.length) return;
       if((data.updated||0) <= (window._lastKnownUpdated||0)) return; // eco do próprio salvamento, ou desatualizado
       window._lastKnownUpdated = data.updated;
-      if(window._applyRemoteState) window._applyRemoteState(data.empresas, data.updated);
+      if(window._applyRemoteState) window._applyRemoteState(data.empresas, data.updated, data.redeInfolink);
     }, err => console.error('Falha no listener de sincronização (Aquisições):', err));
   });
 </script>
@@ -690,7 +690,7 @@ function loadApp(){
     if(raw){ const parsed = JSON.parse(raw); if(parsed.empresas && parsed.empresas.length) return parsed; }
   }catch(e){}
   const demo = demoEmpresa();
-  return { empresas:[demo], currentId: demo.id };
+  return { empresas:[demo], currentId: demo.id, redeInfolink: null };
 }
 function saveApp(){
   // Marca quando essa gravação LOCAL aconteceu -- usado só pra semear
@@ -716,18 +716,19 @@ function current(){ return app.empresas.find(e=>e.id===app.currentId) || app.emp
 // estado antigo vindo da nuvem. Fica na fila e só aplica (ou descarta,
 // se ficou desatualizada) depois que a gravação local terminar.
 let _pendingRemoteState = null;
-function applyRemoteState(remoteEmpresas, updated){
-  if(_localSyncPending){ _pendingRemoteState = { empresas: remoteEmpresas, updated }; return; }
-  applyRemoteStateNow(remoteEmpresas);
+function applyRemoteState(remoteEmpresas, updated, redeInfolink){
+  if(_localSyncPending){ _pendingRemoteState = { empresas: remoteEmpresas, updated, redeInfolink }; return; }
+  applyRemoteStateNow(remoteEmpresas, redeInfolink);
 }
 function flushPendingRemoteState(){
   if(!_pendingRemoteState || _localSyncPending) return;
   const d = _pendingRemoteState; _pendingRemoteState = null;
   if((d.updated||0) <= (window._lastKnownUpdated||0)) return; // desatualizou enquanto esperava
-  applyRemoteStateNow(d.empresas);
+  applyRemoteStateNow(d.empresas, d.redeInfolink);
 }
-function applyRemoteStateNow(remoteEmpresas){
+function applyRemoteStateNow(remoteEmpresas, redeInfolink){
   app.empresas = remoteEmpresas.map(re => ({ ...re, kmz: re.kmz || null }));
+  app.redeInfolink = redeInfolink || null;
   if(!app.empresas.find(e=>e.id===app.currentId)){
     app.currentId = app.empresas[0]?.id || null;
   }
@@ -754,7 +755,7 @@ function syncToCloud(){
     try{
       const updated = Date.now();
       window._lastKnownUpdated = updated; // ignora o eco dessa mesma gravação no listener
-      await window._cloudSave({ empresas: app.empresas, currentId: app.currentId, updated });
+      await window._cloudSave({ empresas: app.empresas, currentId: app.currentId, redeInfolink: app.redeInfolink||null, updated });
     }catch(e){ console.error('Falha ao sincronizar Aquisições com a nuvem:', e); }
     finally{ _localSyncPending = false; flushPendingRemoteState(); }
   }, 1500);
@@ -2718,7 +2719,8 @@ function parseKML(xmlText){
 // linha/polígono) numa cor ÚNICA por provedor, sem classificar caixa/CEO/
 // bitola nem acumular estatística nenhuma -- aqui o que importa é dar pra
 // diferenciar visualmente a rede de um provedor da de outro no mesmo mapa.
-function kmlToColoredLayer(xmlText, color){
+function kmlToColoredLayer(xmlText, color, opts){
+  opts = opts || {};
   if(/\bxsi:/.test(xmlText) && !/xmlns:xsi\s*=/.test(xmlText)){
     xmlText = xmlText.replace(/<kml\b([^>]*)>/, (m, attrs) => `<kml${attrs} xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">`);
   }
@@ -2737,18 +2739,18 @@ function kmlToColoredLayer(xmlText, color){
     if(point){
       const c = point.getElementsByTagName('coordinates')[0]?.textContent;
       if(c){ const [lon,lat] = c.trim().split(',').map(Number);
-        if(isFinite(lat)&&isFinite(lon)) L.circleMarker([lat,lon], {radius:5, color, fillColor:color, fillOpacity:.85, weight:1.5}).bindPopup(popupHtml).addTo(layer);
+        if(isFinite(lat)&&isFinite(lon)) L.circleMarker([lat,lon], {radius:opts.radius||5, color, fillColor:color, fillOpacity:.85, weight:opts.markerWeight||1.5}).bindPopup(popupHtml).addTo(layer);
       }
     }
     const line = pm.getElementsByTagName('LineString')[0];
     if(line){
       const c = line.getElementsByTagName('coordinates')[0]?.textContent;
-      if(c){ const ll = coordsToLatLngs(c); if(ll.length>1) L.polyline(ll, {color, weight:3}).bindPopup(popupHtml).addTo(layer); }
+      if(c){ const ll = coordsToLatLngs(c); if(ll.length>1) L.polyline(ll, {color, weight:opts.weight||3, dashArray:opts.dashArray||null}).bindPopup(popupHtml).addTo(layer); }
     }
     const poly = pm.getElementsByTagName('Polygon')[0];
     if(poly){
       const c = poly.getElementsByTagName('coordinates')[0]?.textContent;
-      if(c){ const ll = coordsToLatLngs(c); if(ll.length>2) L.polygon(ll, {color, fillOpacity:.1, weight:2}).bindPopup(popupHtml).addTo(layer); }
+      if(c){ const ll = coordsToLatLngs(c); if(ll.length>2) L.polygon(ll, {color, fillOpacity:.1, weight:opts.weight||2, dashArray:opts.dashArray||null}).bindPopup(popupHtml).addTo(layer); }
     }
   });
   return layer;
@@ -3672,6 +3674,14 @@ document.getElementById('sheetImport').onchange = () => {
    (KMZ), que fica dentro da Ficha da Operação de um só).
 ====================================================================== */
 const MAPA_GERAL_PALETA = ['#0d9488','#f97316','#6366f1','#e11d48','#059669','#d97706','#2563eb','#db2777','#65a30d','#9333ea','#0891b2','#ca8a04'];
+// Rede própria da Infolink: um KMZ de REFERÊNCIA, fora da lista de
+// provedores (não é um "provedor", é a nossa própria rede) -- carregado
+// pra comparar visualmente com a rede dos outros e ver se já tem área em
+// comum. Usa a mesma infraestrutura de armazenamento (IndexedDB local +
+// Firestore pros arquivos pequenos) de um provedor qualquer, só com um id
+// reservado que nunca colide com o id de um provedor de verdade.
+const INFOLINK_KMZ_ID = '_infolink_rede';
+const INFOLINK_COLOR = '#111827';
 
 function tplMapaGeral(){
   if(!app.empresas.length){
@@ -3688,7 +3698,18 @@ function tplMapaGeral(){
       </div>
     </div>
     <div class="sec-block">
-      <p class="hint">Marque os provedores que quer ver juntos no mapa — cada um aparece com uma cor diferente. Só entram aqui provedores que já têm uma rede KMZ/KML carregada na aba "Rede (KMZ)" deles.</p>
+      <p class="hint">Rede própria da Infolink, carregada aqui só como referência pra comparar com a dos provedores no mapa abaixo e ver se as redes se esbarram -- não vira "provedor", não entra em nenhuma outra aba/cálculo.</p>
+      <div class="panel">
+        <div class="map-toolbar">
+          <button class="upload-btn" id="infolinkKmzUploadBtn">Carregar KMZ/KML da Infolink</button>
+          <input type="file" id="infolinkKmzInput" accept=".kmz,.kml">
+          <button class="ghost-btn" id="infolinkKmzRemoveBtn" style="display:none;">Remover</button>
+          <span id="infolinkKmzNome" style="margin-left:8px;color:var(--text-dim);font-size:12.5px;"></span>
+        </div>
+      </div>
+    </div>
+    <div class="sec-block">
+      <p class="hint">Marque os provedores (e/ou a rede da Infolink acima) que quer ver juntos no mapa — cada um aparece com uma cor diferente. Só entram aqui provedores que já têm uma rede KMZ/KML carregada na aba "Rede (KMZ)" deles.</p>
       <div class="panel">
         <div id="mapaGeralLegenda" style="display:flex;flex-wrap:wrap;gap:10px 20px;margin-bottom:16px;"></div>
         <div id="mapaGeralMapHolder" style="height:640px;border-radius:12px;overflow:hidden;background:var(--bg-inset);"></div>
@@ -3704,11 +3725,61 @@ function bindMapaGeralControls(){
   const meta = document.getElementById('mapaGeralMeta');
   if(!legenda || !holder) return;
 
+  // ---- Rede da Infolink (upload/remover -- fora da lista de provedores) ----
+  const infoUpBtn = document.getElementById('infolinkKmzUploadBtn');
+  const infoInput = document.getElementById('infolinkKmzInput');
+  const infoRmBtn = document.getElementById('infolinkKmzRemoveBtn');
+  const infoNomeEl = document.getElementById('infolinkKmzNome');
+  if(infoNomeEl) infoNomeEl.textContent = app.redeInfolink ? `Arquivo: ${app.redeInfolink.name}` : '';
+  if(infoRmBtn) infoRmBtn.style.display = app.redeInfolink ? 'inline-block' : 'none';
+  if(infoUpBtn) infoUpBtn.onclick = () => infoInput.click();
+  if(infoInput) infoInput.onchange = () => {
+    const file = infoInput.files[0]; if(!file) return;
+    if(!/\.(kmz|kml)$/i.test(file.name)){ alert('Envie um arquivo .kmz ou .kml'); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const kmzData = { name:file.name, dataUrl:reader.result };
+      try{
+        await kmzDbPut(INFOLINK_KMZ_ID, kmzData);
+        app.redeInfolink = { name:file.name };
+        saveApp();
+        renderAll();
+      }catch(e){
+        alert('Não foi possível salvar o arquivo neste navegador (sem espaço ou sem suporte a IndexedDB).');
+        return;
+      }
+      if(kmzData.dataUrl.length <= KMZ_LIMITE_NUVEM && window._fbSaveKmz){
+        window._fbSaveKmz(INFOLINK_KMZ_ID, kmzData).catch(e=>console.error('Falha ao sincronizar rede da Infolink com a nuvem:', e));
+      } else if(kmzData.dataUrl.length > KMZ_LIMITE_NUVEM){
+        alert('Este arquivo é grande demais pra sincronizar com a equipe — fica salvo só neste navegador.');
+      }
+    };
+    reader.readAsDataURL(file);
+    infoInput.value = '';
+  };
+  if(infoRmBtn) infoRmBtn.onclick = async () => {
+    if(!confirm('Remover a rede de referência da Infolink?')) return;
+    try{ await kmzDbDelete(INFOLINK_KMZ_ID); }catch(e){}
+    if(window._fbDeleteKmz) window._fbDeleteKmz(INFOLINK_KMZ_ID);
+    app.redeInfolink = null;
+    saveApp();
+    renderAll();
+  };
+
+  // ---- Provedores + rede da Infolink juntos no mesmo mapa ----
   const comKmz = app.empresas.filter(e=>!!e.kmz);
   const semKmz = app.empresas.filter(e=>!e.kmz);
   const corDe = id => MAPA_GERAL_PALETA[comKmz.findIndex(e=>e.id===id) % MAPA_GERAL_PALETA.length];
+  const nomeDoId = id => id===INFOLINK_KMZ_ID ? 'Rede da Infolink' : (app.empresas.find(e=>e.id===id)?.nome || id);
 
-  legenda.innerHTML = comKmz.map(e=>`
+  legenda.innerHTML =
+      (app.redeInfolink ? `
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;font-weight:700;">
+        <input type="checkbox" data-id="${INFOLINK_KMZ_ID}" class="mapaGeralChk">
+        <span style="width:12px;height:12px;border-radius:50%;background:${INFOLINK_COLOR};display:inline-block;flex:none;box-shadow:0 0 0 2px var(--panel,#fff) inset, 0 0 0 1px ${INFOLINK_COLOR};"></span>
+        📡 Rede da Infolink
+      </label>` : '')
+    + comKmz.map(e=>`
       <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;">
         <input type="checkbox" data-id="${esc(e.id)}" class="mapaGeralChk">
         <span style="width:12px;height:12px;border-radius:50%;background:${corDe(e.id)};display:inline-block;flex:none;"></span>
@@ -3716,8 +3787,8 @@ function bindMapaGeralControls(){
       </label>`).join('')
     + semKmz.map(e=>`<span style="font-size:13px;color:var(--text-dim);" title="Sem rede KMZ/KML carregada ainda">${esc(e.nome)} (sem rede)</span>`).join('');
 
-  if(!comKmz.length){
-    holder.innerHTML = `<div class="map-empty" style="height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;color:var(--text-dim);">Nenhum provedor com rede KMZ/KML carregada ainda. Envie um arquivo na aba "Rede (KMZ)" de algum provedor primeiro.</div>`;
+  if(!comKmz.length && !app.redeInfolink){
+    holder.innerHTML = `<div class="map-empty" style="height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;color:var(--text-dim);">Nenhuma rede carregada ainda. Envie o KMZ da Infolink acima, ou um KMZ de algum provedor na aba "Rede (KMZ)" dele.</div>`;
     if(meta) meta.textContent = '';
     return;
   }
@@ -3730,10 +3801,10 @@ function bindMapaGeralControls(){
   setTimeout(()=> mapaGeralMap && mapaGeralMap.invalidateSize(), 60);
 
   const atualizarMeta = () => {
-    const ativos = comKmz.filter(e=>mapaGeralLayers[e.id]?.visivel);
+    const ativos = Object.keys(mapaGeralLayers).filter(id=>mapaGeralLayers[id].visivel);
     if(meta) meta.textContent = ativos.length
-      ? `Mostrando ${ativos.length} rede${ativos.length===1?'':'s'}: ${ativos.map(e=>e.nome).join(', ')}`
-      : 'Marque um provedor acima pra ver a rede dele no mapa.';
+      ? `Mostrando ${ativos.length} rede${ativos.length===1?'':'s'}: ${ativos.map(nomeDoId).join(', ')}`
+      : 'Marque um item acima pra ver a rede no mapa.';
   };
   atualizarMeta();
 
@@ -3747,22 +3818,25 @@ function bindMapaGeralControls(){
   legenda.querySelectorAll('.mapaGeralChk').forEach(chk=>{
     chk.onchange = async () => {
       const id = chk.dataset.id;
-      const empresa = app.empresas.find(e=>e.id===id);
-      if(!empresa) return;
+      const isInfolink = id === INFOLINK_KMZ_ID;
+      const empresa = isInfolink ? null : app.empresas.find(e=>e.id===id);
+      if(!isInfolink && !empresa) return;
       if(!mapaGeralLayers[id]){
         chk.disabled = true;
         try{
-          const stored = await getKmzFile(empresa);
+          const stored = isInfolink ? await getKmzFile({id: INFOLINK_KMZ_ID}) : await getKmzFile(empresa);
           if(!stored){
-            alert(`Rede de "${empresa.nome}" não encontrada (nem neste navegador, nem na nuvem).`);
+            alert(`Rede de "${isInfolink?'Infolink':empresa.nome}" não encontrada (nem neste navegador, nem na nuvem).`);
             chk.checked = false; chk.disabled = false; return;
           }
           const blob = dataUrlToBlob(stored.dataUrl);
           const kmlText = await extractKMLFromBlob(blob, stored.name);
-          const layer = kmlToColoredLayer(kmlText, corDe(id));
+          const layer = isInfolink
+            ? kmlToColoredLayer(kmlText, INFOLINK_COLOR, {weight:4, dashArray:'7,5', radius:6, markerWeight:2})
+            : kmlToColoredLayer(kmlText, corDe(id));
           mapaGeralLayers[id] = { layer, visivel:false };
         }catch(err){
-          alert(`Erro ao carregar a rede de "${empresa.nome}": ${err.message}`);
+          alert(`Erro ao carregar a rede de "${isInfolink?'Infolink':empresa.nome}": ${err.message}`);
           chk.checked = false; chk.disabled = false; return;
         }
         chk.disabled = false;
