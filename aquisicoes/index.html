@@ -175,6 +175,7 @@
     padding:8px 10px; border-radius:7px; font-size:11.5px; cursor:pointer; text-align:left;
   }
   .side-btn:hover{ border-color:var(--border); color:var(--text); }
+  .side-btn.active{ border-color:var(--accent); color:var(--accent); background:color-mix(in srgb, var(--accent) 10%, var(--bg-inset)); }
   #sheetImport{ display:none; }
   .provider-list{ display:flex; flex-direction:column; gap:8px; }
   .provider-card{
@@ -433,6 +434,9 @@
       <button class="side-btn" id="templateBtn">Baixar modelo (.xlsx)</button>
       <button class="side-btn" id="sheetImportBtn">Importar planilha</button>
       <input type="file" id="sheetImport" accept=".xlsx,.xls,.csv">
+    </div>
+    <div class="side-btn-row">
+      <button class="side-btn" id="mapaGeralBtn" style="width:100%;">🗺️ Mapa geral (todos os provedores)</button>
     </div>
     <h4>Provedores</h4>
     <div class="provider-list" id="providerList"></div>
@@ -1082,7 +1086,7 @@ function renderSidebar(){
   list.querySelectorAll('.provider-card').forEach(card=>{
     card.addEventListener('click', e=>{
       if(e.target.dataset.act) return;
-      app.currentId = card.dataset.id; saveApp(); renderAll();
+      app.currentId = card.dataset.id; vistaMapaGeral = false; saveApp(); renderAll();
     });
     card.querySelector('[data-act="dup"]').addEventListener('click', e=>{
       e.stopPropagation();
@@ -1090,7 +1094,7 @@ function renderSidebar(){
       const copy = JSON.parse(JSON.stringify(src));
       copy.id = 'e_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
       copy.nome = src.nome + ' (cópia)';
-      app.empresas.push(copy); app.currentId = copy.id; saveApp(); renderAll();
+      app.empresas.push(copy); app.currentId = copy.id; vistaMapaGeral = false; saveApp(); renderAll();
     });
     card.querySelector('[data-act="del"]').addEventListener('click', e=>{
       e.stopPropagation();
@@ -1101,11 +1105,17 @@ function renderSidebar(){
       saveApp(); renderAll();
     });
   });
+  const mapaBtn = document.getElementById('mapaGeralBtn');
+  if(mapaBtn) mapaBtn.classList.toggle('active', vistaMapaGeral);
 }
+
+document.getElementById('mapaGeralBtn').onclick = () => {
+  vistaMapaGeral = true; renderAll();
+};
 
 document.getElementById('newProviderBtn').onclick = () => {
   const p = blankEmpresa("Novo provedor "+(app.empresas.length+1));
-  app.empresas.push(p); app.currentId = p.id; saveApp(); renderAll();
+  app.empresas.push(p); app.currentId = p.id; vistaMapaGeral = false; saveApp(); renderAll();
   setTimeout(()=>{ const el=document.querySelector('.pname-input'); if(el){ el.focus(); el.select(); } }, 30);
 };
 
@@ -2332,6 +2342,13 @@ async function kmzDbDelete(id){
    KMZ / KML MAP
 ====================================================================== */
 let leafletMap = null, currentKmlLayer = null, currentKmzStats = null;
+// Mapa geral: vê a rede de vários provedores ao mesmo tempo, um por cima do
+// outro, cada um com sua cor -- mapa/estado completamente à parte do mapa
+// de "Rede (KMZ)" de um provedor só (acima), pra não interferir um no
+// outro quando troca de visão.
+let vistaMapaGeral = false;
+let mapaGeralMap = null;
+let mapaGeralLayers = {}; // id do provedor -> {layer: L.FeatureGroup, visivel: boolean}
 const TILE_LAYERS = {
   osm: { url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', opts:{maxZoom:19, attribution:'&copy; OpenStreetMap'} },
   esri: { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', opts:{maxZoom:19, attribution:'&copy; Esri'} },
@@ -2695,6 +2712,46 @@ function parseKML(xmlText){
     }
   });
   return {layer, count, stats:{caixas, ceos, outros, cabosCount, metragemTotal, cabosPorModelo, porCidade}};
+}
+
+// Versão enxuta de parseKML pro "Mapa geral": só desenha a geometria (ponto/
+// linha/polígono) numa cor ÚNICA por provedor, sem classificar caixa/CEO/
+// bitola nem acumular estatística nenhuma -- aqui o que importa é dar pra
+// diferenciar visualmente a rede de um provedor da de outro no mesmo mapa.
+function kmlToColoredLayer(xmlText, color){
+  if(/\bxsi:/.test(xmlText) && !/xmlns:xsi\s*=/.test(xmlText)){
+    xmlText = xmlText.replace(/<kml\b([^>]*)>/, (m, attrs) => `<kml${attrs} xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">`);
+  }
+  const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+  if(doc.querySelector('parsererror')) throw new Error('KML inválido ou corrompido.');
+  const placemarks = [...doc.getElementsByTagName('Placemark')];
+  const layer = L.featureGroup();
+  const coordsToLatLngs = txt => txt.trim().split(/\s+/).filter(Boolean).map(c=>{
+    const parts = c.split(',').map(Number); return [parts[1], parts[0]];
+  });
+  placemarks.forEach(pm=>{
+    const name = pm.getElementsByTagName('name')[0]?.textContent?.trim() || '';
+    const desc = pm.getElementsByTagName('description')[0]?.textContent?.trim() || '';
+    const popupHtml = `<b>${name||'Sem nome'}</b>${desc?'<br>'+desc.slice(0,200):''}`;
+    const point = pm.getElementsByTagName('Point')[0];
+    if(point){
+      const c = point.getElementsByTagName('coordinates')[0]?.textContent;
+      if(c){ const [lon,lat] = c.trim().split(',').map(Number);
+        if(isFinite(lat)&&isFinite(lon)) L.circleMarker([lat,lon], {radius:5, color, fillColor:color, fillOpacity:.85, weight:1.5}).bindPopup(popupHtml).addTo(layer);
+      }
+    }
+    const line = pm.getElementsByTagName('LineString')[0];
+    if(line){
+      const c = line.getElementsByTagName('coordinates')[0]?.textContent;
+      if(c){ const ll = coordsToLatLngs(c); if(ll.length>1) L.polyline(ll, {color, weight:3}).bindPopup(popupHtml).addTo(layer); }
+    }
+    const poly = pm.getElementsByTagName('Polygon')[0];
+    if(poly){
+      const c = poly.getElementsByTagName('coordinates')[0]?.textContent;
+      if(c){ const ll = coordsToLatLngs(c); if(ll.length>2) L.polygon(ll, {color, fillOpacity:.1, weight:2}).bindPopup(popupHtml).addTo(layer); }
+    }
+  });
+  return layer;
 }
 
 function fmtMetros(m){
@@ -3610,6 +3667,116 @@ document.getElementById('sheetImport').onchange = () => {
 };
 
 /* ======================================================================
+   MAPA GERAL — rede de vários provedores de uma vez, um por cima do
+   outro, cada um com sua cor (diferente do mapa por provedor da aba Rede
+   (KMZ), que fica dentro da Ficha da Operação de um só).
+====================================================================== */
+const MAPA_GERAL_PALETA = ['#0d9488','#f97316','#6366f1','#e11d48','#059669','#d97706','#2563eb','#db2777','#65a30d','#9333ea','#0891b2','#ca8a04'];
+
+function tplMapaGeral(){
+  if(!app.empresas.length){
+    return `<div class="panel" style="margin-top:40px;text-align:center;padding:60px 20px;">
+      <h3 style="font-family:var(--disp);font-size:18px;margin:0 0 10px;">Nenhum provedor cadastrado</h3>
+      <p style="color:var(--text-dim);margin:0;">Clique em <b>+ Novo provedor</b> na barra lateral para começar.</p>
+    </div>`;
+  }
+  return `
+    <div class="phead">
+      <p class="eyebrow">Visão geral</p>
+      <div class="phead-row">
+        <div><input class="pname-input" style="border:none;background:transparent;padding:0;" value="🗺️ Mapa geral — todas as redes" disabled></div>
+      </div>
+    </div>
+    <div class="sec-block">
+      <p class="hint">Marque os provedores que quer ver juntos no mapa — cada um aparece com uma cor diferente. Só entram aqui provedores que já têm uma rede KMZ/KML carregada na aba "Rede (KMZ)" deles.</p>
+      <div class="panel">
+        <div id="mapaGeralLegenda" style="display:flex;flex-wrap:wrap;gap:10px 20px;margin-bottom:16px;"></div>
+        <div id="mapaGeralMapHolder" style="height:640px;border-radius:12px;overflow:hidden;background:var(--bg-inset);"></div>
+        <div class="map-meta" id="mapaGeralMeta" style="margin-top:10px;color:var(--text-dim);font-size:12.5px;"></div>
+      </div>
+    </div>
+  `;
+}
+
+function bindMapaGeralControls(){
+  const legenda = document.getElementById('mapaGeralLegenda');
+  const holder = document.getElementById('mapaGeralMapHolder');
+  const meta = document.getElementById('mapaGeralMeta');
+  if(!legenda || !holder) return;
+
+  const comKmz = app.empresas.filter(e=>!!e.kmz);
+  const semKmz = app.empresas.filter(e=>!e.kmz);
+  const corDe = id => MAPA_GERAL_PALETA[comKmz.findIndex(e=>e.id===id) % MAPA_GERAL_PALETA.length];
+
+  legenda.innerHTML = comKmz.map(e=>`
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;">
+        <input type="checkbox" data-id="${esc(e.id)}" class="mapaGeralChk">
+        <span style="width:12px;height:12px;border-radius:50%;background:${corDe(e.id)};display:inline-block;flex:none;"></span>
+        ${esc(e.nome)}
+      </label>`).join('')
+    + semKmz.map(e=>`<span style="font-size:13px;color:var(--text-dim);" title="Sem rede KMZ/KML carregada ainda">${esc(e.nome)} (sem rede)</span>`).join('');
+
+  if(!comKmz.length){
+    holder.innerHTML = `<div class="map-empty" style="height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;color:var(--text-dim);">Nenhum provedor com rede KMZ/KML carregada ainda. Envie um arquivo na aba "Rede (KMZ)" de algum provedor primeiro.</div>`;
+    if(meta) meta.textContent = '';
+    return;
+  }
+
+  mapaGeralMap = L.map(holder, { zoomControl:true }).setView([-3.9,-39.0], 8);
+  const base = { "Mapa": L.tileLayer(TILE_LAYERS.osm.url, TILE_LAYERS.osm.opts).addTo(mapaGeralMap),
+                 "Satélite": L.tileLayer(TILE_LAYERS.esri.url, TILE_LAYERS.esri.opts),
+                 "Topográfico": L.tileLayer(TILE_LAYERS.topo.url, TILE_LAYERS.topo.opts) };
+  L.control.layers(base).addTo(mapaGeralMap);
+  setTimeout(()=> mapaGeralMap && mapaGeralMap.invalidateSize(), 60);
+
+  const atualizarMeta = () => {
+    const ativos = comKmz.filter(e=>mapaGeralLayers[e.id]?.visivel);
+    if(meta) meta.textContent = ativos.length
+      ? `Mostrando ${ativos.length} rede${ativos.length===1?'':'s'}: ${ativos.map(e=>e.nome).join(', ')}`
+      : 'Marque um provedor acima pra ver a rede dele no mapa.';
+  };
+  atualizarMeta();
+
+  const fitTodasVisiveis = () => {
+    const grupos = Object.values(mapaGeralLayers).filter(x=>x.visivel).map(x=>x.layer);
+    if(!grupos.length) return;
+    const bounds = L.featureGroup(grupos).getBounds();
+    if(bounds.isValid()) mapaGeralMap.fitBounds(bounds, {padding:[30,30]});
+  };
+
+  legenda.querySelectorAll('.mapaGeralChk').forEach(chk=>{
+    chk.onchange = async () => {
+      const id = chk.dataset.id;
+      const empresa = app.empresas.find(e=>e.id===id);
+      if(!empresa) return;
+      if(!mapaGeralLayers[id]){
+        chk.disabled = true;
+        try{
+          const stored = await getKmzFile(empresa);
+          if(!stored){
+            alert(`Rede de "${empresa.nome}" não encontrada (nem neste navegador, nem na nuvem).`);
+            chk.checked = false; chk.disabled = false; return;
+          }
+          const blob = dataUrlToBlob(stored.dataUrl);
+          const kmlText = await extractKMLFromBlob(blob, stored.name);
+          const layer = kmlToColoredLayer(kmlText, corDe(id));
+          mapaGeralLayers[id] = { layer, visivel:false };
+        }catch(err){
+          alert(`Erro ao carregar a rede de "${empresa.nome}": ${err.message}`);
+          chk.checked = false; chk.disabled = false; return;
+        }
+        chk.disabled = false;
+      }
+      const entry = mapaGeralLayers[id];
+      if(chk.checked){ entry.layer.addTo(mapaGeralMap); entry.visivel = true; }
+      else { mapaGeralMap.removeLayer(entry.layer); entry.visivel = false; }
+      atualizarMeta();
+      fitTodasVisiveis();
+    };
+  });
+}
+
+/* ======================================================================
    INIT
 ====================================================================== */
 function renderAll(){
@@ -3622,6 +3789,13 @@ function renderAll(){
   // deixando a aba Rede (KMZ) com a caixa vazia até dar F5 (que reseta essa
   // variável global zerando a página inteira).
   if(leafletMap){ try{ leafletMap.stop(); leafletMap.remove(); }catch(e){} leafletMap = null; currentKmlLayer = null; }
+  if(mapaGeralMap){ try{ mapaGeralMap.stop(); mapaGeralMap.remove(); }catch(e){} mapaGeralMap = null; mapaGeralLayers = {}; }
+  if(vistaMapaGeral){
+    main.innerHTML = tplMapaGeral();
+    bindMapaGeralControls();
+    renderSidebar();
+    return;
+  }
   if(!app.empresas.length){
     main.innerHTML = `<div class="panel" style="margin-top:40px;text-align:center;padding:60px 20px;">
       <h3 style="font-family:var(--disp);font-size:18px;margin:0 0 10px;">Nenhum provedor cadastrado</h3>
