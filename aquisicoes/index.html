@@ -62,20 +62,57 @@
     return setDoc(doc(fsDb, 'aquisicoes_backups', SHARED_DOC_ID), data);
   };
 
-  // ---- KMZ na nuvem (documento à parte por provedor) ----
+  // ---- KMZ na nuvem (documento à parte por provedor, EM PEDAÇOS) ----
   // Fica fora do backup principal pra não inflar aquele documento com
-  // arquivos de rede de todos os provedores de uma vez. Só sincroniza se
-  // couber com folga no limite de ~1MB por documento do Firestore.
-  window._fbSaveKmz = (empresaId, kmz) => {
-    if(!window._fbUser) return Promise.resolve();
-    return setDoc(doc(fsDb, 'aquisicoes_kmz', empresaId), { ...kmz, uid: window._fbUser.uid, atualizado_em: Date.now() });
+  // arquivos de rede de todos os provedores de uma vez. Um documento do
+  // Firestore tem teto de ~1MB -- KMZ real de rede passa disso fácil (o
+  // da IP2 tem 3,4MB, o da Infolink mesclado tem 2,3MB), então o arquivo
+  // (dataUrl) é fatiado em pedaços de <1MB cada, salvos como subcoleção
+  // "partes" do documento principal (que vira só um "manifesto": nome +
+  // quantos pedaços tem). Lendo de volta, busca o manifesto e remonta os
+  // pedaços na ordem. Isso faz qualquer tamanho de arquivo sincronizar
+  // com a equipe (antes, qualquer KMZ real de rede ficava preso num só
+  // navegador por estourar o limite de 1 documento).
+  const KMZ_TAMANHO_PEDACO = 700000; // chars por pedaço, com folga do teto de ~1MB/documento
+  window._fbSaveKmz = async (empresaId, kmz) => {
+    if(!window._fbUser) return;
+    const total = Math.max(1, Math.ceil(kmz.dataUrl.length / KMZ_TAMANHO_PEDACO));
+    // limpa pedaços de uma versão anterior que sobrariam se o arquivo novo tiver menos pedaços
+    try{
+      const manifestoAntigo = await getDoc(doc(fsDb, 'aquisicoes_kmz', empresaId));
+      const totalAntigo = manifestoAntigo.exists() ? (manifestoAntigo.data().totalPartes||0) : 0;
+      const remocoes = [];
+      for(let i=total;i<totalAntigo;i++) remocoes.push(deleteDoc(doc(fsDb, 'aquisicoes_kmz', empresaId, 'partes', String(i))));
+      await Promise.all(remocoes);
+    }catch(e){ console.error('Falha ao limpar pedaços antigos do KMZ:', e); }
+    const escritas = [];
+    for(let i=0;i<total;i++){
+      const pedaco = kmz.dataUrl.slice(i*KMZ_TAMANHO_PEDACO, (i+1)*KMZ_TAMANHO_PEDACO);
+      escritas.push(setDoc(doc(fsDb, 'aquisicoes_kmz', empresaId, 'partes', String(i)), { data: pedaco }));
+    }
+    await Promise.all(escritas);
+    await setDoc(doc(fsDb, 'aquisicoes_kmz', empresaId), { name: kmz.name, totalPartes: total, uid: window._fbUser.uid, atualizado_em: Date.now() });
   };
   window._fbGetKmz = async (empresaId) => {
-    const snap = await getDoc(doc(fsDb, 'aquisicoes_kmz', empresaId));
-    return snap.exists() ? snap.data() : null;
+    const manifesto = await getDoc(doc(fsDb, 'aquisicoes_kmz', empresaId));
+    if(!manifesto.exists()) return null;
+    const { name, totalPartes } = manifesto.data();
+    if(!totalPartes) return null;
+    const partes = await Promise.all(
+      Array.from({length: totalPartes}, (_, i) => getDoc(doc(fsDb, 'aquisicoes_kmz', empresaId, 'partes', String(i))))
+    );
+    const dataUrl = partes.map(p => p.exists() ? (p.data().data||'') : '').join('');
+    return { name, dataUrl };
   };
-  window._fbDeleteKmz = (empresaId) => {
-    return deleteDoc(doc(fsDb, 'aquisicoes_kmz', empresaId)).catch(err => console.error('Falha ao remover KMZ da nuvem:', err));
+  window._fbDeleteKmz = async (empresaId) => {
+    try{
+      const manifesto = await getDoc(doc(fsDb, 'aquisicoes_kmz', empresaId));
+      const totalPartes = manifesto.exists() ? (manifesto.data().totalPartes||0) : 0;
+      const remocoes = [];
+      for(let i=0;i<totalPartes;i++) remocoes.push(deleteDoc(doc(fsDb, 'aquisicoes_kmz', empresaId, 'partes', String(i))));
+      remocoes.push(deleteDoc(doc(fsDb, 'aquisicoes_kmz', empresaId)));
+      await Promise.all(remocoes);
+    }catch(err){ console.error('Falha ao remover KMZ da nuvem:', err); }
   };
 
   onAuthStateChanged(auth, user => {
@@ -3179,10 +3216,13 @@ function renderKmzCidadeBlock(){
   setText('kpi-kmz-orc-geral', fmtBRL(orc.totalGeral));
 }
 
-// Limite de folga pra sincronizar o KMZ com a nuvem (documento à parte,
-// dentro do teto de ~1MB por documento do Firestore). Arquivos maiores
-// que isso ficam só neste navegador (IndexedDB), como antes.
-const KMZ_LIMITE_NUVEM = 900000;
+// Teto de segurança pra sincronizar o KMZ com a nuvem -- não é mais o
+// limite de 1 documento do Firestore (o arquivo agora é fatiado em
+// pedaços, ver _fbSaveKmz no <script> do <head>), é só pra não tentar
+// sincronizar algo absurdamente grande (dezenas de MB = dezenas de
+// documentos/leituras). Arquivos maiores que isso ficam só neste
+// navegador (IndexedDB), como antes.
+const KMZ_LIMITE_NUVEM = 15000000;
 
 // Busca o arquivo local primeiro (rápido); se não achar, tenta a nuvem
 // (outro dispositivo pode ter enviado) e guarda uma cópia local também.
