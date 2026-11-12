@@ -26,22 +26,60 @@ function extrairSplitter(observacao) {
   return m ? m[1].trim() : null;
 }
 
+// A conta não tem uma pasta chamada "Infolink" - ela é a dona "padrão" (pastas
+// de cidade direto embaixo de "Raiz": Fortaleza - CE, Eusébio - CE, Aquiraz -
+// CE etc.). Jebnet, Dnet, GigaNet e CLIENTES-LINKS são os outros clientes
+// revendidos na mesma conta - excluídos por nome de raiz/ancestral.
+const RAIZES_NAO_INFOLINK = [
+  'jebnet', 'dnet', 'giganet', 'clientes-links', 'clientes ptp',
+  'palmares', 'pernambuco', 'teste', 'raiz',
+];
+function ehRaizNaoInfolink(nome) {
+  const n = normalizar(nome);
+  return RAIZES_NAO_INFOLINK.some(r => n.includes(r));
+}
+
 async function carregarPastasInfolink(token) {
   const mapa = new Map(); // id -> {nome, nomePai}
-  const idsInfolink = new Set();
+  const porNome = new Map(); // nome -> {nome, nomePai} (nomePai é o NOME do pai, não id)
   let pagina = 1;
   for (;;) {
     const dados = await geogridFetch(`/pastas?pagina=${pagina}&registrosPorPagina=200`, token);
     for (const p of dados.registros || []) {
       mapa.set(String(p.id), {nome: p.nome, nomePai: p.nomePai});
-      if (normalizar(p.nome).includes('infolink') || normalizar(p.nomePai).includes('infolink')) {
-        idsInfolink.add(String(p.id));
-      }
+      porNome.set(p.nome, {nome: p.nome, nomePai: p.nomePai});
     }
     const total = parseInt(dados.totalRegistros, 10) || 0;
     if (pagina * 200 >= total || !dados.registros || dados.registros.length === 0) break;
     pagina++;
     await new Promise(r => setTimeout(r, 350));
+  }
+
+  // Sobe a cadeia de ancestrais (por NOME, já que nomePai não é id) até achar
+  // uma raiz excluída, "Raiz" em si, ou um pai órfão (nomePai null em outra
+  // pasta que não a própria) - órfão é tratado como não-Infolink por segurança.
+  function ehInfolink(id) {
+    let atual = mapa.get(id);
+    let passos = 0;
+    while (atual && passos < 20) {
+      if (ehRaizNaoInfolink(atual.nome)) return false;
+      // nomePai null numa pasta que não seja a própria "Raiz" é pasta órfã/
+      // duplicada (visto na prática: duplica nome de pasta do Dnet/GigaNet já
+      // excluída em outro lugar da árvore) - trata como não-Infolink por segurança.
+      if (atual.nomePai == null) return false;
+      if (ehRaizNaoInfolink(atual.nomePai)) return false;
+      if (normalizar(atual.nomePai) === 'raiz') return true;
+      const pai = porNome.get(atual.nomePai);
+      if (!pai) return true; // pai não listado (nome genérico reusado) - assume dentro da árvore principal
+      atual = pai;
+      passos++;
+    }
+    return true;
+  }
+
+  const idsInfolink = new Set();
+  for (const id of mapa.keys()) {
+    if (ehInfolink(id)) idsInfolink.add(id);
   }
   return {mapa, idsInfolink};
 }
