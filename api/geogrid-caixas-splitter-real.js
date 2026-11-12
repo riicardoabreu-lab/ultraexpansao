@@ -103,13 +103,14 @@ module.exports = async function handler(req, res) {
   try {
     const {mapa: pastaInfo, idsInfolink} = await carregarPastasInfolink(token);
 
+    const tipo = (req.query && req.query.tipo) || 'terminal';
     const pagina = parseInt((req.query && req.query.pagina) || '1', 10);
     const porPagina = parseInt((req.query && req.query.porPagina) || '500', 10);
     const amostra = req.query && req.query.amostra === '1';
     const atendimento = (req.query && req.query.atendimento) || 'S';
     const modoProjeto = (req.query && req.query.modoProjeto) || 'N';
 
-    const listaDados = await geogridFetch(`/itensRede?item[]=caixa&pagina=${pagina}&registrosPorPagina=${porPagina}`, token);
+    const listaDados = await geogridFetch(`/itensRede?item[]=${tipo}&pagina=${pagina}&registrosPorPagina=${porPagina}`, token);
     const registros = listaDados.registros || [];
     const totalCaixasNaConta = parseInt(listaDados.totalRegistros, 10) || 0;
     const totalPaginas = Math.ceil(totalCaixasNaConta / porPagina) || 0;
