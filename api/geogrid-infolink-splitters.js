@@ -94,14 +94,17 @@ module.exports = async function handler(req, res) {
             });
           }
         }
+        console.log(`GEOGRID_INFOLINK_PROGRESSO tipo=${tipo} pagina=${pagina} totalTipo=${totalTipo} totalTipoInfolink=${totalTipoInfolink}`);
         if (registros.length === 0 || pagina * 500 >= totalTipo) break;
         pagina++;
-        await new Promise(r => setTimeout(r, 350));
+        await new Promise(r => setTimeout(r, 150));
       }
       resumo[tipo] = {totalNaConta: totalTipo, totalInfolink: totalTipoInfolink};
     }
 
-    res.status(200).json({ok: true, pastasInfolink: pastasInfolinkListadas, resumo, totalInfolink, splitterCount, exemplos});
+    const resultado = {ok: true, pastasInfolink: pastasInfolinkListadas, resumo, totalInfolink, splitterCount, exemplos};
+    console.log('GEOGRID_INFOLINK_RESULTADO ' + JSON.stringify(resultado));
+    res.status(200).json(resultado);
   } catch (e) {
     console.error('geogridInfolinkSplitters falhou:', e);
     res.status(500).json({erro: String(e.message || e)});
