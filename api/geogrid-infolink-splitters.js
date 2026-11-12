@@ -54,6 +54,13 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    if (req.query && req.query.listarPastas) {
+      const {mapa} = await carregarPastasInfolink(token);
+      const todas = [...mapa.entries()].map(([id, f]) => ({id, nome: f.nome, nomePai: f.nomePai}));
+      res.status(200).json({ok: true, pastas: todas});
+      return;
+    }
+
     const {mapa: pastaInfo, idsInfolink} = await carregarPastasInfolink(token);
     const pastasInfolinkListadas = [...idsInfolink].map(id => {
       const f = pastaInfo.get(id);
