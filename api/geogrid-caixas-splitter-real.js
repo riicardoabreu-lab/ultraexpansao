@@ -107,6 +107,7 @@ module.exports = async function handler(req, res) {
     const pagina = parseInt((req.query && req.query.pagina) || '1', 10);
     const porPagina = parseInt((req.query && req.query.porPagina) || '500', 10);
     const amostra = req.query && req.query.amostra === '1';
+    const resumo = req.query && req.query.resumo === '1';
     const atendimento = (req.query && req.query.atendimento) || 'S';
     const modoProjeto = (req.query && req.query.modoProjeto) || 'N';
 
@@ -158,10 +159,12 @@ module.exports = async function handler(req, res) {
       if (!splitter) semEquipamento++;
       const chave = splitter || '(sem equipamento de atendimento)';
       splitterCount[chave] = (splitterCount[chave] || 0) + 1;
-      const pastaId = (item.pasta && item.pasta.id) || item.idPasta || null;
-      const folder = pastaId != null ? pastaInfo.get(String(pastaId)) : null;
-      exemplos.push({sigla: d.sigla || null, splitter, localidade: folder ? folder.nome : null});
-      await new Promise(r => setTimeout(r, 200));
+      if (!resumo) {
+        const pastaId = (item.pasta && item.pasta.id) || item.idPasta || null;
+        const folder = pastaId != null ? pastaInfo.get(String(pastaId)) : null;
+        exemplos.push({sigla: d.sigla || null, splitter, localidade: folder ? folder.nome : null});
+      }
+      await new Promise(r => setTimeout(r, 100));
     }
 
     console.log(`GEOGRID_CAIXAS_EQUIP_OK pagina=${pagina} caixasInfolinkNaPagina=${caixasInfolink.length} semEquipamento=${semEquipamento}`);
