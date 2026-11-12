@@ -5,8 +5,12 @@ const GEOGRID_BASE = 'https://eros.geogridmaps.com.br/alencar/api/v3';
 // caixas/terminais dela. Usa um token à parte (GEOGRID_API_KEY_DIAG, só em
 // preview/branch) em vez do GEOGRID_API_KEY de produção, pra não misturar
 // com a sincronização normal (que só grava a Jebnet).
-async function geogridFetch(path, token) {
+async function geogridFetch(path, token, tentativa = 1) {
   const res = await fetch(`${GEOGRID_BASE}${path}`, {headers: {'api-key': token}});
+  if (res.status === 429 && tentativa <= 5) {
+    await new Promise(r => setTimeout(r, tentativa * 600));
+    return geogridFetch(path, token, tentativa + 1);
+  }
   if (!res.ok) throw new Error(`GeoGrid ${path} -> HTTP ${res.status}`);
   return res.json();
 }
@@ -55,7 +59,8 @@ module.exports = async function handler(req, res) {
       return {id, nome: f.nome, nomePai: f.nomePai};
     });
 
-    const tipos = ['caixa', 'terminal'];
+    const tiposParam = (req.query && req.query.tipos) || 'caixa';
+    const tipos = tiposParam.split(',').map(t => t.trim()).filter(Boolean);
     const resumo = {};
     const splitterCount = {};
     const exemplos = [];
@@ -101,4 +106,4 @@ module.exports = async function handler(req, res) {
   }
 };
 
-module.exports.config = {maxDuration: 60};
+module.exports.config = {maxDuration: 300};
