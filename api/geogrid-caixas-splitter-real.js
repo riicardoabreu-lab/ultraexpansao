@@ -27,7 +27,7 @@ function normalizar(txt) {
 // embaixo de "Raiz"). Jebnet/Dnet/GigaNet/CLIENTES-LINKS são excluídos.
 const RAIZES_NAO_INFOLINK = [
   'jebnet', 'dnet', 'giganet', 'clientes-links', 'clientes ptp',
-  'palmares', 'pernambuco', 'teste', 'raiz',
+  'palmares', 'pernambuco', 'teste',
 ];
 function ehRaizNaoInfolink(nome) {
   const n = normalizar(nome);

@@ -34,7 +34,7 @@ function extrairSplitter(observacao) {
 // revendidos na mesma conta - excluídos por nome de raiz/ancestral.
 const RAIZES_NAO_INFOLINK = [
   'jebnet', 'dnet', 'giganet', 'clientes-links', 'clientes ptp',
-  'palmares', 'pernambuco', 'teste', 'raiz',
+  'palmares', 'pernambuco', 'teste',
 ];
 function ehRaizNaoInfolink(nome) {
   const n = normalizar(nome);
