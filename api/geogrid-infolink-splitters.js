@@ -7,8 +7,10 @@ const GEOGRID_BASE = 'https://eros.geogridmaps.com.br/alencar/api/v3';
 // com a sincronização normal (que só grava a Jebnet).
 async function geogridFetch(path, token, tentativa = 1) {
   const res = await fetch(`${GEOGRID_BASE}${path}`, {headers: {'api-key': token}});
-  if (res.status === 429 && tentativa <= 10) {
-    await new Promise(r => setTimeout(r, tentativa * 2000));
+  if (res.status === 429 && tentativa <= 15) {
+    const espera = Math.min(tentativa * 3000, 20000);
+    console.log(`GEOGRID_429 path=${path} tentativa=${tentativa} esperando=${espera}ms`);
+    await new Promise(r => setTimeout(r, espera));
     return geogridFetch(path, token, tentativa + 1);
   }
   if (!res.ok) throw new Error(`GeoGrid ${path} -> HTTP ${res.status}`);
@@ -100,6 +102,7 @@ module.exports = async function handler(req, res) {
     }
 
     const {mapa: pastaInfo, idsInfolink} = await carregarPastasInfolink(token);
+    console.log(`GEOGRID_PASTAS_OK total=${pastaInfo.size} infolink=${idsInfolink.size}`);
     const pastasInfolinkListadas = [...idsInfolink].map(id => {
       const f = pastaInfo.get(id);
       return {id, nome: f.nome, nomePai: f.nomePai};
