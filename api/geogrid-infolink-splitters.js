@@ -136,10 +136,13 @@ module.exports = async function handler(req, res) {
       });
     }
 
+    const detalhes = req.query && req.query.detalhes === '1';
     res.status(200).json({
       ok: true, tipo, pagina, totalPaginas, totalTipoNaConta: totalTipo,
-      recebidos: registros.length, totalInfolinkPagina, splitterCount, exemplos,
-      pastasInfolink: pagina === 1 ? pastasInfolinkListadas : undefined,
+      recebidos: registros.length, totalInfolinkPagina,
+      qtdPastasInfolink: idsInfolink.size, splitterCount,
+      exemplos: detalhes ? exemplos : exemplos.slice(0, 15),
+      pastasInfolink: detalhes ? pastasInfolinkListadas : undefined,
     });
   } catch (e) {
     console.error('geogridInfolinkSplitters falhou:', e);
