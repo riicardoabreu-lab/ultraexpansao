@@ -164,7 +164,7 @@ module.exports = async function handler(req, res) {
         const folder = pastaId != null ? pastaInfo.get(String(pastaId)) : null;
         exemplos.push({sigla: d.sigla || null, splitter, localidade: folder ? folder.nome : null});
       }
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise(r => setTimeout(r, 450));
     }
 
     console.log(`GEOGRID_CAIXAS_EQUIP_OK pagina=${pagina} caixasInfolinkNaPagina=${caixasInfolink.length} semEquipamento=${semEquipamento}`);
