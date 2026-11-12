@@ -105,51 +105,39 @@ module.exports = async function handler(req, res) {
       return {id, nome: f.nome, nomePai: f.nomePai};
     });
 
-    const tiposParam = (req.query && req.query.tipos) || 'caixa';
-    const tipos = tiposParam.split(',').map(t => t.trim()).filter(Boolean);
-    const resumo = {};
+    const tipo = (req.query && req.query.tipo) || 'caixa';
+    const pagina = parseInt((req.query && req.query.pagina) || '1', 10);
+
+    const dados = await geogridFetch(`/itensRede?item[]=${tipo}&pagina=${pagina}&registrosPorPagina=500`, token);
+    const registros = dados.registros || [];
+    const totalTipo = parseInt(dados.totalRegistros, 10) || 0;
+    const totalPaginas = Math.ceil(totalTipo / 500) || 0;
+
     const splitterCount = {};
     const exemplos = [];
-    let totalInfolink = 0;
-
-    for (const tipo of tipos) {
-      let pagina = 1;
-      let totalTipo = 0;
-      let totalTipoInfolink = 0;
-      for (;;) {
-        const dados = await geogridFetch(`/itensRede?item[]=${tipo}&pagina=${pagina}&registrosPorPagina=500`, token);
-        const registros = dados.registros || [];
-        totalTipo = parseInt(dados.totalRegistros, 10) || 0;
-        for (const item of registros) {
-          const d = item.dados || {};
-          const pastaId = (item.pasta && item.pasta.id) || item.idPasta || null;
-          if (pastaId == null || !idsInfolink.has(String(pastaId))) continue;
-          totalTipoInfolink++;
-          totalInfolink++;
-          const splitter = extrairSplitter(d.observacao);
-          const chave = splitter ? splitter.replace(/\s+/g, '') : '(sem splitter informado)';
-          splitterCount[chave] = (splitterCount[chave] || 0) + 1;
-          if (exemplos.length < 40) {
-            const folder = pastaInfo.get(String(pastaId));
-            exemplos.push({
-              sigla: d.sigla || null, item: d.item, splitter,
-              localidade: folder ? folder.nome : null,
-              lat: d.latitude != null ? Number(d.latitude) : null,
-              lon: d.longitude != null ? Number(d.longitude) : null,
-            });
-          }
-        }
-        console.log(`GEOGRID_INFOLINK_PROGRESSO tipo=${tipo} pagina=${pagina} totalTipo=${totalTipo} totalTipoInfolink=${totalTipoInfolink}`);
-        if (registros.length === 0 || pagina * 500 >= totalTipo) break;
-        pagina++;
-        await new Promise(r => setTimeout(r, 150));
-      }
-      resumo[tipo] = {totalNaConta: totalTipo, totalInfolink: totalTipoInfolink};
+    let totalInfolinkPagina = 0;
+    for (const item of registros) {
+      const d = item.dados || {};
+      const pastaId = (item.pasta && item.pasta.id) || item.idPasta || null;
+      if (pastaId == null || !idsInfolink.has(String(pastaId))) continue;
+      totalInfolinkPagina++;
+      const splitter = extrairSplitter(d.observacao);
+      const chave = splitter ? splitter.replace(/\s+/g, '') : '(sem splitter informado)';
+      splitterCount[chave] = (splitterCount[chave] || 0) + 1;
+      const folder = pastaInfo.get(String(pastaId));
+      exemplos.push({
+        sigla: d.sigla || null, item: d.item, splitter,
+        localidade: folder ? folder.nome : null,
+        lat: d.latitude != null ? Number(d.latitude) : null,
+        lon: d.longitude != null ? Number(d.longitude) : null,
+      });
     }
 
-    const resultado = {ok: true, pastasInfolink: pastasInfolinkListadas, resumo, totalInfolink, splitterCount, exemplos};
-    console.log('GEOGRID_INFOLINK_RESULTADO ' + JSON.stringify(resultado));
-    res.status(200).json(resultado);
+    res.status(200).json({
+      ok: true, tipo, pagina, totalPaginas, totalTipoNaConta: totalTipo,
+      recebidos: registros.length, totalInfolinkPagina, splitterCount, exemplos,
+      pastasInfolink: pagina === 1 ? pastasInfolinkListadas : undefined,
+    });
   } catch (e) {
     console.error('geogridInfolinkSplitters falhou:', e);
     res.status(500).json({erro: String(e.message || e)});
