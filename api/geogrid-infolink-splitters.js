@@ -7,8 +7,8 @@ const GEOGRID_BASE = 'https://eros.geogridmaps.com.br/alencar/api/v3';
 // com a sincronização normal (que só grava a Jebnet).
 async function geogridFetch(path, token, tentativa = 1) {
   const res = await fetch(`${GEOGRID_BASE}${path}`, {headers: {'api-key': token}});
-  if (res.status === 429 && tentativa <= 5) {
-    await new Promise(r => setTimeout(r, tentativa * 600));
+  if (res.status === 429 && tentativa <= 10) {
+    await new Promise(r => setTimeout(r, tentativa * 2000));
     return geogridFetch(path, token, tentativa + 1);
   }
   if (!res.ok) throw new Error(`GeoGrid ${path} -> HTTP ${res.status}`);
@@ -41,6 +41,7 @@ async function carregarPastasInfolink(token) {
     const total = parseInt(dados.totalRegistros, 10) || 0;
     if (pagina * 200 >= total || !dados.registros || dados.registros.length === 0) break;
     pagina++;
+    await new Promise(r => setTimeout(r, 350));
   }
   return {mapa, idsInfolink};
 }
@@ -95,6 +96,7 @@ module.exports = async function handler(req, res) {
         }
         if (registros.length === 0 || pagina * 500 >= totalTipo) break;
         pagina++;
+        await new Promise(r => setTimeout(r, 350));
       }
       resumo[tipo] = {totalNaConta: totalTipo, totalInfolink: totalTipoInfolink};
     }
