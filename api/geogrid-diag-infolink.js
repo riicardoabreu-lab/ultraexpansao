@@ -35,11 +35,16 @@ module.exports = async function handler(req, res) {
         const linha = montarLinha(item, pastaInfo);
         if ((linha.municipio || '').trim().toLowerCase() !== 'raiz') continue;
         totalInfolink++;
-        if (!linha.splitter) { semSplitterInfo++; continue; }
+        if (!linha.splitter) {
+          semSplitterInfo++;
+          if (comSplitter.length < 5) {
+            comSplitter.push({sigla: linha.sigla, localidade: linha.localidade, observacao: (item.dados && item.dados.observacao) || null});
+          }
+          continue;
+        }
         const s = linha.splitter.toLowerCase();
         if (/1x8/.test(s)) com1x8++;
         if (/1x16/.test(s)) com1x16++;
-        comSplitter.push({sigla: linha.sigla, localidade: linha.localidade, splitter: linha.splitter});
       }
 
       if (registros.length === 0 || pagina * 500 >= totalTipo) break;
