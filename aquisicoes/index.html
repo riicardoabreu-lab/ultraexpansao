@@ -1545,7 +1545,7 @@ function tplComparativo(){
     <div class="panel">
       <div class="table-scroll"><table>
         <thead><tr>
-          <th>Provedor</th><th>Clientes</th><th>Proposta usada</th><th>Preço</th><th>Valor da rede</th><th>Custo op. / Receita</th><th>% rede</th>
+          <th>Provedor</th><th>Proposta usada</th><th>Preço</th><th>Clientes</th><th>Valor da rede</th><th>Custo op. / Receita</th><th>% rede</th>
           <th>Valor clientes (implícito)</th><th>% clientes</th><th>R$/cliente (implícito)</th>
         </tr></thead>
         <tbody id="comparativo-body"></tbody>
@@ -4021,9 +4021,9 @@ function renderComparativoTab(){
   if(tbody){
     tbody.innerHTML = todasLinhas.map(r=>`<tr${r.p.id===atual.id?' style="background:rgba(var(--accent-rgb),.07);"':''}>
       <td>${esc(r.p.nome)}</td>
-      <td class="computed">${r.p.clientes ? fmtNum(r.p.clientes) : '—'}</td>
       <td>${esc(r.propostaLabel)}</td>
       <td class="computed">${fmtBRL(r.preco)}</td>
+      <td class="computed">${r.p.clientes ? fmtNum(r.p.clientes) : '—'}</td>
       <td class="computed">${r.temRede ? fmtBRL(r.valorRede) : '<span style="color:var(--text-faint);font-weight:400;">sem rede carregada</span>'}</td>
       <td class="computed">${r.pctCustoReceita!=null ? fmtPct(r.pctCustoReceita) : '—'}</td>
       <td class="computed">${r.temRede ? fmtPct(r.pctRede) : '—'}</td>
