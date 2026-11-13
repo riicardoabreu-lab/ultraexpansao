@@ -65,6 +65,20 @@
     const nomes = snap.exists() ? (snap.data().nomes || []) : null;
     if (window._aplicarTimes) window._aplicarTimes(nomes);
   }, err => console.error('listener producao_equipe_config falhou:', err));
+
+  // Provedores: meta de caixas existentes por provedor (ex: "IP2"), comparada
+  // com o que já foi coletado (somado a partir do texto "bairro/atividade" de
+  // cada lançamento diário que mencione o nome do provedor). Doc id = nome do
+  // provedor (assume nomes únicos, mais simples que gerar id à parte).
+  window._fbSalvarProvedor = (nome, totalCaixas) =>
+    setDoc(doc(fsDb, 'producao_equipe_provedores', nome), { nome, totalCaixas });
+  window._fbApagarProvedor = (nome) => deleteDoc(doc(fsDb, 'producao_equipe_provedores', nome));
+
+  onSnapshot(collection(fsDb, 'producao_equipe_provedores'), snap => {
+    const provedores = {};
+    snap.forEach(d => { provedores[d.id] = d.data(); });
+    if (window._aplicarProvedores) window._aplicarProvedores(provedores);
+  }, err => console.error('listener producao_equipe_provedores falhou:', err));
 </script>
 <title>Produção da Equipe · Infolink</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
@@ -131,6 +145,10 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
 .rank-stat{display:flex;justify-content:space-between;font-size:12px;color:var(--mu);padding:3px 0}
 .rank-stat b{color:var(--tx);font-family:'JetBrains Mono',monospace;font-weight:600}
 .fg{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fg4{grid-template-columns:2fr 1fr 1fr 1fr}
+.gap-item{display:flex;justify-content:space-between;align-items:center;background:var(--s2);border-radius:var(--r);padding:9px 14px;margin-bottom:6px}
+.gap-item span{font-size:12.5px;color:var(--mu)}
+.gap-item b{color:var(--tx);font-weight:500}
 .fl{display:flex;flex-direction:column;gap:4px}
 .fl label{font-size:11px;color:var(--mu);font-weight:500;letter-spacing:.02em}
 .fl input,.fl select,.fl textarea{background:var(--bg);border:1px solid var(--b2);border-radius:var(--r);padding:8px 11px;font-size:13px;color:var(--tx);font-family:'Inter',sans-serif;outline:none;width:100%;transition:border-color .13s,box-shadow .13s}
@@ -174,7 +192,7 @@ tr:hover td{background:rgba(255,255,255,.018)}
 .bni.on{color:var(--ac)}
 @media(max-width:760px){
   .shell{grid-template-columns:1fr}.sidebar{display:none}
-  .main{padding:3.2rem 1.1rem 76px}.fg{grid-template-columns:1fr}.mrow{grid-template-columns:1fr 1fr}
+  .main{padding:3.2rem 1.1rem 76px}.fg,.fg4{grid-template-columns:1fr}.mrow{grid-template-columns:1fr 1fr}
   .bnav{display:block}
   .ph{flex-direction:column;align-items:stretch}
   .topbar-actions{top:10px;right:10px}.topbar-actions .btn{padding:6px 9px;font-size:11px}
@@ -200,6 +218,8 @@ tr:hover td{background:rgba(255,255,255,.018)}
       <div class="nav-sec" style="font-size:10px;color:var(--hi);text-transform:uppercase;letter-spacing:.1em;padding:10px 8px 4px">Registro</div>
       <button class="ni" data-panel="preencher"><span class="ico">✏️</span> Preencher dia</button>
       <button class="ni" data-panel="historico"><span class="ico">🗓️</span> Histórico</button>
+      <button class="ni" data-panel="pesquisa"><span class="ico">🔎</span> Pesquisa</button>
+      <button class="ni" data-panel="provedores"><span class="ico">📦</span> Provedores</button>
       <div class="nav-sec" style="font-size:10px;color:var(--hi);text-transform:uppercase;letter-spacing:.1em;padding:10px 8px 4px">Config</div>
       <button class="ni" data-panel="equipes"><span class="ico">👥</span> Equipes</button>
     </nav>
@@ -274,6 +294,54 @@ tr:hover td{background:rgba(255,255,255,.018)}
       </div>
     </section>
 
+    <!-- PESQUISA -->
+    <section class="panel" id="panel-pesquisa">
+      <div class="ph"><div><div class="pt">Pesquisa</div><div class="ps">Busque lançamentos e veja dias que ficaram sem preencher.</div></div></div>
+      <div class="card">
+        <div class="fg fg4">
+          <div class="fl"><label>Buscar (bairro/atividade)</label><input type="text" id="pq-texto" placeholder="Ex: Centro"></div>
+          <div class="fl"><label>Equipe</label><select id="pq-equipe"><option value="">Todas</option></select></div>
+          <div class="fl"><label>De</label><input type="date" id="pq-de"></div>
+          <div class="fl"><label>Até</label><input type="date" id="pq-ate"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ct">Resultados <span id="pq-contagem" style="color:var(--hi);font-weight:400;text-transform:none;letter-spacing:0"></span></div>
+        <div class="tw"><table id="tabela-pesquisa">
+          <thead><tr><th>Data</th><th>Dia</th><th id="th-equipes-pq"></th><th>Ações</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <div class="empty" id="pesquisa-vazio" style="display:none">Nenhum resultado com esses filtros.</div>
+      </div>
+      <div class="card">
+        <div class="ct">Dias sem nenhum lançamento no período</div>
+        <div id="pesquisa-gaps"></div>
+        <div class="empty" id="gaps-vazio" style="display:none">Nenhum dia faltando no período (ou período não informado).</div>
+      </div>
+    </section>
+
+    <!-- PROVEDORES -->
+    <section class="panel" id="panel-provedores">
+      <div class="ph"><div><div class="pt">Provedores</div><div class="ps">Meta de caixas por provedor (ex: IP2) x o que já foi coletado, a partir do bairro/atividade lançado nos dias.</div></div></div>
+      <div class="card">
+        <div class="fg" style="grid-template-columns:2fr 1fr auto">
+          <div class="fl"><label>Nome do provedor</label><input type="text" id="in-prov-nome" placeholder="Ex: IP2"></div>
+          <div class="fl"><label>Qtd. de caixas existentes</label><input type="number" id="in-prov-total" placeholder="Ex: 500"></div>
+          <div class="fl" style="justify-content:flex-end"><button class="btn pri" id="btn-add-provedor" style="height:37px">Adicionar</button></div>
+        </div>
+      </div>
+      <div id="provedores-list"></div>
+      <div class="empty" id="provedores-vazio" style="display:none">Nenhum provedor cadastrado ainda.</div>
+
+      <div class="card" id="card-prov-detalhe" style="display:none">
+        <div class="ct">Histórico de coleta — <span id="prov-detalhe-nome"></span> <button class="btn sm" id="btn-fechar-prov-detalhe" style="float:right">Fechar</button></div>
+        <div class="tw"><table id="tabela-prov-detalhe">
+          <thead><tr><th>Data</th><th>Equipe</th><th>Qtd.</th><th>Bairro / atividade</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </section>
+
     <!-- EQUIPES -->
     <section class="panel" id="panel-equipes">
       <div class="ph"><div><div class="pt">Equipes</div><div class="ps">Times que aparecem no formulário e no painel.</div></div></div>
@@ -294,6 +362,8 @@ tr:hover td{background:rgba(255,255,255,.018)}
     <button class="bni on" data-panel="painel"><span>📊</span><span>Painel</span></button>
     <button class="bni" data-panel="preencher"><span>✏️</span><span>Preencher</span></button>
     <button class="bni" data-panel="historico"><span>🗓️</span><span>Histórico</span></button>
+    <button class="bni" data-panel="pesquisa"><span>🔎</span><span>Pesquisa</span></button>
+    <button class="bni" data-panel="provedores"><span>📦</span><span>Provedores</span></button>
     <button class="bni" data-panel="equipes"><span>👥</span><span>Equipes</span></button>
   </div>
 </div>
@@ -308,6 +378,8 @@ const DIAS_SEMANA = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Qu
 
 let DIAS = {};          // { "AAAA-MM-DD": {data, equipes:{nome:{tipo,valor,bairro}}, atualizado_em} }
 let TIMES = ['Equipe 1','Equipe 2'];
+let PROVEDORES = {};    // { nomeProvedor: {nome, totalCaixas} }
+let provedorDetalheAberto = null;
 let timesVindoDoFirestore = false;
 let mesAtual = new Date(); mesAtual.setDate(1);
 let chartDiario = null;
@@ -319,6 +391,7 @@ function toast(msg){
   window._toastTimer = setTimeout(()=>el.classList.remove('on'), 2600);
 }
 function corTime(nome){ const i = TIMES.indexOf(nome); return CORES[(i>=0?i:0) % CORES.length]; }
+function normalizar(txt){ return (txt||'').toString().normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(); }
 function fmtISO(d){ return d.toISOString().slice(0,10); }
 function diaSemanaDe(iso){ const [y,m,d] = iso.split('-').map(Number); return DIAS_SEMANA[new Date(y,m-1,d).getDay()]; }
 
@@ -328,8 +401,16 @@ function mostrarPanel(nome){
   document.querySelectorAll('.ni, .bni').forEach(b=>b.classList.toggle('on', b.dataset.panel===nome));
   if(nome==='painel') renderPainel();
   if(nome==='historico') renderHistorico();
-  if(nome==='preencher') renderFormularioEquipes();
+  if(nome==='preencher' && !window._pularRenderPreencher) renderFormularioEquipes();
+  window._pularRenderPreencher = false;
   if(nome==='equipes') renderListaTimes();
+  if(nome==='pesquisa') renderPesquisa();
+  if(nome==='provedores') renderProvedores();
+}
+function editarDia(dataISO){
+  window._pularRenderPreencher = true;
+  mostrarPanel('preencher');
+  renderFormularioEquipes(dataISO);
 }
 document.querySelectorAll('.ni, .bni').forEach(b=>b.addEventListener('click', ()=>mostrarPanel(b.dataset.panel)));
 document.getElementById('btn-voltar-hub').addEventListener('click', ()=>{ window.location.href = '../home.html'; });
@@ -343,6 +424,13 @@ window._aplicarDias = (dias) => {
   const ativo = document.querySelector('.panel.on')?.id.replace('panel-','');
   if(ativo==='painel') renderPainel();
   if(ativo==='historico') renderHistorico();
+  if(ativo==='pesquisa') renderPesquisa();
+  if(ativo==='provedores') renderProvedores();
+};
+window._aplicarProvedores = (provedores) => {
+  PROVEDORES = provedores;
+  const ativo = document.querySelector('.panel.on')?.id.replace('panel-','');
+  if(ativo==='provedores') renderProvedores();
 };
 window._aplicarTimes = (nomes) => {
   if(nomes && nomes.length){ TIMES = nomes; timesVindoDoFirestore = true; }
@@ -352,6 +440,8 @@ window._aplicarTimes = (nomes) => {
   if(ativo==='preencher') renderFormularioEquipes();
   if(ativo==='painel') renderPainel();
   if(ativo==='historico') renderHistorico();
+  if(ativo==='pesquisa') renderPesquisa();
+  if(ativo==='provedores') renderProvedores();
 };
 
 // ---------- painel ----------
@@ -487,27 +577,28 @@ document.getElementById('btn-apagar-dia').addEventListener('click', ()=>{
 });
 
 // ---------- histórico ----------
-function renderHistorico(){
-  document.getElementById('th-equipes').textContent = TIMES.join(' · ');
-  const chaves = Object.keys(DIAS).sort().reverse();
-  const tbody = document.querySelector('#tabela-historico tbody');
-  document.getElementById('historico-vazio').style.display = chaves.length ? 'none' : 'block';
-  tbody.innerHTML = chaves.map(k=>{
-    const dia = DIAS[k];
-    const celulasEquipes = TIMES.map(t=>{
-      const e = dia.equipes && dia.equipes[t];
-      if(!e) return '<span class="tag tmu">—</span>';
-      if(e.tipo==='numero') return `<b class="mono">${e.valor ?? 0}</b>${e.bairro?` <span style="color:var(--mu);font-size:11px">(${e.bairro})</span>`:''}`;
-      const cls = e.tipo==='folga' ? 'tam' : e.tipo==='feriado' ? 'trd' : 'tmu';
-      return `<span class="tag ${cls}">${STATUS_LABEL[e.tipo]}</span>`;
-    }).join(' &nbsp; ');
-    return `<tr>
-      <td class="mono">${k}</td>
-      <td>${diaSemanaDe(k)}</td>
-      <td>${celulasEquipes}</td>
-      <td><button class="del-btn" data-del="${k}" title="Apagar">🗑</button></td>
-    </tr>`;
-  }).join('');
+function linhaDiaHTML(k, dia){
+  const celulasEquipes = TIMES.map(t=>{
+    const e = dia.equipes && dia.equipes[t];
+    if(!e) return '<span class="tag tmu">—</span>';
+    if(e.tipo==='numero') return `<b class="mono">${e.valor ?? 0}</b>${e.bairro?` <span style="color:var(--mu);font-size:11px">(${e.bairro})</span>`:''}`;
+    const cls = e.tipo==='folga' ? 'tam' : e.tipo==='feriado' ? 'trd' : 'tmu';
+    return `<span class="tag ${cls}">${STATUS_LABEL[e.tipo]}</span>`;
+  }).join(' &nbsp; ');
+  return `<tr>
+    <td class="mono">${k}</td>
+    <td>${diaSemanaDe(k)}</td>
+    <td>${celulasEquipes}</td>
+    <td>
+      <button class="del-btn" data-edit="${k}" title="Editar">✏️</button>
+      <button class="del-btn" data-del="${k}" title="Apagar">🗑</button>
+    </td>
+  </tr>`;
+}
+function ligarAcoesLinha(tbody){
+  tbody.querySelectorAll('[data-edit]').forEach(btn=>{
+    btn.addEventListener('click', ()=>editarDia(btn.dataset.edit));
+  });
   tbody.querySelectorAll('[data-del]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const k = btn.dataset.del;
@@ -516,6 +607,203 @@ function renderHistorico(){
     });
   });
 }
+
+function renderHistorico(){
+  document.getElementById('th-equipes').textContent = TIMES.join(' · ');
+  const chaves = Object.keys(DIAS).sort().reverse();
+  const tbody = document.querySelector('#tabela-historico tbody');
+  document.getElementById('historico-vazio').style.display = chaves.length ? 'none' : 'block';
+  tbody.innerHTML = chaves.map(k=>linhaDiaHTML(k, DIAS[k])).join('');
+  ligarAcoesLinha(tbody);
+}
+
+// ---------- pesquisa ----------
+function dentroDoIntervalo(k, de, ate){
+  if(de && k < de) return false;
+  if(ate && k > ate) return false;
+  return true;
+}
+function renderPesquisa(){
+  const selEquipe = document.getElementById('pq-equipe');
+  const opcoesAtuais = [...selEquipe.options].slice(1).map(o=>o.value).join('|');
+  if(opcoesAtuais !== TIMES.join('|')){
+    const valorAnterior = selEquipe.value;
+    selEquipe.innerHTML = '<option value="">Todas</option>' + TIMES.map(t=>`<option value="${t.replace(/"/g,'&quot;')}">${t}</option>`).join('');
+    if(TIMES.includes(valorAnterior)) selEquipe.value = valorAnterior;
+  }
+  document.getElementById('th-equipes-pq').textContent = TIMES.join(' · ');
+
+  const texto = document.getElementById('pq-texto').value.trim().toLowerCase();
+  const equipeFiltro = selEquipe.value;
+  const de = document.getElementById('pq-de').value;
+  const ate = document.getElementById('pq-ate').value;
+
+  const chaves = Object.keys(DIAS).sort().reverse().filter(k=>{
+    if(!dentroDoIntervalo(k, de, ate)) return false;
+    const dia = DIAS[k];
+    if(equipeFiltro && !(dia.equipes && dia.equipes[equipeFiltro])) return false;
+    if(texto){
+      const equipesDoDia = equipeFiltro ? [equipeFiltro] : TIMES;
+      const bate = equipesDoDia.some(t=>{
+        const e = dia.equipes && dia.equipes[t];
+        return e && e.bairro && e.bairro.toLowerCase().includes(texto);
+      });
+      if(!bate) return false;
+    }
+    return true;
+  });
+
+  const tbody = document.querySelector('#tabela-pesquisa tbody');
+  document.getElementById('pesquisa-vazio').style.display = chaves.length ? 'none' : 'block';
+  document.getElementById('pq-contagem').textContent = chaves.length ? `(${chaves.length})` : '';
+  tbody.innerHTML = chaves.map(k=>linhaDiaHTML(k, DIAS[k])).join('');
+  ligarAcoesLinha(tbody);
+
+  // dias sem nenhum lançamento no período (só até hoje, nunca aponta dia futuro)
+  const gapsEl = document.getElementById('pesquisa-gaps');
+  const gapsVazioEl = document.getElementById('gaps-vazio');
+  if(!de && !ate){
+    gapsEl.innerHTML = '';
+    gapsVazioEl.textContent = 'Escolha um período (De / Até) pra ver os dias sem lançamento.';
+    gapsVazioEl.style.display = 'block';
+    return;
+  }
+  const hojeISO = fmtISO(new Date());
+  const primeiraChave = Object.keys(DIAS).sort()[0];
+  const inicio = de || primeiraChave || hojeISO;
+  const fim = (ate && ate < hojeISO) ? ate : hojeISO;
+  const faltando = [];
+  for(let d = new Date(inicio+'T00:00:00'); fmtISO(d) <= fim; d.setDate(d.getDate()+1)){
+    const iso = fmtISO(d);
+    if(!DIAS[iso]) faltando.push(iso);
+  }
+  gapsVazioEl.style.display = faltando.length ? 'none' : 'block';
+  gapsVazioEl.textContent = 'Nenhum dia faltando no período.';
+  gapsEl.innerHTML = faltando.map(iso=>`
+    <div class="gap-item">
+      <span><b>${iso}</b> · ${diaSemanaDe(iso)}</span>
+      <button class="btn sm" data-preencher="${iso}">+ Preencher</button>
+    </div>`).join('');
+  gapsEl.querySelectorAll('[data-preencher]').forEach(btn=>{
+    btn.addEventListener('click', ()=>editarDia(btn.dataset.preencher));
+  });
+}
+['pq-texto','pq-equipe','pq-de','pq-ate'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', renderPesquisa);
+});
+
+// ---------- provedores ----------
+// Casa pelo texto do bairro/atividade (contém o nome do provedor, sem
+// diferenciar maiúscula/acento) - mesmo texto livre que a planilha original
+// usava, tipo "COLETA IP2 TELECOM" pro provedor "IP2".
+function entradasDoProvedor(nomeProvedor){
+  const alvo = normalizar(nomeProvedor);
+  const entradas = [];
+  Object.keys(DIAS).sort().reverse().forEach(k=>{
+    const dia = DIAS[k];
+    TIMES.forEach(t=>{
+      const e = dia.equipes && dia.equipes[t];
+      if(!e || e.tipo!=='numero' || !e.bairro) return;
+      if(normalizar(e.bairro).includes(alvo)){
+        entradas.push({ data: k, equipe: t, valor: Number(e.valor)||0, bairro: e.bairro });
+      }
+    });
+  });
+  return entradas;
+}
+
+function renderProvedores(){
+  const nomes = Object.keys(PROVEDORES).sort();
+  document.getElementById('provedores-vazio').style.display = nomes.length ? 'none' : 'block';
+  document.getElementById('provedores-list').innerHTML = nomes.map(nome=>{
+    const prov = PROVEDORES[nome];
+    const entradas = entradasDoProvedor(nome);
+    const coletado = entradas.reduce((s,e)=>s+e.valor, 0);
+    const total = Number(prov.totalCaixas) || 0;
+    const pct = total>0 ? (coletado/total*100) : null;
+    const falta = total>0 ? Math.max(total - coletado, 0) : null;
+    const pctClamped = pct==null ? 0 : Math.min(pct, 100);
+    return `<div class="card">
+      <div class="ct" style="display:flex;justify-content:space-between;align-items:center">
+        <span>${nome}</span>
+        <span>
+          <button class="del-btn" data-ver-prov="${nome.replace(/"/g,'&quot;')}" title="Ver histórico">🔎</button>
+          <button class="del-btn" data-edit-prov="${nome.replace(/"/g,'&quot;')}" title="Editar meta">✏️</button>
+          <button class="del-btn" data-rm-prov="${nome.replace(/"/g,'&quot;')}" title="Remover">🗑</button>
+        </span>
+      </div>
+      <div class="mrow" style="margin-bottom:0">
+        <div class="mc bl"><div class="ml">Coletado</div><div class="mv">${coletado.toLocaleString('pt-BR')}</div></div>
+        <div class="mc"><div class="ml">Caixas existentes</div><div class="mv">${total>0?total.toLocaleString('pt-BR'):'—'}</div></div>
+        <div class="mc gn"><div class="ml">% coletado</div><div class="mv">${pct!=null?pct.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</div></div>
+        <div class="mc am"><div class="ml">Falta coletar</div><div class="mv">${falta!=null?falta.toLocaleString('pt-BR'):'—'}</div></div>
+      </div>
+      ${total>0?`<div style="height:8px;background:var(--s2);border-radius:4px;overflow:hidden;margin-top:12px">
+        <div style="height:100%;width:${pctClamped}%;background:var(--ac)"></div>
+      </div>`:''}
+    </div>`;
+  }).join('');
+
+  document.querySelectorAll('[data-ver-prov]').forEach(btn=>{
+    btn.addEventListener('click', ()=>mostrarDetalheProvedor(btn.dataset.verProv));
+  });
+  document.querySelectorAll('[data-edit-prov]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const nome = btn.dataset.editProv;
+      const atual = PROVEDORES[nome];
+      const novo = prompt(`Quantidade de caixas existentes pra "${nome}":`, atual.totalCaixas ?? '');
+      if(novo==null) return;
+      const num = Number(novo);
+      if(isNaN(num) || num<0){ toast('Informe um número válido'); return; }
+      window._fbSalvarProvedor(nome, num).then(()=>toast('Meta atualizada ✓')).catch(()=>toast('Erro ao salvar'));
+    });
+  });
+  document.querySelectorAll('[data-rm-prov]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const nome = btn.dataset.rmProv;
+      if(!confirm(`Remover o provedor "${nome}"? Os lançamentos diários não são apagados.`)) return;
+      window._fbApagarProvedor(nome).then(()=>{
+        if(provedorDetalheAberto===nome) fecharDetalheProvedor();
+        toast('Provedor removido');
+      }).catch(()=>toast('Erro ao remover'));
+    });
+  });
+
+  if(provedorDetalheAberto && PROVEDORES[provedorDetalheAberto]) mostrarDetalheProvedor(provedorDetalheAberto);
+  else fecharDetalheProvedor();
+}
+
+function mostrarDetalheProvedor(nome){
+  provedorDetalheAberto = nome;
+  document.getElementById('card-prov-detalhe').style.display = 'block';
+  document.getElementById('prov-detalhe-nome').textContent = nome;
+  const entradas = entradasDoProvedor(nome);
+  document.querySelector('#tabela-prov-detalhe tbody').innerHTML = entradas.map(e=>`
+    <tr>
+      <td class="mono">${e.data}</td>
+      <td>${e.equipe}</td>
+      <td class="mono"><b>${e.valor}</b></td>
+      <td style="color:var(--mu)">${e.bairro}</td>
+    </tr>`).join('') || '<tr><td colspan="4" style="color:var(--mu);text-align:center">Nenhum lançamento menciona esse provedor ainda.</td></tr>';
+}
+function fecharDetalheProvedor(){
+  provedorDetalheAberto = null;
+  document.getElementById('card-prov-detalhe').style.display = 'none';
+}
+document.getElementById('btn-fechar-prov-detalhe').addEventListener('click', fecharDetalheProvedor);
+
+document.getElementById('btn-add-provedor').addEventListener('click', ()=>{
+  const nomeInput = document.getElementById('in-prov-nome');
+  const totalInput = document.getElementById('in-prov-total');
+  const nome = nomeInput.value.trim();
+  if(!nome){ toast('Informe o nome do provedor'); return; }
+  if(PROVEDORES[nome]){ toast('Esse provedor já existe'); return; }
+  const total = Number(totalInput.value) || 0;
+  window._fbSalvarProvedor(nome, total).then(()=>{
+    nomeInput.value = ''; totalInput.value = '';
+    toast('Provedor adicionado ✓');
+  }).catch(()=>toast('Erro ao salvar'));
+});
 
 // ---------- equipes ----------
 function renderListaTimes(){
