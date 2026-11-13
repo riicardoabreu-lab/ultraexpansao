@@ -42,11 +42,24 @@ deploy específico: `npx vercel ls`, `npx vercel inspect <url>`).
 │                              + tracking de visitas/prospecção (Firestore)
 ├── auditoria-lb/index.html  → auditoria de campo por OS/protocolo (Firestore)
 ├── controle-km/index.html   → controle de quilometragem
-├── producao-equipe/index.html → lançamento diário de produção por equipe de
-│                              expansão (substitui a planilha "Produção Diária
-│                              Equipe Expansão") + painel com produção mensal,
-│                              comparação entre equipes e médias (Firestore,
-│                              coleções producao_equipe e producao_equipe_config)
+├── producao-equipe/
+│   ├── index.html           → painel principal (login completo do portal):
+│   │                          lançamento diário de produção por equipe
+│   │                          (substitui a planilha "Produção Diária Equipe
+│   │                          Expansão"), painel mensal/comparação/médias,
+│   │                          pesquisa (texto/equipe/período + dias sem
+│   │                          lançar) e provedores (meta de caixas x
+│   │                          coletado, a partir do bairro/atividade) -
+│   │                          Firestore: producao_equipe, producao_equipe_config,
+│   │                          producao_equipe_provedores
+│   └── tecnico.html         → tela só pro técnico de campo lançar o dia da
+│                              própria equipe (senha fixa própria, login
+│                              anônimo do Firebase só pra satisfazer as regras
+│                              do Firestore - mesmo trade-off do mapa-campo:
+│                              não é proteção real). Sem painel, pesquisa,
+│                              provedores nem dados de outras equipes - grava
+│                              na mesma coleção producao_equipe, então aparece
+│                              na hora no painel principal.
 ├── avaliacao-provedor/      → calculadora de avaliação de provedor
 ├── mapa-campo/index.html    → mapa de campo (só rede Jebnet), dados do GeoGrid via Supabase
 ├── numeracao-ctos/          → numeração de CTOs (rede Jebnet via Supabase + reservas via Firestore)

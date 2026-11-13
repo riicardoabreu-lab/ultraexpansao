@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script type="module">
+  // Login próprio desta tela (senha única, sem conta) - independente do login
+  // completo do portal (index.html raiz). Mesmo padrão do mapa-campo/index.html:
+  // afasta acesso casual, não é proteção real pra quem souber a senha. O
+  // técnico só vê o formulário de lançamento - nada de painel, provedores,
+  // histórico completo ou outras equipes (informação que não é dele).
+  const SENHA_TECNICO = 'expansao2026';
+
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  const fb = initializeApp({
+    apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
+    authDomain: "isp-manager-ce.firebaseapp.com",
+    projectId: "isp-manager-ce",
+    storageBucket: "isp-manager-ce.firebasestorage.app",
+    messagingSenderId: "374725918192",
+    appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
+  });
+  const auth = getAuth(fb);
+  const fsDb = getFirestore(fb);
+
+  // As regras do Firestore (producao_equipe) exigem request.auth != null -
+  // login anônimo satisfaz isso sem precisar de conta/senha de verdade por
+  // trás (só a senha de tela acima controla quem chega até aqui).
+  window._iniciarSessaoTecnico = () => signInAnonymously(auth);
+
+  window._fbSalvarDiaTecnico = (dataISO, nomeEquipe, valorEntry) =>
+    setDoc(doc(fsDb, 'producao_equipe', dataISO), {
+      data: dataISO, equipes: { [nomeEquipe]: valorEntry }, atualizado_em: Date.now(),
+    }, { merge: true });
+
+  onSnapshot(collection(fsDb, 'producao_equipe'), snap => {
+    const dias = {};
+    snap.forEach(d => { dias[d.id] = d.data(); });
+    if (window._aplicarDiasTecnico) window._aplicarDiasTecnico(dias);
+  }, err => console.error('listener producao_equipe (técnico) falhou:', err));
+
+  onSnapshot(doc(fsDb, 'producao_equipe_config', 'times'), snap => {
+    const nomes = snap.exists() ? (snap.data().nomes || []) : [];
+    if (window._aplicarTimesTecnico) window._aplicarTimesTecnico(nomes);
+  }, err => console.error('listener producao_equipe_config (técnico) falhou:', err));
+
+  window._SENHA_TECNICO = SENHA_TECNICO;
+</script>
+<title>Produção da Equipe · Lançamento (Técnico)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f0f11;--s1:#18181c;--s2:#222228;--s3:#2a2a32;
+  --b1:rgba(255,255,255,.07);--b2:rgba(255,255,255,.13);--b3:rgba(255,255,255,.2);
+  --tx:#f0f0f2;--mu:#8a8a96;--hi:#44444f;
+  --ac:#6a00b8;--ac2:rgba(106,0,184,.15);
+  --gn:#22c55e;--rd:#ef4444;--rd2:rgba(239,68,68,.13);
+  --r:10px;--rl:14px;
+}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.25rem}
+.wrap{max-width:480px;width:100%}
+.topo{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.1rem}
+.topo h1{font-size:17px;font-weight:600}
+.topo .sub{font-size:12px;color:var(--mu);margin-top:3px}
+.btn{padding:8px 16px;font-size:13px;font-weight:500;border-radius:var(--r);cursor:pointer;border:1px solid var(--b2);background:var(--s2);color:var(--tx);font-family:'Inter',sans-serif}
+.btn:hover{background:var(--s3)}
+.btn.pri{background:var(--ac);border-color:var(--ac);color:#fff;width:100%;padding:12px;font-size:14px;font-weight:600}
+.btn.pri:hover{opacity:.88}
+.btn:disabled{opacity:.4;pointer-events:none}
+.card{background:var(--s1);border:1px solid var(--b1);border-radius:var(--rl);padding:1.5rem}
+.fl{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
+.fl label{font-size:12px;color:var(--mu);font-weight:500}
+.fl input,.fl select{background:var(--bg);border:1px solid var(--b2);border-radius:var(--r);padding:10px 12px;font-size:14px;color:var(--tx);font-family:'Inter',sans-serif;outline:none;width:100%}
+.fl input:focus,.fl select:focus{border-color:var(--ac);box-shadow:0 0 0 3px rgba(106,0,184,.1)}
+.seg{display:flex;gap:4px;background:var(--bg);border-radius:9px;padding:3px;margin-bottom:14px;flex-wrap:wrap}
+.seg button{flex:1;min-width:70px;padding:9px 8px;font-size:12px;border:none;background:none;color:var(--mu);border-radius:7px;cursor:pointer;font-weight:500}
+.seg button.on{background:var(--ac);color:#fff}
+#toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(8px);padding:11px 20px;background:var(--s1);border:1px solid var(--b2);border-radius:30px;font-size:13.5px;color:var(--tx);box-shadow:0 8px 28px rgba(0,0,0,.5);opacity:0;transition:all .22s;pointer-events:none;z-index:999}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.recentes{margin-top:1.1rem}
+.rec-item{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--b1);font-size:13px}
+.rec-item:last-child{border-bottom:none}
+.rec-item .d{color:var(--mu)}
+.logout-row{text-align:center;margin-top:1rem}
+.logout-row button{background:none;border:none;color:var(--hi);font-size:12px;cursor:pointer;text-decoration:underline}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="tela-senha" class="wrap">
+  <div class="card">
+    <div class="topo"><div><h1>🚀 Lançamento diário</h1><div class="sub">Produção da Equipe · Infolink</div></div></div>
+    <div class="fl"><label>Senha de acesso</label><input type="password" id="in-senha" placeholder="Senha" autocomplete="off"></div>
+    <button class="btn pri" id="btn-entrar">Entrar</button>
+    <p id="erro-senha" style="color:var(--rd);font-size:12.5px;margin-top:10px;display:none">Senha incorreta.</p>
+  </div>
+</div>
+
+<!-- FORMULÁRIO -->
+<div id="tela-form" class="wrap" style="display:none">
+  <div class="topo">
+    <div><h1>🚀 Lançamento diário</h1><div class="sub">Produção da Equipe · Infolink</div></div>
+  </div>
+  <div class="card">
+    <div class="fl">
+      <label>Minha equipe</label>
+      <select id="sel-equipe"></select>
+    </div>
+    <div class="fl">
+      <label>Data</label>
+      <input type="date" id="in-data">
+    </div>
+    <div class="seg" id="seg-tipo">
+      <button type="button" data-val="numero" class="on">Número</button>
+      <button type="button" data-val="folga">Folga</button>
+      <button type="button" data-val="feriado">Feriado</button>
+      <button type="button" data-val="dayoff">Day Off</button>
+    </div>
+    <div class="fl" id="fl-valor">
+      <label>Produção (quantidade)</label>
+      <input type="number" id="in-valor" placeholder="0">
+    </div>
+    <div class="fl">
+      <label>Bairro / atividade</label>
+      <input type="text" id="in-bairro" placeholder="opcional">
+    </div>
+    <button class="btn pri" id="btn-salvar">Salvar lançamento</button>
+  </div>
+
+  <div class="card recentes">
+    <div style="font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Meus últimos lançamentos</div>
+    <div id="lista-recentes"></div>
+  </div>
+
+  <div class="logout-row"><button id="btn-sair">Sair desta tela</button></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+let DIAS = {};
+let TIMES = [];
+
+function toast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('on');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(()=>el.classList.remove('on'), 2400);
+}
+function fmtISO(d){ return d.toISOString().slice(0,10); }
+
+// ---------- login ----------
+function entrar(){
+  const senha = document.getElementById('in-senha').value;
+  if(senha !== window._SENHA_TECNICO){
+    document.getElementById('erro-senha').style.display = 'block';
+    return;
+  }
+  sessionStorage.setItem('producao_tecnico_auth', 'ok');
+  window._iniciarSessaoTecnico().then(abrirFormulario).catch(err=>{
+    console.error('login anônimo falhou:', err);
+    toast('Erro ao conectar - tenta de novo');
+  });
+}
+document.getElementById('btn-entrar').addEventListener('click', entrar);
+document.getElementById('in-senha').addEventListener('keydown', e=>{ if(e.key==='Enter') entrar(); });
+document.getElementById('btn-sair').addEventListener('click', ()=>{
+  sessionStorage.removeItem('producao_tecnico_auth');
+  window.location.reload();
+});
+
+function abrirFormulario(){
+  document.getElementById('tela-senha').style.display = 'none';
+  document.getElementById('tela-form').style.display = 'block';
+  document.getElementById('in-data').value = fmtISO(new Date());
+}
+
+// O script type="module" no <head> que define window._iniciarSessaoTecnico
+// roda de forma adiada (como defer) - pode ainda não ter executado quando
+// este script de baixo (clássico, síncrono) chega aqui. Espera o DOM
+// terminar de carregar (módulos sempre rodam antes do DOMContentLoaded)
+// antes de tentar retomar a sessão já logada.
+window.addEventListener('DOMContentLoaded', () => {
+  if(sessionStorage.getItem('producao_tecnico_auth') === 'ok'){
+    window._iniciarSessaoTecnico().then(abrirFormulario).catch(()=>{
+      sessionStorage.removeItem('producao_tecnico_auth');
+    });
+  }
+});
+
+// ---------- dados do Firestore ----------
+window._aplicarDiasTecnico = (dias) => { DIAS = dias; renderRecentes(); };
+window._aplicarTimesTecnico = (nomes) => {
+  TIMES = nomes || [];
+  const sel = document.getElementById('sel-equipe');
+  const anterior = localStorage.getItem('producao_tecnico_equipe') || sel.value;
+  sel.innerHTML = TIMES.map(t=>`<option value="${t.replace(/"/g,'&quot;')}">${t}</option>`).join('')
+    || '<option value="">Nenhuma equipe cadastrada</option>';
+  if(TIMES.includes(anterior)) sel.value = anterior;
+  renderRecentes();
+};
+document.getElementById('sel-equipe').addEventListener('change', e=>{
+  localStorage.setItem('producao_tecnico_equipe', e.target.value);
+  renderRecentes();
+});
+
+// ---------- tipo (segmented) ----------
+document.querySelectorAll('#seg-tipo button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('#seg-tipo button').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    document.getElementById('fl-valor').style.display = btn.dataset.val==='numero' ? 'flex' : 'none';
+  });
+});
+
+// ---------- salvar ----------
+document.getElementById('btn-salvar').addEventListener('click', ()=>{
+  const equipe = document.getElementById('sel-equipe').value;
+  const data = document.getElementById('in-data').value;
+  if(!equipe){ toast('Nenhuma equipe cadastrada - fale com o gestor'); return; }
+  if(!data){ toast('Escolha uma data'); return; }
+  const tipo = document.querySelector('#seg-tipo button.on')?.dataset.val || 'numero';
+  const valor = tipo==='numero' ? (Number(document.getElementById('in-valor').value)||0) : null;
+  const bairro = document.getElementById('in-bairro').value.trim();
+  window._fbSalvarDiaTecnico(data, equipe, {tipo, valor, bairro})
+    .then(()=>{
+      toast('Lançamento salvo ✓');
+      document.getElementById('in-valor').value = '';
+      document.getElementById('in-bairro').value = '';
+    })
+    .catch(err=>{ console.error(err); toast('Erro ao salvar'); });
+});
+
+// ---------- meus últimos lançamentos (só da equipe selecionada) ----------
+function renderRecentes(){
+  const equipe = document.getElementById('sel-equipe').value;
+  const el = document.getElementById('lista-recentes');
+  if(!equipe){ el.innerHTML = '<div style="color:var(--mu);font-size:12.5px">—</div>'; return; }
+  const chaves = Object.keys(DIAS).filter(k=>DIAS[k].equipes && DIAS[k].equipes[equipe]).sort().reverse().slice(0,8);
+  el.innerHTML = chaves.map(k=>{
+    const e = DIAS[k].equipes[equipe];
+    const texto = e.tipo==='numero' ? `${e.valor ?? 0}${e.bairro?` · ${e.bairro}`:''}` : (e.tipo==='folga'?'Folga':e.tipo==='feriado'?'Feriado':'Day Off');
+    return `<div class="rec-item"><span class="d">${k}</span><span>${texto}</span></div>`;
+  }).join('') || '<div style="color:var(--mu);font-size:12.5px">Nenhum lançamento ainda.</div>';
+}
+</script>
+</body>
+</html>
