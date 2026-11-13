@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+  // Bloqueia acesso direto a esta página sem passar pelo login do portal.
+  if (sessionStorage.getItem('infolink_hub_auth') !== 'ok') {
+    window.location.href = '../index.html';
+  }
+</script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  const fb = initializeApp({
+    apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
+    authDomain: "isp-manager-ce.firebaseapp.com",
+    projectId: "isp-manager-ce",
+    storageBucket: "isp-manager-ce.firebasestorage.app",
+    messagingSenderId: "374725918192",
+    appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
+  });
+  const auth = getAuth(fb);
+  const fsDb = getFirestore(fb);
+  window._doLogout = function(){
+    signOut(auth).finally(()=>{
+      sessionStorage.clear();
+      window.location.href = '../index.html';
+    });
+  };
+
+  // ---- Sincronização em tempo real (Firestore) ----
+  // producao_equipe: 1 doc por dia (id = "AAAA-MM-DD"), com um mapa por
+  // equipe dentro ({equipes: {"Equipe 1": {...}, ...}}) — grava o dia
+  // inteiro de uma vez, então duas pessoas editando o mesmo dia não pisam
+  // em equipes diferentes (merge: true).
+  window._fbSalvarDia = (dataISO, equipes) => {
+    return setDoc(doc(fsDb, 'producao_equipe', dataISO), {
+      data: dataISO, equipes, atualizado_em: Date.now(),
+    }, { merge: true });
+  };
+  window._fbApagarDia = (dataISO) => deleteDoc(doc(fsDb, 'producao_equipe', dataISO));
+  window._fbSalvarTimes = (nomes) => setDoc(doc(fsDb, 'producao_equipe_config', 'times'), { nomes });
+
+  onSnapshot(collection(fsDb, 'producao_equipe'), snap => {
+    const dias = {};
+    snap.forEach(d => { dias[d.id] = d.data(); });
+    if (window._aplicarDias) window._aplicarDias(dias);
+  }, err => console.error('listener producao_equipe falhou:', err));
+
+  onSnapshot(doc(fsDb, 'producao_equipe_config', 'times'), snap => {
+    const nomes = snap.exists() ? (snap.data().nomes || []) : null;
+    if (window._aplicarTimes) window._aplicarTimes(nomes);
+  }, err => console.error('listener producao_equipe_config falhou:', err));
+</script>
+<title>Produção da Equipe · Infolink</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f0f11;--s1:#18181c;--s2:#222228;--s3:#2a2a32;
+  --b1:rgba(255,255,255,.07);--b2:rgba(255,255,255,.13);--b3:rgba(255,255,255,.2);
+  --tx:#f0f0f2;--mu:#8a8a96;--hi:#44444f;
+  --ac:#6a00b8;--ac2:rgba(106,0,184,.15);
+  --gn:#22c55e;--gn2:rgba(34,197,94,.13);
+  --am:#f59e0b;--am2:rgba(245,158,11,.13);
+  --rd:#ef4444;--rd2:rgba(239,68,68,.13);
+  --r:10px;--rl:14px;
+  --t1:#3987e5;--t2:#d95926;--t3:#199e70;--t4:#c98500;--t5:#d55181;--t6:#008300;--t7:#9085e9;--t8:#e66767;
+}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh}
+.mono{font-family:'JetBrains Mono',monospace}
+.shell{display:grid;grid-template-columns:210px 1fr;min-height:100vh}
+.sidebar{background:var(--s1);border-right:1px solid var(--b1);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+.main{padding:1.75rem 2.25rem;max-width:1080px}
+.sb-head{padding:1.25rem;border-bottom:1px solid var(--b1)}
+.sb-title{font-size:15px;font-weight:600}
+.sb-sub{font-size:11px;color:var(--mu);margin-top:3px}
+.nav{padding:.5rem .625rem;display:flex;flex-direction:column;gap:2px;flex:1}
+.ni{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--mu);border:none;background:none;width:100%;text-align:left;transition:all .12s}
+.ni:hover{background:var(--s2);color:var(--tx)}
+.ni.on{background:var(--ac2);color:var(--ac)}
+.ni span.ico{font-size:15px;width:16px;flex-shrink:0;text-align:center}
+.sb-foot{padding:1rem 1.25rem;border-top:1px solid var(--b1);margin-top:auto}
+.sync{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--mu);margin-bottom:10px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--hi);flex-shrink:0;transition:background .3s}
+.dot.ok{background:var(--gn)}.dot.spin{animation:blink .7s infinite;background:var(--am)}.dot.err{background:var(--rd)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.logout{width:100%;background:var(--s2);color:var(--mu);border:1px solid var(--b2);padding:8px;border-radius:8px;font-size:12px;cursor:pointer}
+.logout:hover{color:var(--tx)}
+.panel{display:none}.panel.on{display:block}
+.ph{margin-bottom:1.5rem;display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px}
+.pt{font-size:20px;font-weight:600}
+.ps{font-size:13px;color:var(--mu);margin-top:3px}
+.month-nav{display:flex;align-items:center;gap:10px;background:var(--s1);border:1px solid var(--b1);border-radius:var(--r);padding:6px 8px}
+.month-nav button{background:var(--s2);border:1px solid var(--b2);color:var(--tx);width:28px;height:28px;border-radius:7px;cursor:pointer;font-size:14px}
+.month-nav button:hover{background:var(--s3)}
+.month-nav .ml-label{font-size:13px;font-weight:600;min-width:130px;text-align:center}
+.mrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.5rem}
+.mc{background:var(--s1);border:1px solid var(--b1);border-radius:var(--rl);padding:1rem 1.1rem}
+.ml{font-size:10.5px;color:var(--mu);text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px}
+.mv{font-size:24px;font-weight:600;font-family:'JetBrains Mono',monospace;line-height:1}
+.mu2{font-size:10.5px;color:var(--hi);margin-top:4px}
+.mc.bl{border-color:rgba(57,135,229,.35)}.mc.bl .mv{color:var(--t1)}
+.mc.gn{border-color:rgba(34,197,94,.35)}.mc.gn .mv{color:var(--gn)}
+.mc.am{border-color:rgba(245,158,11,.35)}.mc.am .mv{color:var(--am)}
+.card{background:var(--s1);border:1px solid var(--b1);border-radius:var(--rl);padding:1.4rem;margin-bottom:1.1rem}
+.ct{font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.08em;margin-bottom:1.1rem;font-weight:500;display:flex;justify-content:space-between;align-items:center}
+.cw{position:relative;width:100%;height:280px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:11.5px;color:var(--mu)}
+.legend .li{display:flex;align-items:center;gap:6px}
+.legend .dotc{width:9px;height:9px;border-radius:3px;flex-shrink:0}
+.rank-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.rank-card{background:var(--s2);border-radius:var(--r);padding:14px 16px;border-left:3px solid var(--hi)}
+.rank-name{font-size:13px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:7px}
+.rank-name .sw{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+.rank-stat{display:flex;justify-content:space-between;font-size:12px;color:var(--mu);padding:3px 0}
+.rank-stat b{color:var(--tx);font-family:'JetBrains Mono',monospace;font-weight:600}
+.fg{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fl{display:flex;flex-direction:column;gap:4px}
+.fl label{font-size:11px;color:var(--mu);font-weight:500;letter-spacing:.02em}
+.fl input,.fl select,.fl textarea{background:var(--bg);border:1px solid var(--b2);border-radius:var(--r);padding:8px 11px;font-size:13px;color:var(--tx);font-family:'Inter',sans-serif;outline:none;width:100%;transition:border-color .13s,box-shadow .13s}
+.fl input:focus,.fl select:focus{border-color:var(--ac);box-shadow:0 0 0 3px rgba(106,0,184,.1)}
+.btn{padding:8px 18px;font-size:13px;font-weight:500;border-radius:var(--r);cursor:pointer;border:1px solid var(--b2);background:var(--s2);color:var(--tx);font-family:'Inter',sans-serif;transition:all .12s;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--s3);border-color:var(--b3)}
+.btn.pri{background:var(--ac);border-color:var(--ac);color:#fff}
+.btn.pri:hover{opacity:.87;background:var(--ac)}
+.btn.red{background:var(--rd2);border-color:var(--rd);color:var(--rd)}
+.btn.red:hover{background:var(--rd);color:#fff}
+.btn.sm{padding:5px 10px;font-size:11.5px}
+.btn:disabled{opacity:.35;pointer-events:none}
+.entry-team{background:var(--s2);border-radius:var(--r);padding:14px;margin-bottom:10px;border-left:3px solid var(--hi)}
+.entry-team-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.entry-team-name{font-size:13.5px;font-weight:600}
+.seg{display:flex;gap:4px;background:var(--bg);border-radius:8px;padding:3px;margin-bottom:10px;flex-wrap:wrap}
+.seg button{flex:1;min-width:72px;padding:7px 8px;font-size:11.5px;border:none;background:none;color:var(--mu);border-radius:6px;cursor:pointer;font-weight:500;white-space:nowrap}
+.seg button.on{background:var(--ac);color:#fff}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{font-size:10px;color:var(--mu);text-transform:uppercase;letter-spacing:.07em;padding:0 10px 9px;text-align:left;border-bottom:1px solid var(--b1);font-weight:500;white-space:nowrap}
+td{padding:9px 10px;border-bottom:1px solid var(--b1);vertical-align:middle;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(255,255,255,.018)}
+.tag{display:inline-block;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:500;white-space:nowrap}
+.tgn{background:var(--gn2);color:var(--gn)}.tam{background:var(--am2);color:var(--am)}.trd{background:var(--rd2);color:var(--rd)}.tmu{background:var(--s3);color:var(--mu)}
+.del-btn{background:none;border:none;cursor:pointer;color:var(--hi);padding:3px 6px;border-radius:5px;font-size:13px}
+.del-btn:hover{color:var(--rd);background:var(--rd2)}
+.empty{text-align:center;padding:2.5rem 1rem;color:var(--mu);font-size:13px}
+.times-list{display:flex;flex-direction:column;gap:8px;margin-bottom:1.1rem}
+.time-row{display:flex;align-items:center;gap:10px;background:var(--s2);border-radius:var(--r);padding:10px 14px}
+.time-row .sw{width:11px;height:11px;border-radius:3px;flex-shrink:0}
+.time-row span{flex:1;font-size:13px;font-weight:500}
+#toast{position:fixed;bottom:24px;right:24px;padding:10px 18px;background:var(--s1);border:1px solid var(--b2);border-radius:30px;font-size:13px;color:var(--tx);box-shadow:0 8px 28px rgba(0,0,0,.5);opacity:0;transform:translateY(8px);transition:all .22s;pointer-events:none;z-index:999}
+#toast.on{opacity:1;transform:translateY(0)}
+.bnav{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--s1);border-top:1px solid var(--b1);z-index:50;padding:0 0 env(safe-area-inset-bottom)}
+.bnav-inner{display:flex}
+.bni{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:10px 4px;border:none;background:none;color:var(--mu);font-size:10px;cursor:pointer;min-height:56px}
+.bni.on{color:var(--ac)}
+@media(max-width:760px){
+  .shell{grid-template-columns:1fr}.sidebar{display:none}
+  .main{padding:1.1rem 1.1rem 76px}.fg{grid-template-columns:1fr}.mrow{grid-template-columns:1fr 1fr}
+  .bnav{display:block}
+  .ph{flex-direction:column;align-items:stretch}
+}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sb-head">
+      <div class="sb-title">🚀 Produção da Equipe</div>
+      <div class="sb-sub">Infolink · Expansão</div>
+    </div>
+    <nav class="nav">
+      <div class="nav-sec" style="font-size:10px;color:var(--hi);text-transform:uppercase;letter-spacing:.1em;padding:10px 8px 4px">Visão geral</div>
+      <button class="ni on" data-panel="painel"><span class="ico">📊</span> Painel</button>
+      <div class="nav-sec" style="font-size:10px;color:var(--hi);text-transform:uppercase;letter-spacing:.1em;padding:10px 8px 4px">Registro</div>
+      <button class="ni" data-panel="preencher"><span class="ico">✏️</span> Preencher dia</button>
+      <button class="ni" data-panel="historico"><span class="ico">🗓️</span> Histórico</button>
+      <div class="nav-sec" style="font-size:10px;color:var(--hi);text-transform:uppercase;letter-spacing:.1em;padding:10px 8px 4px">Config</div>
+      <button class="ni" data-panel="equipes"><span class="ico">👥</span> Equipes</button>
+    </nav>
+    <div class="sb-foot">
+      <div class="sync"><span class="dot" id="sync-dot"></span><span id="sync-txt">conectando…</span></div>
+      <button class="logout" onclick="window._doLogout()">Sair</button>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- PAINEL -->
+    <section class="panel on" id="panel-painel">
+      <div class="ph">
+        <div>
+          <div class="pt">Painel de produção</div>
+          <div class="ps">Produção mensal, por equipe e médias.</div>
+        </div>
+        <div class="month-nav">
+          <button id="mes-prev">‹</button>
+          <div class="ml-label" id="mes-label">—</div>
+          <button id="mes-next">›</button>
+        </div>
+      </div>
+
+      <div class="mrow">
+        <div class="mc bl"><div class="ml">Produção do mês</div><div class="mv" id="kpi-total">0</div><div class="mu2">soma de todas as equipes</div></div>
+        <div class="mc"><div class="ml">Média diária</div><div class="mv" id="kpi-media">0</div><div class="mu2">nos dias trabalhados</div></div>
+        <div class="mc gn"><div class="ml">Dias trabalhados</div><div class="mv" id="kpi-dias">0</div><div class="mu2" id="kpi-dias-sub">—</div></div>
+        <div class="mc am"><div class="ml">Melhor equipe</div><div class="mv" id="kpi-melhor" style="font-size:16px">—</div><div class="mu2" id="kpi-melhor-sub">—</div></div>
+      </div>
+
+      <div class="card">
+        <div class="ct">Produção diária no mês</div>
+        <div class="cw"><canvas id="chart-diario"></canvas></div>
+        <div class="legend" id="legend-diario"></div>
+      </div>
+
+      <div class="card">
+        <div class="ct">Comparativo entre equipes</div>
+        <div class="rank-grid" id="rank-grid"></div>
+      </div>
+    </section>
+
+    <!-- PREENCHER -->
+    <section class="panel" id="panel-preencher">
+      <div class="ph"><div><div class="pt">Preencher dia</div><div class="ps">Lance a produção de cada equipe no dia.</div></div></div>
+      <div class="card">
+        <div class="fg" style="margin-bottom:1.1rem">
+          <div class="fl"><label>Data</label><input type="date" id="in-data"></div>
+          <div class="fl" style="justify-content:flex-end;flex-direction:row;align-items:flex-end"><button class="btn" id="btn-hoje" style="width:100%">Hoje</button></div>
+        </div>
+        <div id="entry-teams"></div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:1rem;padding-top:1rem;border-top:1px solid var(--b1)">
+          <button class="btn red" id="btn-apagar-dia">Apagar dia</button>
+          <button class="btn pri" id="btn-salvar-dia">Salvar dia</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- HISTÓRICO -->
+    <section class="panel" id="panel-historico">
+      <div class="ph">
+        <div><div class="pt">Histórico</div><div class="ps">Todos os dias lançados, mais recentes primeiro.</div></div>
+      </div>
+      <div class="card">
+        <div class="tw"><table id="tabela-historico">
+          <thead><tr><th>Data</th><th>Dia</th><th id="th-equipes"></th><th>Ações</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <div class="empty" id="historico-vazio" style="display:none">Nenhum dia lançado ainda.</div>
+      </div>
+    </section>
+
+    <!-- EQUIPES -->
+    <section class="panel" id="panel-equipes">
+      <div class="ph"><div><div class="pt">Equipes</div><div class="ps">Times que aparecem no formulário e no painel.</div></div></div>
+      <div class="card">
+        <div class="times-list" id="times-list"></div>
+        <div class="fg" style="grid-template-columns:1fr auto">
+          <div class="fl"><label>Nova equipe</label><input type="text" id="in-nova-equipe" placeholder="Ex: Equipe 3"></div>
+          <div class="fl" style="justify-content:flex-end"><button class="btn pri" id="btn-add-equipe" style="height:37px">Adicionar</button></div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="bnav">
+  <div class="bnav-inner">
+    <button class="bni on" data-panel="painel"><span>📊</span><span>Painel</span></button>
+    <button class="bni" data-panel="preencher"><span>✏️</span><span>Preencher</span></button>
+    <button class="bni" data-panel="historico"><span>🗓️</span><span>Histórico</span></button>
+    <button class="bni" data-panel="equipes"><span>👥</span><span>Equipes</span></button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const CORES = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
+const STATUS_LABEL = { numero:'Número', folga:'Folga', feriado:'Feriado', dayoff:'Day Off' };
+const MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+const DIAS_SEMANA = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
+
+let DIAS = {};          // { "AAAA-MM-DD": {data, equipes:{nome:{tipo,valor,bairro}}, atualizado_em} }
+let TIMES = ['Equipe 1','Equipe 2'];
+let timesVindoDoFirestore = false;
+let mesAtual = new Date(); mesAtual.setDate(1);
+let chartDiario = null;
+
+function toast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('on');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(()=>el.classList.remove('on'), 2600);
+}
+function corTime(nome){ const i = TIMES.indexOf(nome); return CORES[(i>=0?i:0) % CORES.length]; }
+function fmtISO(d){ return d.toISOString().slice(0,10); }
+function diaSemanaDe(iso){ const [y,m,d] = iso.split('-').map(Number); return DIAS_SEMANA[new Date(y,m-1,d).getDay()]; }
+
+// ---------- navegação ----------
+function mostrarPanel(nome){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on', p.id==='panel-'+nome));
+  document.querySelectorAll('.ni, .bni').forEach(b=>b.classList.toggle('on', b.dataset.panel===nome));
+  if(nome==='painel') renderPainel();
+  if(nome==='historico') renderHistorico();
+  if(nome==='preencher') renderFormularioEquipes();
+  if(nome==='equipes') renderListaTimes();
+}
+document.querySelectorAll('.ni, .bni').forEach(b=>b.addEventListener('click', ()=>mostrarPanel(b.dataset.panel)));
+
+// ---------- dados vindos do Firestore ----------
+window._aplicarDias = (dias) => {
+  DIAS = dias;
+  document.getElementById('sync-dot').className = 'dot ok';
+  document.getElementById('sync-txt').textContent = 'sincronizado';
+  const ativo = document.querySelector('.panel.on')?.id.replace('panel-','');
+  if(ativo==='painel') renderPainel();
+  if(ativo==='historico') renderHistorico();
+};
+window._aplicarTimes = (nomes) => {
+  if(nomes && nomes.length){ TIMES = nomes; timesVindoDoFirestore = true; }
+  else if(!timesVindoDoFirestore){ window._fbSalvarTimes(TIMES).catch(()=>{}); }
+  const ativo = document.querySelector('.panel.on')?.id.replace('panel-','');
+  if(ativo==='equipes') renderListaTimes();
+  if(ativo==='preencher') renderFormularioEquipes();
+  if(ativo==='painel') renderPainel();
+  if(ativo==='historico') renderHistorico();
+};
+
+// ---------- painel ----------
+function diasDoMes(ref){
+  const y = ref.getFullYear(), m = ref.getMonth();
+  const prefixo = `${y}-${String(m+1).padStart(2,'0')}-`;
+  return Object.keys(DIAS).filter(k=>k.startsWith(prefixo)).sort();
+}
+function valorNumerico(entry){ return entry && entry.tipo==='numero' ? (Number(entry.valor)||0) : null; }
+
+function renderPainel(){
+  const nomeMes = MESES[mesAtual.getMonth()];
+  document.getElementById('mes-label').textContent = `${nomeMes.charAt(0).toUpperCase()}${nomeMes.slice(1)} de ${mesAtual.getFullYear()}`;
+  const chaves = diasDoMes(mesAtual);
+  let total = 0, diasTrabalhados = 0, diasParados = 0;
+  const porTime = {}; TIMES.forEach(t=>porTime[t] = {total:0, dias:0});
+  const labelsDias = [], datasetsPorTime = {}; TIMES.forEach(t=>datasetsPorTime[t]=[]);
+
+  chaves.forEach(k=>{
+    const dia = DIAS[k];
+    const [,,dd] = k.split('-');
+    labelsDias.push(dd);
+    let algumNumero = false, algumParado = false;
+    TIMES.forEach(t=>{
+      const e = dia.equipes && dia.equipes[t];
+      const v = valorNumerico(e);
+      datasetsPorTime[t].push(v);
+      if(v!=null){ total += v; porTime[t].total += v; porTime[t].dias++; algumNumero = true; }
+      else if(e && e.tipo && e.tipo!=='numero'){ algumParado = true; }
+    });
+    if(algumNumero) diasTrabalhados++; else if(algumParado) diasParados++;
+  });
+
+  document.getElementById('kpi-total').textContent = total.toLocaleString('pt-BR');
+  document.getElementById('kpi-media').textContent = diasTrabalhados ? (total/diasTrabalhados).toLocaleString('pt-BR',{maximumFractionDigits:1}) : '—';
+  document.getElementById('kpi-dias').textContent = diasTrabalhados;
+  document.getElementById('kpi-dias-sub').textContent = `${diasParados} dia(s) parado(s) (folga/feriado)`;
+
+  let melhorNome = null, melhorTotal = -1;
+  TIMES.forEach(t=>{ if(porTime[t].total > melhorTotal){ melhorTotal = porTime[t].total; melhorNome = t; } });
+  document.getElementById('kpi-melhor').textContent = melhorTotal>0 ? melhorNome : '—';
+  document.getElementById('kpi-melhor-sub').textContent = melhorTotal>0 ? `${melhorTotal.toLocaleString('pt-BR')} no mês` : 'sem dados';
+
+  // gráfico
+  const ctx = document.getElementById('chart-diario').getContext('2d');
+  const datasets = TIMES.map(t=>({
+    label: t, data: datasetsPorTime[t], backgroundColor: corTime(t), borderRadius: 4, maxBarThickness: 22,
+  }));
+  if(chartDiario) chartDiario.destroy();
+  chartDiario = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: labelsDias, datasets },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { grid:{display:false}, ticks:{color:'#8a8a96', font:{size:10.5}} },
+        y: { beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{color:'#8a8a96', font:{size:10.5}} },
+      },
+      plugins: { legend:{display:false}, tooltip:{backgroundColor:'#222228', borderColor:'rgba(255,255,255,.13)', borderWidth:1, padding:10, titleFont:{size:12}, bodyFont:{size:12}} },
+    }
+  });
+  document.getElementById('legend-diario').innerHTML = TIMES.map(t=>
+    `<span class="li"><span class="dotc" style="background:${corTime(t)}"></span>${t}</span>`
+  ).join('');
+
+  // ranking por equipe
+  document.getElementById('rank-grid').innerHTML = TIMES.map(t=>{
+    const media = porTime[t].dias ? (porTime[t].total/porTime[t].dias) : 0;
+    return `<div class="rank-card" style="border-left-color:${corTime(t)}">
+      <div class="rank-name"><span class="sw" style="background:${corTime(t)}"></span>${t}</div>
+      <div class="rank-stat"><span>Total no mês</span><b>${porTime[t].total.toLocaleString('pt-BR')}</b></div>
+      <div class="rank-stat"><span>Dias trabalhados</span><b>${porTime[t].dias}</b></div>
+      <div class="rank-stat"><span>Média/dia</span><b>${media.toLocaleString('pt-BR',{maximumFractionDigits:1})}</b></div>
+    </div>`;
+  }).join('') || '<div class="empty">Cadastre equipes na aba Equipes.</div>';
+}
+document.getElementById('mes-prev').addEventListener('click', ()=>{ mesAtual.setMonth(mesAtual.getMonth()-1); renderPainel(); });
+document.getElementById('mes-next').addEventListener('click', ()=>{ mesAtual.setMonth(mesAtual.getMonth()+1); renderPainel(); });
+
+// ---------- preencher ----------
+function renderFormularioEquipes(dataISO){
+  const data = dataISO || document.getElementById('in-data').value || fmtISO(new Date());
+  document.getElementById('in-data').value = data;
+  const diaExistente = (DIAS[data] && DIAS[data].equipes) || {};
+  document.getElementById('entry-teams').innerHTML = TIMES.map(t=>{
+    const e = diaExistente[t] || {tipo:'numero', valor:'', bairro:''};
+    return `<div class="entry-team" data-time="${t.replace(/"/g,'&quot;')}" style="border-left-color:${corTime(t)}">
+      <div class="entry-team-head"><div class="entry-team-name">${t}</div></div>
+      <div class="seg" data-field="tipo">
+        ${['numero','folga','feriado','dayoff'].map(tp=>`<button type="button" data-val="${tp}" class="${e.tipo===tp?'on':''}">${STATUS_LABEL[tp]}</button>`).join('')}
+      </div>
+      <div class="fg">
+        <div class="fl"><label>Produção</label><input type="number" class="in-valor" value="${e.valor!=null?e.valor:''}" ${e.tipo!=='numero'?'disabled':''} placeholder="0"></div>
+        <div class="fl"><label>Bairro / atividade</label><input type="text" class="in-bairro" value="${e.bairro||''}" placeholder="opcional"></div>
+      </div>
+    </div>`;
+  }).join('') || '<div class="empty">Cadastre equipes na aba Equipes antes de lançar.</div>';
+
+  document.querySelectorAll('.entry-team .seg button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const seg = btn.closest('.seg');
+      seg.querySelectorAll('button').forEach(b=>b.classList.remove('on'));
+      btn.classList.add('on');
+      const valorInput = btn.closest('.entry-team').querySelector('.in-valor');
+      valorInput.disabled = btn.dataset.val !== 'numero';
+      if(valorInput.disabled) valorInput.value = '';
+    });
+  });
+}
+document.getElementById('in-data').addEventListener('change', e=>renderFormularioEquipes(e.target.value));
+document.getElementById('btn-hoje').addEventListener('click', ()=>renderFormularioEquipes(fmtISO(new Date())));
+
+document.getElementById('btn-salvar-dia').addEventListener('click', ()=>{
+  const data = document.getElementById('in-data').value;
+  if(!data){ toast('Escolha uma data'); return; }
+  const equipes = {};
+  document.querySelectorAll('.entry-team').forEach(card=>{
+    const nome = card.dataset.time;
+    const tipo = card.querySelector('.seg button.on')?.dataset.val || 'numero';
+    const valor = tipo==='numero' ? (Number(card.querySelector('.in-valor').value)||0) : null;
+    const bairro = card.querySelector('.in-bairro').value.trim();
+    equipes[nome] = { tipo, valor, bairro };
+  });
+  window._fbSalvarDia(data, equipes)
+    .then(()=>toast('Dia salvo ✓'))
+    .catch(err=>{ console.error(err); toast('Erro ao salvar'); });
+});
+document.getElementById('btn-apagar-dia').addEventListener('click', ()=>{
+  const data = document.getElementById('in-data').value;
+  if(!data) return;
+  if(!confirm(`Apagar o lançamento de ${data}?`)) return;
+  window._fbApagarDia(data).then(()=>{ toast('Dia apagado'); renderFormularioEquipes(data); }).catch(()=>toast('Erro ao apagar'));
+});
+
+// ---------- histórico ----------
+function renderHistorico(){
+  document.getElementById('th-equipes').textContent = TIMES.join(' · ');
+  const chaves = Object.keys(DIAS).sort().reverse();
+  const tbody = document.querySelector('#tabela-historico tbody');
+  document.getElementById('historico-vazio').style.display = chaves.length ? 'none' : 'block';
+  tbody.innerHTML = chaves.map(k=>{
+    const dia = DIAS[k];
+    const celulasEquipes = TIMES.map(t=>{
+      const e = dia.equipes && dia.equipes[t];
+      if(!e) return '<span class="tag tmu">—</span>';
+      if(e.tipo==='numero') return `<b class="mono">${e.valor ?? 0}</b>${e.bairro?` <span style="color:var(--mu);font-size:11px">(${e.bairro})</span>`:''}`;
+      const cls = e.tipo==='folga' ? 'tam' : e.tipo==='feriado' ? 'trd' : 'tmu';
+      return `<span class="tag ${cls}">${STATUS_LABEL[e.tipo]}</span>`;
+    }).join(' &nbsp; ');
+    return `<tr>
+      <td class="mono">${k}</td>
+      <td>${diaSemanaDe(k)}</td>
+      <td>${celulasEquipes}</td>
+      <td><button class="del-btn" data-del="${k}" title="Apagar">🗑</button></td>
+    </tr>`;
+  }).join('');
+  tbody.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const k = btn.dataset.del;
+      if(!confirm(`Apagar o lançamento de ${k}?`)) return;
+      window._fbApagarDia(k).catch(()=>toast('Erro ao apagar'));
+    });
+  });
+}
+
+// ---------- equipes ----------
+function renderListaTimes(){
+  document.getElementById('times-list').innerHTML = TIMES.map(t=>`
+    <div class="time-row">
+      <span class="sw" style="background:${corTime(t)}"></span>
+      <span>${t}</span>
+      <button class="del-btn" data-rm="${t.replace(/"/g,'&quot;')}" title="Remover">🗑</button>
+    </div>`).join('') || '<div class="empty">Nenhuma equipe cadastrada.</div>';
+  document.querySelectorAll('[data-rm]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(!confirm(`Remover "${btn.dataset.rm}"? Os lançamentos já salvos não são apagados.`)) return;
+      TIMES = TIMES.filter(t=>t!==btn.dataset.rm);
+      window._fbSalvarTimes(TIMES).then(()=>toast('Equipe removida')).catch(()=>toast('Erro ao salvar'));
+    });
+  });
+}
+document.getElementById('btn-add-equipe').addEventListener('click', ()=>{
+  const input = document.getElementById('in-nova-equipe');
+  const nome = input.value.trim();
+  if(!nome) return;
+  if(TIMES.includes(nome)){ toast('Essa equipe já existe'); return; }
+  TIMES = [...TIMES, nome];
+  window._fbSalvarTimes(TIMES).then(()=>{ input.value=''; toast('Equipe adicionada ✓'); }).catch(()=>toast('Erro ao salvar'));
+});
+
+renderFormularioEquipes(fmtISO(new Date()));
+</script>
+</body>
+</html>
