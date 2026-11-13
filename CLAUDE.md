@@ -42,6 +42,11 @@ deploy específico: `npx vercel ls`, `npx vercel inspect <url>`).
 │                              + tracking de visitas/prospecção (Firestore)
 ├── auditoria-lb/index.html  → auditoria de campo por OS/protocolo (Firestore)
 ├── controle-km/index.html   → controle de quilometragem
+├── producao-equipe/index.html → lançamento diário de produção por equipe de
+│                              expansão (substitui a planilha "Produção Diária
+│                              Equipe Expansão") + painel com produção mensal,
+│                              comparação entre equipes e médias (Firestore,
+│                              coleções producao_equipe e producao_equipe_config)
 ├── avaliacao-provedor/      → calculadora de avaliação de provedor
 ├── mapa-campo/index.html    → mapa de campo (só rede Jebnet), dados do GeoGrid via Supabase
 ├── numeracao-ctos/          → numeração de CTOs (rede Jebnet via Supabase + reservas via Firestore)
