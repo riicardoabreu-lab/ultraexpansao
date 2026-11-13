@@ -12,7 +12,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, collection, doc, setDoc, deleteDoc, deleteField, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   const fb = initializeApp({
     apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
     authDomain: "isp-manager-ce.firebaseapp.com",
@@ -42,6 +42,18 @@
   };
   window._fbApagarDia = (dataISO) => deleteDoc(doc(fsDb, 'producao_equipe', dataISO));
   window._fbSalvarTimes = (nomes) => setDoc(doc(fsDb, 'producao_equipe_config', 'times'), { nomes });
+  // Renomear equipe: migra o valor já lançado de cada dia pra chave nova
+  // dentro do mapa "equipes" e apaga a chave antiga (deleteField) - itens é
+  // [{id: "AAAA-MM-DD", valorEntry: {tipo,valor,bairro}}] pros dias que já
+  // tinham essa equipe lançada.
+  window._fbRenomearEquipe = (oldName, newName, itens) => {
+    const escritas = itens.map(({id, valorEntry}) =>
+      setDoc(doc(fsDb, 'producao_equipe', id), {
+        equipes: { [newName]: valorEntry, [oldName]: deleteField() },
+      }, { merge: true })
+    );
+    return Promise.all(escritas);
+  };
 
   onSnapshot(collection(fsDb, 'producao_equipe'), snap => {
     const dias = {};
@@ -501,6 +513,7 @@ function renderListaTimes(){
     <div class="time-row">
       <span class="sw" style="background:${corTime(t)}"></span>
       <span>${t}</span>
+      <button class="del-btn" data-rename="${t.replace(/"/g,'&quot;')}" title="Renomear">✏️</button>
       <button class="del-btn" data-rm="${t.replace(/"/g,'&quot;')}" title="Remover">🗑</button>
     </div>`).join('') || '<div class="empty">Nenhuma equipe cadastrada.</div>';
   document.querySelectorAll('[data-rm]').forEach(btn=>{
@@ -508,6 +521,25 @@ function renderListaTimes(){
       if(!confirm(`Remover "${btn.dataset.rm}"? Os lançamentos já salvos não são apagados.`)) return;
       TIMES = TIMES.filter(t=>t!==btn.dataset.rm);
       window._fbSalvarTimes(TIMES).then(()=>toast('Equipe removida')).catch(()=>toast('Erro ao salvar'));
+    });
+  });
+  document.querySelectorAll('[data-rename]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const oldName = btn.dataset.rename;
+      const novo = prompt(`Novo nome para "${oldName}":`, oldName);
+      if(novo==null) return;
+      const newName = novo.trim();
+      if(!newName || newName===oldName) return;
+      if(TIMES.includes(newName)){ toast('Já existe uma equipe com esse nome'); return; }
+      const itens = Object.keys(DIAS)
+        .filter(k => DIAS[k].equipes && DIAS[k].equipes[oldName])
+        .map(k => ({ id: k, valorEntry: DIAS[k].equipes[oldName] }));
+      const novasTimes = TIMES.map(t => t===oldName ? newName : t);
+      Promise.resolve()
+        .then(()=> itens.length ? window._fbRenomearEquipe(oldName, newName, itens) : null)
+        .then(()=> window._fbSalvarTimes(novasTimes))
+        .then(()=>{ TIMES = novasTimes; toast('Equipe renomeada ✓'); renderListaTimes(); })
+        .catch(err=>{ console.error(err); toast('Erro ao renomear'); });
     });
   });
 }
