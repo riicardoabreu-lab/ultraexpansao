@@ -35,16 +35,24 @@
       data: dataISO, equipes: { [nomeEquipe]: valorEntry }, atualizado_em: Date.now(),
     }, { merge: true });
 
-  onSnapshot(collection(fsDb, 'producao_equipe'), snap => {
-    const dias = {};
-    snap.forEach(d => { dias[d.id] = d.data(); });
-    if (window._aplicarDiasTecnico) window._aplicarDiasTecnico(dias);
-  }, err => console.error('listener producao_equipe (técnico) falhou:', err));
+  // Os listeners só podem ser abertos DEPOIS do login anônimo (as regras do
+  // Firestore exigem request.auth != null pra leitura também) - abrir aqui
+  // direto, no carregamento do módulo, dava permission-denied porque ainda
+  // não tinha feito signInAnonymously, e o listener morria pra sempre (não
+  // tenta de novo sozinho mesmo depois de logar). Por isso isso vira uma
+  // função chamada só depois que o login anônimo é confirmado.
+  window._iniciarListenersTecnico = () => {
+    onSnapshot(collection(fsDb, 'producao_equipe'), snap => {
+      const dias = {};
+      snap.forEach(d => { dias[d.id] = d.data(); });
+      if (window._aplicarDiasTecnico) window._aplicarDiasTecnico(dias);
+    }, err => console.error('listener producao_equipe (técnico) falhou:', err));
 
-  onSnapshot(doc(fsDb, 'producao_equipe_config', 'times'), snap => {
-    const nomes = snap.exists() ? (snap.data().nomes || []) : [];
-    if (window._aplicarTimesTecnico) window._aplicarTimesTecnico(nomes);
-  }, err => console.error('listener producao_equipe_config (técnico) falhou:', err));
+    onSnapshot(doc(fsDb, 'producao_equipe_config', 'times'), snap => {
+      const nomes = snap.exists() ? (snap.data().nomes || []) : [];
+      if (window._aplicarTimesTecnico) window._aplicarTimesTecnico(nomes);
+    }, err => console.error('listener producao_equipe_config (técnico) falhou:', err));
+  };
 
   window._SENHA_TECNICO = SENHA_TECNICO;
 </script>
@@ -173,10 +181,15 @@ document.getElementById('btn-sair').addEventListener('click', ()=>{
   window.location.reload();
 });
 
+let listenersJaIniciados = false;
 function abrirFormulario(){
   document.getElementById('tela-senha').style.display = 'none';
   document.getElementById('tela-form').style.display = 'block';
   document.getElementById('in-data').value = fmtISO(new Date());
+  if(!listenersJaIniciados){
+    listenersJaIniciados = true;
+    window._iniciarListenersTecnico();
+  }
 }
 
 // O script type="module" no <head> que define window._iniciarSessaoTecnico
