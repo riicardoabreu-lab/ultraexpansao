@@ -14,7 +14,8 @@ const {carregarPastas, sincronizarPaginaTipo, TIPOS_SINCRONIZADOS} = require('./
 // (ver geogrid-sync-now.js). O front chama de novo, página seguinte,
 // enquanto "temMais" vier true.
 module.exports = async function handler(req, res) {
-  if (req.headers['x-mapa-campo-token'] !== process.env.MAPA_CAMPO_TOKEN) {
+  const token = req.headers['x-mapa-campo-token'] || req.query.token;
+  if (token !== process.env.MAPA_CAMPO_TOKEN) {
     res.status(403).json({erro: 'não autorizado'});
     return;
   }
