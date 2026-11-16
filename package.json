@@ -3,6 +3,7 @@
   "private": true,
   "dependencies": {
     "firebase-admin": "^12.6.0",
-    "@supabase/supabase-js": "^2.45.4"
+    "@supabase/supabase-js": "^2.45.4",
+    "google-auth-library": "^9.14.1"
   }
 }

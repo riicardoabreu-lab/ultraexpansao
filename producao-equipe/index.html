@@ -566,7 +566,11 @@ document.getElementById('btn-salvar-dia').addEventListener('click', ()=>{
     equipes[nome] = { tipo, valor, bairro };
   });
   window._fbSalvarDia(data, equipes)
-    .then(()=>toast('Dia salvo ✓'))
+    .then(()=>{
+      toast('Dia salvo ✓');
+      fetch('/api/producao-equipe-sheets-sync', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({data}) })
+        .catch(err=>console.error('sync planilha falhou:', err));
+    })
     .catch(err=>{ console.error(err); toast('Erro ao salvar'); });
 });
 document.getElementById('btn-apagar-dia').addEventListener('click', ()=>{

@@ -462,6 +462,8 @@ document.getElementById('btn-salvar').addEventListener('click', ()=>{
       toast('Lançamento salvo ✓');
       document.getElementById('in-valor').value = '';
       document.getElementById('in-bairro').value = '';
+      fetch('/api/producao-equipe-sheets-sync', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({data}) })
+        .catch(err=>console.error('sync planilha falhou:', err));
     })
     .catch(err=>{ console.error(err); toast('Erro ao salvar'); });
 });
