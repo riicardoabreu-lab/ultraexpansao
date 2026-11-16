@@ -314,26 +314,47 @@ function renderPainelTecnico(){
 function entradasDoProvedorTec(nomeProvedor){
   const alvo = normalizar(nomeProvedor);
   let coletado = 0;
+  const diasComLancamento = new Set();
   Object.keys(DIAS).forEach(k=>{
     const dia = DIAS[k];
     TIMES.forEach(t=>{
       const e = dia.equipes && dia.equipes[t];
       if(!e || e.tipo!=='numero' || !e.bairro) return;
-      if(normalizar(e.bairro).includes(alvo)) coletado += Number(e.valor)||0;
+      if(normalizar(e.bairro).includes(alvo)){ coletado += Number(e.valor)||0; diasComLancamento.add(k); }
     });
   });
-  return coletado;
+  return {coletado, diasTrabalhados: diasComLancamento.size};
+}
+// Soma N dias ÚTEIS (segunda a sexta) a partir de uma data - igual ao
+// painel principal, pra projetar a previsão de término de um provedor.
+function addDiasUteisTec(dataBase, n){
+  const d = new Date(dataBase);
+  let adicionados = 0;
+  while(adicionados < n){
+    d.setDate(d.getDate()+1);
+    const diaSemana = d.getDay();
+    if(diaSemana !== 0 && diaSemana !== 6) adicionados++;
+  }
+  return d;
 }
 function renderProvedoresTecnico(){
   const nomes = Object.keys(PROVEDORES_TEC).sort();
   document.getElementById('tec-provedores-vazio').style.display = nomes.length ? 'none' : 'block';
   document.getElementById('tec-provedores-list').innerHTML = nomes.map(nome=>{
     const prov = PROVEDORES_TEC[nome];
-    const coletado = entradasDoProvedorTec(nome);
+    const {coletado, diasTrabalhados} = entradasDoProvedorTec(nome);
     const total = Number(prov.totalCaixas) || 0;
     const pct = total>0 ? (coletado/total*100) : null;
     const falta = total>0 ? Math.max(total - coletado, 0) : null;
     const pctClamped = pct==null ? 0 : Math.min(pct, 100);
+    const taxaDiaria = diasTrabalhados>0 ? coletado/diasTrabalhados : 0;
+    let previsaoTexto = '—', previsaoSub = 'sem lançamentos suficientes';
+    if(total>0 && falta<=0){ previsaoTexto = '✓ Concluído'; previsaoSub = ''; }
+    else if(total>0 && taxaDiaria>0){
+      const diasRestantes = Math.ceil(falta/taxaDiaria);
+      previsaoTexto = addDiasUteisTec(new Date(), diasRestantes).toLocaleDateString('pt-BR');
+      previsaoSub = `~${taxaDiaria.toLocaleString('pt-BR',{maximumFractionDigits:1})}/dia útil`;
+    }
     return `<div class="card" style="margin-bottom:12px">
       <div style="font-size:14px;font-weight:600;margin-bottom:12px">${nome}</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px">
@@ -341,6 +362,7 @@ function renderProvedoresTecnico(){
         <div><div style="font-size:10px;color:var(--mu);text-transform:uppercase;margin-bottom:5px">Existentes</div><div style="font-size:18px;font-weight:600">${total>0?total.toLocaleString('pt-BR'):'—'}</div></div>
         <div><div style="font-size:10px;color:var(--mu);text-transform:uppercase;margin-bottom:5px">% coletado</div><div style="font-size:18px;font-weight:600;color:var(--gn)">${pct!=null?pct.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</div></div>
         <div><div style="font-size:10px;color:var(--mu);text-transform:uppercase;margin-bottom:5px">Falta coletar</div><div style="font-size:18px;font-weight:600;color:#f59e0b">${falta!=null?falta.toLocaleString('pt-BR'):'—'}</div></div>
+        <div><div style="font-size:10px;color:var(--mu);text-transform:uppercase;margin-bottom:5px">Previsão de término</div><div style="font-size:15px;font-weight:600">${previsaoTexto}</div><div style="font-size:10px;color:var(--hi);margin-top:3px">${previsaoSub}</div></div>
       </div>
       ${total>0?`<div style="height:7px;background:var(--s2);border-radius:4px;overflow:hidden;margin-top:12px"><div style="height:100%;width:${pctClamped}%;background:var(--ac)"></div></div>`:''}
     </div>`;

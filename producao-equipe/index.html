@@ -712,6 +712,19 @@ function entradasDoProvedor(nomeProvedor){
   return entradas;
 }
 
+// Soma N dias ÚTEIS (segunda a sexta, pula sábado/domingo) a partir de uma
+// data - usado pra projetar a previsão de término de um provedor.
+function addDiasUteis(dataBase, n){
+  const d = new Date(dataBase);
+  let adicionados = 0;
+  while(adicionados < n){
+    d.setDate(d.getDate()+1);
+    const diaSemana = d.getDay();
+    if(diaSemana !== 0 && diaSemana !== 6) adicionados++;
+  }
+  return d;
+}
+
 function renderProvedores(){
   const nomes = Object.keys(PROVEDORES).sort();
   document.getElementById('provedores-vazio').style.display = nomes.length ? 'none' : 'block';
@@ -723,6 +736,23 @@ function renderProvedores(){
     const pct = total>0 ? (coletado/total*100) : null;
     const falta = total>0 ? Math.max(total - coletado, 0) : null;
     const pctClamped = pct==null ? 0 : Math.min(pct, 100);
+
+    // Ritmo médio: coletado ÷ dias úteis distintos em que alguma equipe
+    // lançou algo pra esse provedor (só dias com tipo "numero" - folga/
+    // feriado não contam, já ficam de fora de entradasDoProvedor). Com o
+    // ritmo, projeta quantos dias úteis faltam pra bater a meta e soma a
+    // partir de hoje (pula sábado/domingo).
+    const diasTrabalhados = new Set(entradas.map(e=>e.data)).size;
+    const taxaDiaria = diasTrabalhados>0 ? coletado/diasTrabalhados : 0;
+    let previsaoTexto = '—', previsaoSub = 'sem lançamentos suficientes';
+    if(total>0 && falta<=0){
+      previsaoTexto = '✓ Concluído'; previsaoSub = '';
+    } else if(total>0 && taxaDiaria>0){
+      const diasRestantes = Math.ceil(falta/taxaDiaria);
+      previsaoTexto = addDiasUteis(new Date(), diasRestantes).toLocaleDateString('pt-BR');
+      previsaoSub = `~${taxaDiaria.toLocaleString('pt-BR',{maximumFractionDigits:1})}/dia útil, ${diasRestantes} dia(s) úteis restantes`;
+    }
+
     return `<div class="card">
       <div class="ct" style="display:flex;justify-content:space-between;align-items:center">
         <span>${nome}</span>
@@ -737,6 +767,7 @@ function renderProvedores(){
         <div class="mc"><div class="ml">Caixas existentes</div><div class="mv">${total>0?total.toLocaleString('pt-BR'):'—'}</div></div>
         <div class="mc gn"><div class="ml">% coletado</div><div class="mv">${pct!=null?pct.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</div></div>
         <div class="mc am"><div class="ml">Falta coletar</div><div class="mv">${falta!=null?falta.toLocaleString('pt-BR'):'—'}</div></div>
+        <div class="mc"><div class="ml">Previsão de término</div><div class="mv" style="font-size:16px">${previsaoTexto}</div><div class="mu2">${previsaoSub}</div></div>
       </div>
       ${total>0?`<div style="height:8px;background:var(--s2);border-radius:4px;overflow:hidden;margin-top:12px">
         <div style="height:100%;width:${pctClamped}%;background:var(--ac)"></div>
