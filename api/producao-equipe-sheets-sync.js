@@ -105,13 +105,28 @@ module.exports = async (req, res) => {
     // testar/forçar manualmente direto pela URL (sem corpo de requisição).
     const params = { ...req.query, ...body };
 
-    if (req.method === 'GET' && !params.data && !params.backfillAll) {
+    if (req.method === 'GET' && !params.data && !params.backfillAll && !params.addTeam) {
       // Só pra configuração inicial: descobrir o e-mail da service account
       // pra compartilhar a planilha como Editor com ela. Não expõe a chave privada.
       res.status(200).json({ clientEmail: carregarCredencial().clientEmail });
       return;
     }
     if (req.method !== 'GET' && req.method !== 'POST') { res.status(405).json({ error: 'method not allowed' }); return; }
+
+    // Ação administrativa avulsa (não é sync com a planilha) - adiciona
+    // uma equipe nova em producao_equipe_config/times, equivalente ao botão
+    // "+ Nova equipe" do painel Equipes. Colocada aqui (em vez de um arquivo
+    // api/*.js novo) pra não gastar a vaga que falta pro limite de 12
+    // Serverless Functions do plano Hobby da Vercel.
+    if (params.addTeam) {
+      const ref = getDb().collection('producao_equipe_config').doc('times');
+      const snap = await ref.get();
+      const nomes = snap.exists ? (snap.data().nomes || []) : ['Equipe 1', 'Equipe 2'];
+      if (!nomes.includes(params.addTeam)) nomes.push(params.addTeam);
+      await ref.set({ nomes });
+      res.status(200).json({ ok: true, nomes });
+      return;
+    }
 
     const auth = getSheetsAuth();
 
