@@ -7,8 +7,9 @@
   // Login próprio desta tela (senha única, sem conta) - independente do login
   // completo do portal (index.html raiz). Mesmo padrão do mapa-campo/index.html:
   // afasta acesso casual, não é proteção real pra quem souber a senha. O
-  // técnico só vê o formulário de lançamento - nada de painel, provedores,
-  // histórico completo ou outras equipes (informação que não é dele).
+  // técnico vê o formulário de lançamento + painel (dashboard) + provedores
+  // (só leitura) - mas não tem Equipes (gerenciar times) nem edição do
+  // histórico de outros dias, que ficam só no painel principal.
   const SENHA_TECNICO = 'expansao2026';
 
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -52,12 +53,22 @@
       const nomes = snap.exists() ? (snap.data().nomes || []) : [];
       if (window._aplicarTimesTecnico) window._aplicarTimesTecnico(nomes);
     }, err => console.error('listener producao_equipe_config (técnico) falhou:', err));
+
+    // Só leitura - o técnico vê meta/coletado/% de cada provedor, mas não
+    // tem botão de editar/adicionar/remover aqui (isso fica só no painel
+    // principal, aba Equipes/Provedores).
+    onSnapshot(collection(fsDb, 'producao_equipe_provedores'), snap => {
+      const provedores = {};
+      snap.forEach(d => { provedores[d.id] = d.data(); });
+      if (window._aplicarProvedoresTecnico) window._aplicarProvedoresTecnico(provedores);
+    }, err => console.error('listener producao_equipe_provedores (técnico) falhou:', err));
   };
 
   window._SENHA_TECNICO = SENHA_TECNICO;
 </script>
 <title>Produção da Equipe · Lançamento (Técnico)</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -108,43 +119,88 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
   </div>
 </div>
 
-<!-- FORMULÁRIO -->
-<div id="tela-form" class="wrap" style="display:none">
+<!-- ÁREA LOGADA (lançar / painel / provedores) -->
+<div id="tela-form" class="wrap" style="display:none;max-width:920px">
   <div class="topo">
-    <div><h1>🚀 Lançamento diário</h1><div class="sub">Produção da Equipe · Infolink</div></div>
-  </div>
-  <div class="card">
-    <div class="fl">
-      <label>Minha equipe</label>
-      <select id="sel-equipe"></select>
-    </div>
-    <div class="fl">
-      <label>Data</label>
-      <input type="date" id="in-data">
-    </div>
-    <div class="seg" id="seg-tipo">
-      <button type="button" data-val="numero" class="on">Número</button>
-      <button type="button" data-val="folga">Folga</button>
-      <button type="button" data-val="feriado">Feriado</button>
-      <button type="button" data-val="dayoff">Day Off</button>
-    </div>
-    <div class="fl" id="fl-valor">
-      <label>Produção (quantidade)</label>
-      <input type="number" id="in-valor" placeholder="0">
-    </div>
-    <div class="fl">
-      <label>Bairro / atividade</label>
-      <input type="text" id="in-bairro" placeholder="opcional">
-    </div>
-    <button class="btn pri" id="btn-salvar">Salvar lançamento</button>
+    <div><h1>🚀 Produção da Equipe</h1><div class="sub">Infolink · Expansão</div></div>
+    <button class="btn" id="btn-sair">Sair</button>
   </div>
 
-  <div class="card recentes">
-    <div style="font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Meus últimos lançamentos</div>
-    <div id="lista-recentes"></div>
+  <div class="seg" id="tabs-tecnico" style="max-width:420px;margin-bottom:1.1rem">
+    <button type="button" data-view="lancar" class="on">Lançar</button>
+    <button type="button" data-view="painel">Painel</button>
+    <button type="button" data-view="provedores">Provedores</button>
   </div>
 
-  <div class="logout-row"><button id="btn-sair">Sair desta tela</button></div>
+  <!-- LANÇAR -->
+  <div id="view-lancar" class="view">
+    <div class="wrap" style="max-width:480px;margin:0">
+      <div class="card">
+        <div class="fl">
+          <label>Minha equipe</label>
+          <select id="sel-equipe"></select>
+        </div>
+        <div class="fl">
+          <label>Data</label>
+          <input type="date" id="in-data">
+        </div>
+        <div class="seg" id="seg-tipo">
+          <button type="button" data-val="numero" class="on">Número</button>
+          <button type="button" data-val="folga">Folga</button>
+          <button type="button" data-val="feriado">Feriado</button>
+          <button type="button" data-val="dayoff">Day Off</button>
+        </div>
+        <div class="fl" id="fl-valor">
+          <label>Produção (quantidade)</label>
+          <input type="number" id="in-valor" placeholder="0">
+        </div>
+        <div class="fl">
+          <label>Bairro / atividade</label>
+          <input type="text" id="in-bairro" placeholder="opcional">
+        </div>
+        <button class="btn pri" id="btn-salvar">Salvar lançamento</button>
+      </div>
+
+      <div class="card recentes">
+        <div style="font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Meus últimos lançamentos</div>
+        <div id="lista-recentes"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAINEL (igual ao painel principal, só leitura) -->
+  <div id="view-painel" class="view" style="display:none">
+    <div class="topo" style="margin-bottom:14px">
+      <div class="sub" style="font-size:13px;color:var(--tx)">Produção mensal, por equipe e médias.</div>
+      <div style="display:flex;align-items:center;gap:10px;background:var(--s1);border:1px solid var(--b1);border-radius:var(--r);padding:6px 8px">
+        <button id="tec-mes-prev" class="btn" style="padding:4px 10px">‹</button>
+        <div id="tec-mes-label" style="font-size:13px;font-weight:600;min-width:120px;text-align:center">—</div>
+        <button id="tec-mes-next" class="btn" style="padding:4px 10px">›</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.1rem">
+      <div class="card" style="padding:1rem 1.1rem"><div style="font-size:10.5px;color:var(--mu);text-transform:uppercase;margin-bottom:7px">Produção do mês</div><div id="tec-kpi-total" style="font-size:22px;font-weight:600;color:#3987e5">0</div></div>
+      <div class="card" style="padding:1rem 1.1rem"><div style="font-size:10.5px;color:var(--mu);text-transform:uppercase;margin-bottom:7px">Média diária</div><div id="tec-kpi-media" style="font-size:22px;font-weight:600">—</div></div>
+      <div class="card" style="padding:1rem 1.1rem"><div style="font-size:10.5px;color:var(--mu);text-transform:uppercase;margin-bottom:7px">Dias trabalhados</div><div id="tec-kpi-dias" style="font-size:22px;font-weight:600;color:var(--gn)">0</div></div>
+      <div class="card" style="padding:1rem 1.1rem"><div style="font-size:10.5px;color:var(--mu);text-transform:uppercase;margin-bottom:7px">Melhor equipe</div><div id="tec-kpi-melhor" style="font-size:16px;font-weight:600;color:#f59e0b">—</div></div>
+    </div>
+    <div class="card" style="margin-bottom:1.1rem">
+      <div style="font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.08em;margin-bottom:1.1rem">Produção diária no mês</div>
+      <div style="position:relative;width:100%;height:240px"><canvas id="tec-chart-diario"></canvas></div>
+      <div id="tec-legend" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:11.5px;color:var(--mu)"></div>
+    </div>
+    <div class="card">
+      <div style="font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.08em;margin-bottom:1.1rem">Comparativo entre equipes</div>
+      <div id="tec-rank-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px"></div>
+    </div>
+  </div>
+
+  <!-- PROVEDORES (só visualização) -->
+  <div id="view-provedores" class="view" style="display:none">
+    <div class="sub" style="font-size:13px;color:var(--tx);margin-bottom:14px">Meta de caixas por provedor x o que já foi coletado.</div>
+    <div id="tec-provedores-list"></div>
+    <div id="tec-provedores-vazio" style="display:none;color:var(--mu);font-size:13px;text-align:center;padding:2rem">Nenhum provedor cadastrado ainda.</div>
+  </div>
 </div>
 
 <div id="toast"></div>
@@ -152,6 +208,12 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
 <script>
 let DIAS = {};
 let TIMES = [];
+let PROVEDORES_TEC = {};
+let viewAtual = 'lancar';
+let mesAtualTec = new Date(); mesAtualTec.setDate(1);
+let chartDiarioTec = null;
+const CORES = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
+const MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 
 function toast(msg){
   const el = document.getElementById('toast');
@@ -160,6 +222,129 @@ function toast(msg){
   window._toastTimer = setTimeout(()=>el.classList.remove('on'), 2400);
 }
 function fmtISO(d){ return d.toISOString().slice(0,10); }
+function normalizar(txt){ return (txt||'').toString().normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(); }
+function corTime(nome){ const i = TIMES.indexOf(nome); return CORES[(i>=0?i:0) % CORES.length]; }
+function valorNumerico(entry){ return entry && entry.tipo==='numero' ? (Number(entry.valor)||0) : null; }
+function diasDoMesTec(ref){
+  const y = ref.getFullYear(), m = ref.getMonth();
+  const prefixo = `${y}-${String(m+1).padStart(2,'0')}-`;
+  return Object.keys(DIAS).filter(k=>k.startsWith(prefixo)).sort();
+}
+
+// ---------- navegação entre views (lançar / painel / provedores) ----------
+function mudarView(v){
+  viewAtual = v;
+  document.querySelectorAll('.view').forEach(el=>{ el.style.display = el.id==='view-'+v ? 'block' : 'none'; });
+  document.querySelectorAll('#tabs-tecnico button').forEach(b=>b.classList.toggle('on', b.dataset.view===v));
+  if(v==='painel') renderPainelTecnico();
+  if(v==='provedores') renderProvedoresTecnico();
+}
+document.querySelectorAll('#tabs-tecnico button').forEach(btn=>{
+  btn.addEventListener('click', ()=>mudarView(btn.dataset.view));
+});
+document.getElementById('tec-mes-prev').addEventListener('click', ()=>{ mesAtualTec.setMonth(mesAtualTec.getMonth()-1); renderPainelTecnico(); });
+document.getElementById('tec-mes-next').addEventListener('click', ()=>{ mesAtualTec.setMonth(mesAtualTec.getMonth()+1); renderPainelTecnico(); });
+
+// ---------- painel (igual ao do painel principal, só leitura) ----------
+function renderPainelTecnico(){
+  const nomeMes = MESES[mesAtualTec.getMonth()];
+  document.getElementById('tec-mes-label').textContent = `${nomeMes.charAt(0).toUpperCase()}${nomeMes.slice(1)} de ${mesAtualTec.getFullYear()}`;
+  const chaves = diasDoMesTec(mesAtualTec);
+  let total = 0, diasTrabalhados = 0, diasParados = 0;
+  const porTime = {}; TIMES.forEach(t=>porTime[t] = {total:0, dias:0});
+  const labelsDias = [], datasetsPorTime = {}; TIMES.forEach(t=>datasetsPorTime[t]=[]);
+
+  chaves.forEach(k=>{
+    const dia = DIAS[k];
+    const [,,dd] = k.split('-');
+    labelsDias.push(dd);
+    let algumNumero = false, algumParado = false;
+    TIMES.forEach(t=>{
+      const e = dia.equipes && dia.equipes[t];
+      const v = valorNumerico(e);
+      datasetsPorTime[t].push(v);
+      if(v!=null){ total += v; porTime[t].total += v; porTime[t].dias++; algumNumero = true; }
+      else if(e && e.tipo && e.tipo!=='numero'){ algumParado = true; }
+    });
+    if(algumNumero) diasTrabalhados++; else if(algumParado) diasParados++;
+  });
+
+  document.getElementById('tec-kpi-total').textContent = total.toLocaleString('pt-BR');
+  document.getElementById('tec-kpi-media').textContent = diasTrabalhados ? (total/diasTrabalhados).toLocaleString('pt-BR',{maximumFractionDigits:1}) : '—';
+  document.getElementById('tec-kpi-dias').textContent = diasTrabalhados;
+
+  let melhorNome = null, melhorTotal = -1;
+  TIMES.forEach(t=>{ if(porTime[t].total > melhorTotal){ melhorTotal = porTime[t].total; melhorNome = t; } });
+  document.getElementById('tec-kpi-melhor').textContent = melhorTotal>0 ? melhorNome : '—';
+
+  const ctx = document.getElementById('tec-chart-diario').getContext('2d');
+  const datasets = TIMES.map(t=>({
+    label: t, data: datasetsPorTime[t], backgroundColor: corTime(t), borderRadius: 4, maxBarThickness: 22,
+  }));
+  if(chartDiarioTec) chartDiarioTec.destroy();
+  chartDiarioTec = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: labelsDias, datasets },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { grid:{display:false}, ticks:{color:'#8a8a96', font:{size:10.5}} },
+        y: { beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{color:'#8a8a96', font:{size:10.5}} },
+      },
+      plugins: { legend:{display:false}, tooltip:{backgroundColor:'#222228', borderColor:'rgba(255,255,255,.13)', borderWidth:1, padding:10} },
+    }
+  });
+  document.getElementById('tec-legend').innerHTML = TIMES.map(t=>
+    `<span style="display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;border-radius:3px;background:${corTime(t)}"></span>${t}</span>`
+  ).join('');
+
+  document.getElementById('tec-rank-grid').innerHTML = TIMES.map(t=>{
+    const media = porTime[t].dias ? (porTime[t].total/porTime[t].dias) : 0;
+    return `<div class="card" style="padding:14px 16px;border-left:3px solid ${corTime(t)}">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:7px"><span style="width:10px;height:10px;border-radius:3px;background:${corTime(t)}"></span>${t}</div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--mu);padding:3px 0"><span>Total no mês</span><b style="color:var(--tx)">${porTime[t].total.toLocaleString('pt-BR')}</b></div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--mu);padding:3px 0"><span>Dias trabalhados</span><b style="color:var(--tx)">${porTime[t].dias}</b></div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--mu);padding:3px 0"><span>Média/dia</span><b style="color:var(--tx)">${media.toLocaleString('pt-BR',{maximumFractionDigits:1})}</b></div>
+    </div>`;
+  }).join('') || '<div style="color:var(--mu);font-size:13px">Nenhuma equipe cadastrada.</div>';
+}
+
+// ---------- provedores (só leitura - meta x coletado) ----------
+function entradasDoProvedorTec(nomeProvedor){
+  const alvo = normalizar(nomeProvedor);
+  let coletado = 0;
+  Object.keys(DIAS).forEach(k=>{
+    const dia = DIAS[k];
+    TIMES.forEach(t=>{
+      const e = dia.equipes && dia.equipes[t];
+      if(!e || e.tipo!=='numero' || !e.bairro) return;
+      if(normalizar(e.bairro).includes(alvo)) coletado += Number(e.valor)||0;
+    });
+  });
+  return coletado;
+}
+function renderProvedoresTecnico(){
+  const nomes = Object.keys(PROVEDORES_TEC).sort();
+  document.getElementById('tec-provedores-vazio').style.display = nomes.length ? 'none' : 'block';
+  document.getElementById('tec-provedores-list').innerHTML = nomes.map(nome=>{
+    const prov = PROVEDORES_TEC[nome];
+    const coletado = entradasDoProvedorTec(nome);
+    const total = Number(prov.totalCaixas) || 0;
+    const pct = total>0 ? (coletado/total*100) : null;
+    const falta = total>0 ? Math.max(total - coletado, 0) : null;
+    const pctClamped = pct==null ? 0 : Math.min(pct, 100);
+    return `<div class="card" style="margin-bottom:12px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:12px">${nome}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px">
+        <div><div style="font-size:10px;color:var(--mu);text-transform:uppercase;margin-bottom:5px">Coletado</div><div style="font-size:18px;font-weight:600;color:#3987e5">${coletado.toLocaleString('pt-BR')}</div></div>
+        <div><div style="font-size:10px;color:var(--mu);text-transform:uppercase;margin-bottom:5px">Existentes</div><div style="font-size:18px;font-weight:600">${total>0?total.toLocaleString('pt-BR'):'—'}</div></div>
+        <div><div style="font-size:10px;color:var(--mu);text-transform:uppercase;margin-bottom:5px">% coletado</div><div style="font-size:18px;font-weight:600;color:var(--gn)">${pct!=null?pct.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':'—'}</div></div>
+        <div><div style="font-size:10px;color:var(--mu);text-transform:uppercase;margin-bottom:5px">Falta coletar</div><div style="font-size:18px;font-weight:600;color:#f59e0b">${falta!=null?falta.toLocaleString('pt-BR'):'—'}</div></div>
+      </div>
+      ${total>0?`<div style="height:7px;background:var(--s2);border-radius:4px;overflow:hidden;margin-top:12px"><div style="height:100%;width:${pctClamped}%;background:var(--ac)"></div></div>`:''}
+    </div>`;
+  }).join('');
+}
 
 // ---------- login ----------
 function entrar(){
@@ -206,7 +391,11 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 // ---------- dados do Firestore ----------
-window._aplicarDiasTecnico = (dias) => { DIAS = dias; renderRecentes(); };
+window._aplicarDiasTecnico = (dias) => {
+  DIAS = dias; renderRecentes();
+  if(viewAtual==='painel') renderPainelTecnico();
+  if(viewAtual==='provedores') renderProvedoresTecnico();
+};
 window._aplicarTimesTecnico = (nomes) => {
   TIMES = nomes || [];
   const sel = document.getElementById('sel-equipe');
@@ -215,6 +404,12 @@ window._aplicarTimesTecnico = (nomes) => {
     || '<option value="">Nenhuma equipe cadastrada</option>';
   if(TIMES.includes(anterior)) sel.value = anterior;
   renderRecentes();
+  if(viewAtual==='painel') renderPainelTecnico();
+  if(viewAtual==='provedores') renderProvedoresTecnico();
+};
+window._aplicarProvedoresTecnico = (provedores) => {
+  PROVEDORES_TEC = provedores;
+  if(viewAtual==='provedores') renderProvedoresTecnico();
 };
 document.getElementById('sel-equipe').addEventListener('change', e=>{
   localStorage.setItem('producao_tecnico_equipe', e.target.value);
