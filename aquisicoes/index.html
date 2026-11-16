@@ -124,12 +124,7 @@
       // syncToCloud() exige essa marca pra nunca gravar em cima de dados
       // reais da equipe com um estado local que ainda não foi comparado com
       // a nuvem (ver window._cloudReady).
-      const virouPronta = !window._cloudReady;
       window._cloudReady = true;
-      // Se alguma edição real do usuário tentou sincronizar enquanto ainda
-      // não tínhamos consultado a nuvem (janela bem curta, mas existe),
-      // dispara agora que já é seguro - senão ficaria só salva localmente.
-      if(virouPronta && window._syncToCloud) window._syncToCloud();
       if(!snap.exists()) return;
       const data = snap.data();
       if(!data.empresas || !data.empresas.length) return;
@@ -831,7 +826,6 @@ function syncToCloud(){
     finally{ _localSyncPending = false; flushPendingRemoteState(); }
   }, 1500);
 }
-window._syncToCloud = syncToCloud;
 
 /* ======================================================================
    FORMAT HELPERS
