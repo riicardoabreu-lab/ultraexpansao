@@ -99,18 +99,23 @@ async function sincronizarData(auth, dataISO) {
 
 module.exports = async (req, res) => {
   try {
-    if (req.method === 'GET') {
+    const body = req.method === 'POST' ? (typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {})) : {};
+    // GET com querystring (?data=... ou ?backfillAll=1) também dispara o
+    // sync - além do POST chamado pelo app a cada salvamento, serve pra
+    // testar/forçar manualmente direto pela URL (sem corpo de requisição).
+    const params = { ...req.query, ...body };
+
+    if (req.method === 'GET' && !params.data && !params.backfillAll) {
       // Só pra configuração inicial: descobrir o e-mail da service account
       // pra compartilhar a planilha como Editor com ela. Não expõe a chave privada.
       res.status(200).json({ clientEmail: carregarCredencial().clientEmail });
       return;
     }
-    if (req.method !== 'POST') { res.status(405).json({ error: 'method not allowed' }); return; }
+    if (req.method !== 'GET' && req.method !== 'POST') { res.status(405).json({ error: 'method not allowed' }); return; }
 
-    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const auth = getSheetsAuth();
 
-    if (body.backfillAll) {
+    if (params.backfillAll) {
       const snaps = await getDb().collection('producao_equipe').get();
       const resultados = [];
       for (const doc of snaps.docs) resultados.push({ data: doc.id, ...(await sincronizarData(auth, doc.id)) });
@@ -118,8 +123,8 @@ module.exports = async (req, res) => {
       return;
     }
 
-    if (!body.data) { res.status(400).json({ error: 'informe "data" (YYYY-MM-DD) no corpo' }); return; }
-    res.status(200).json(await sincronizarData(auth, body.data));
+    if (!params.data) { res.status(400).json({ error: 'informe "data" (YYYY-MM-DD)' }); return; }
+    res.status(200).json(await sincronizarData(auth, params.data));
   } catch (err) {
     console.error('producao-equipe-sheets-sync falhou:', err);
     res.status(500).json({ error: String((err && err.message) || err) });
