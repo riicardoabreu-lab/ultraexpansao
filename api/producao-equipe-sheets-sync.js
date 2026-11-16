@@ -4,11 +4,14 @@ const { JWT } = require('google-auth-library');
 // Planilha "PRODUÇÃO DIÁRIA EQUIPE EXPANSAO" (substituída pelo app, mas o
 // usuário ainda quer ela preenchida automaticamente pra quem só acompanha
 // por ali). Equipe "Gutembergue" = coluna C ("Equipe 1"), "Yan" = coluna D
-// ("Equipe 2") - nomes fixos combinados com o usuário; se as equipes forem
-// renomeadas no app, atualizar este mapa.
+// ("Equipe 2"), "Felipe" = coluna E ("Equipe 3", inserida em 16/11/26 quando
+// essa equipe entrou) - nomes fixos combinados com o usuário; se as equipes
+// forem renomeadas no app, atualizar este mapa. Bairro/atividade combinado
+// das equipes vai pra coluna F (empurrada quando a coluna E foi inserida).
 const SPREADSHEET_ID = '12jcrDCRVm-E9lV9euPTzQIXuhZlJaW7QADw3lLu1m-c';
 const SHEET_NAME = 'Página1';
-const COLUNA_POR_EQUIPE = { 'Gutembergue': 'C', 'Yan': 'D' };
+const COLUNA_POR_EQUIPE = { 'Gutembergue': 'C', 'Yan': 'D', 'Felipe': 'E' };
+const COLUNA_BAIRRO = 'F';
 const STATUS_PLANILHA = { folga: 'FOLGA', feriado: 'FERIADO', dayoff: 'Day Off' };
 
 // Mesmo padrão de api/_lib/geogrid.js (FIREBASE_SERVICE_ACCOUNT_B64 é o
@@ -90,7 +93,7 @@ async function sincronizarData(auth, dataISO) {
     updates.push({ range: `${SHEET_NAME}!${col}${linha}`, values: [[valor]] });
     if (e.bairro) bairros.push(e.bairro);
   }
-  if (bairros.length) updates.push({ range: `${SHEET_NAME}!E${linha}`, values: [[bairros.join(' / ')]] });
+  if (bairros.length) updates.push({ range: `${SHEET_NAME}!${COLUNA_BAIRRO}${linha}`, values: [[bairros.join(' / ')]] });
   if (!updates.length) return { ok: false, motivo: 'nenhuma equipe mapeada (Gutembergue/Yan) lançada nesse dia' };
 
   await sheetsBatchUpdate(auth, updates);
