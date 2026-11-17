@@ -12,7 +12,7 @@ const SPREADSHEET_ID = '12jcrDCRVm-E9lV9euPTzQIXuhZlJaW7QADw3lLu1m-c';
 const SHEET_NAME = 'Página1';
 const COLUNA_POR_EQUIPE = { 'Gutembergue': 'C', 'Yan': 'D', 'Felipe': 'E' };
 const COLUNA_BAIRRO = 'F';
-const STATUS_PLANILHA = { folga: 'FOLGA', feriado: 'FERIADO', dayoff: 'Day Off' };
+const STATUS_PLANILHA = { folga: 'FOLGA', feriado: 'FERIADO', dayoff: 'Day Off', atestado: 'ATESTADO', outro: 'OUTRO' };
 
 // Mesmo padrão de api/_lib/geogrid.js (FIREBASE_SERVICE_ACCOUNT_B64 é o
 // .json da service account inteiro, em base64) - reaproveitada aqui pra

@@ -150,6 +150,8 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
           <button type="button" data-val="folga">Folga</button>
           <button type="button" data-val="feriado">Feriado</button>
           <button type="button" data-val="dayoff">Day Off</button>
+          <button type="button" data-val="atestado">Atestado</button>
+          <button type="button" data-val="outro">Outro</button>
         </div>
         <div class="fl" id="fl-valor">
           <label>Produção (quantidade)</label>
@@ -480,7 +482,8 @@ function renderRecentes(){
   const chaves = Object.keys(DIAS).filter(k=>DIAS[k].equipes && DIAS[k].equipes[equipe]).sort().reverse().slice(0,8);
   el.innerHTML = chaves.map(k=>{
     const e = DIAS[k].equipes[equipe];
-    const texto = e.tipo==='numero' ? `${e.valor ?? 0}${e.bairro?` · ${e.bairro}`:''}` : (e.tipo==='folga'?'Folga':e.tipo==='feriado'?'Feriado':'Day Off');
+    const STATUS_LABEL_TEC = { folga:'Folga', feriado:'Feriado', dayoff:'Day Off', atestado:'Atestado', outro:'Outro' };
+    const texto = e.tipo==='numero' ? `${e.valor ?? 0}${e.bairro?` · ${e.bairro}`:''}` : (STATUS_LABEL_TEC[e.tipo] || e.tipo);
     return `<div class="rec-item"><span class="d">${k}</span><span>${texto}</span></div>`;
   }).join('') || '<div style="color:var(--mu);font-size:12.5px">Nenhum lançamento ainda.</div>';
 }

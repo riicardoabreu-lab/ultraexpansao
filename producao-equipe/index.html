@@ -378,7 +378,7 @@ tr:hover td{background:rgba(255,255,255,.018)}
 
 <script>
 const CORES = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
-const STATUS_LABEL = { numero:'Número', folga:'Folga', feriado:'Feriado', dayoff:'Day Off' };
+const STATUS_LABEL = { numero:'Número', folga:'Folga', feriado:'Feriado', dayoff:'Day Off', atestado:'Atestado', outro:'Outro' };
 const MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 const DIAS_SEMANA = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
 
@@ -537,7 +537,7 @@ function renderFormularioEquipes(dataISO){
     return `<div class="entry-team" data-time="${t.replace(/"/g,'&quot;')}" style="border-left-color:${corTime(t)}">
       <div class="entry-team-head"><div class="entry-team-name">${t}</div></div>
       <div class="seg" data-field="tipo">
-        ${['numero','folga','feriado','dayoff'].map(tp=>`<button type="button" data-val="${tp}" class="${e.tipo===tp?'on':''}">${STATUS_LABEL[tp]}</button>`).join('')}
+        ${['numero','folga','feriado','dayoff','atestado','outro'].map(tp=>`<button type="button" data-val="${tp}" class="${e.tipo===tp?'on':''}">${STATUS_LABEL[tp]}</button>`).join('')}
       </div>
       <div class="fg">
         <div class="fl"><label>Produção</label><input type="number" class="in-valor" value="${e.valor!=null?e.valor:''}" ${e.tipo!=='numero'?'disabled':''} placeholder="0"></div>
@@ -600,7 +600,7 @@ function linhaDiaHTML(k, dia){
     const e = dia.equipes && dia.equipes[t];
     if(!e) return '<span class="tag tmu">—</span>';
     if(e.tipo==='numero') return `<b class="mono">${e.valor ?? 0}</b>${e.bairro?` <span style="color:var(--mu);font-size:11px">(${e.bairro})</span>`:''}`;
-    const cls = e.tipo==='folga' ? 'tam' : e.tipo==='feriado' ? 'trd' : 'tmu';
+    const cls = e.tipo==='folga' ? 'tam' : e.tipo==='feriado' ? 'trd' : e.tipo==='atestado' ? 'trd' : 'tmu';
     return `<span class="tag ${cls}">${STATUS_LABEL[e.tipo]}</span>`;
   }).join(' &nbsp; ');
   return `<tr>
