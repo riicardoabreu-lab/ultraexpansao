@@ -312,7 +312,10 @@ function renderPainelTecnico(){
 
 // ---------- provedores (só leitura - meta x coletado) ----------
 function entradasDoProvedorTec(nomeProvedor){
-  const alvo = normalizar(nomeProvedor);
+  // Mesmo mecanismo de apelidos do painel principal (ver PROVEDORES em
+  // index.html) - "IP2" e "CONNECT CE" por exemplo são a mesma empresa.
+  const prov = PROVEDORES_TEC[nomeProvedor] || {};
+  const alvos = [nomeProvedor, ...(prov.apelidos||[])].map(normalizar).filter(Boolean);
   let coletado = 0;
   const diasComLancamento = new Set();
   Object.keys(DIAS).forEach(k=>{
@@ -320,7 +323,8 @@ function entradasDoProvedorTec(nomeProvedor){
     TIMES.forEach(t=>{
       const e = dia.equipes && dia.equipes[t];
       if(!e || e.tipo!=='numero' || !e.bairro) return;
-      if(normalizar(e.bairro).includes(alvo)){ coletado += Number(e.valor)||0; diasComLancamento.add(k); }
+      const bairroNorm = normalizar(e.bairro);
+      if(alvos.some(a=>bairroNorm.includes(a))){ coletado += Number(e.valor)||0; diasComLancamento.add(k); }
     });
   });
   return {coletado, diasTrabalhados: diasComLancamento.size};

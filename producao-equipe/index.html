@@ -70,8 +70,14 @@
   // com o que já foi coletado (somado a partir do texto "bairro/atividade" de
   // cada lançamento diário que mencione o nome do provedor). Doc id = nome do
   // provedor (assume nomes únicos, mais simples que gerar id à parte).
-  window._fbSalvarProvedor = (nome, totalCaixas) =>
-    setDoc(doc(fsDb, 'producao_equipe_provedores', nome), { nome, totalCaixas });
+  // apelidos (opcional): nomes alternativos do mesmo provedor usados nos
+  // lançamentos (ex.: "IP2" e "CONNECT CE" são a mesma empresa) - merge:true
+  // pra não apagar os apelidos já salvos quando só o total de caixas muda.
+  window._fbSalvarProvedor = (nome, totalCaixas, apelidos) => {
+    const data = { nome, totalCaixas };
+    if(apelidos !== undefined) data.apelidos = apelidos;
+    return setDoc(doc(fsDb, 'producao_equipe_provedores', nome), data, { merge: true });
+  };
   window._fbApagarProvedor = (nome) => deleteDoc(doc(fsDb, 'producao_equipe_provedores', nome));
 
   onSnapshot(collection(fsDb, 'producao_equipe_provedores'), snap => {
@@ -701,14 +707,19 @@ function renderPesquisa(){
 // diferenciar maiúscula/acento) - mesmo texto livre que a planilha original
 // usava, tipo "COLETA IP2 TELECOM" pro provedor "IP2".
 function entradasDoProvedor(nomeProvedor){
-  const alvo = normalizar(nomeProvedor);
+  // Considera também os apelidos cadastrados (ex.: "IP2" e "CONNECT CE" são
+  // a mesma empresa com nomes diferentes nos lançamentos) - soma tudo que
+  // bater com o nome OU qualquer apelido.
+  const prov = PROVEDORES[nomeProvedor] || {};
+  const alvos = [nomeProvedor, ...(prov.apelidos||[])].map(normalizar).filter(Boolean);
   const entradas = [];
   Object.keys(DIAS).sort().reverse().forEach(k=>{
     const dia = DIAS[k];
     TIMES.forEach(t=>{
       const e = dia.equipes && dia.equipes[t];
       if(!e || e.tipo!=='numero' || !e.bairro) return;
-      if(normalizar(e.bairro).includes(alvo)){
+      const bairroNorm = normalizar(e.bairro);
+      if(alvos.some(a=>bairroNorm.includes(a))){
         entradas.push({ data: k, equipe: t, valor: Number(e.valor)||0, bairro: e.bairro });
       }
     });
@@ -763,6 +774,7 @@ function renderProvedores(){
         <span>
           <button class="del-btn" data-ver-prov="${nome.replace(/"/g,'&quot;')}" title="Ver histórico">🔎</button>
           <button class="del-btn" data-edit-prov="${nome.replace(/"/g,'&quot;')}" title="Editar meta">✏️</button>
+          <button class="del-btn" data-apelidos-prov="${nome.replace(/"/g,'&quot;')}" title="Apelidos (outros nomes usados nos lançamentos pra esse mesmo provedor)">🏷️</button>
           <button class="del-btn" data-rm-prov="${nome.replace(/"/g,'&quot;')}" title="Remover">🗑</button>
         </span>
       </div>
@@ -791,6 +803,16 @@ function renderProvedores(){
       const num = Number(novo);
       if(isNaN(num) || num<0){ toast('Informe um número válido'); return; }
       window._fbSalvarProvedor(nome, num).then(()=>toast('Meta atualizada ✓')).catch(()=>toast('Erro ao salvar'));
+    });
+  });
+  document.querySelectorAll('[data-apelidos-prov]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const nome = btn.dataset.apelidosProv;
+      const atual = PROVEDORES[nome];
+      const novo = prompt(`Apelidos de "${nome}" (outros nomes que aparecem no bairro/atividade dos lançamentos pra essa mesma empresa, separados por vírgula):`, (atual.apelidos||[]).join(', '));
+      if(novo==null) return;
+      const apelidos = novo.split(',').map(s=>s.trim()).filter(Boolean);
+      window._fbSalvarProvedor(nome, atual.totalCaixas, apelidos).then(()=>toast('Apelidos atualizados ✓')).catch(()=>toast('Erro ao salvar'));
     });
   });
   document.querySelectorAll('[data-rm-prov]').forEach(btn=>{
