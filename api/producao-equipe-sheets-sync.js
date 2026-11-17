@@ -108,7 +108,7 @@ module.exports = async (req, res) => {
     // testar/forçar manualmente direto pela URL (sem corpo de requisição).
     const params = { ...req.query, ...body };
 
-    if (req.method === 'GET' && !params.data && !params.backfillAll && !params.addTeam) {
+    if (req.method === 'GET' && !params.data && !params.backfillAll && !params.addTeam && !params.removerFantasma) {
       // Só pra configuração inicial: descobrir o e-mail da service account
       // pra compartilhar a planilha como Editor com ela. Não expõe a chave privada.
       res.status(200).json({ clientEmail: carregarCredencial().clientEmail });
@@ -128,6 +128,27 @@ module.exports = async (req, res) => {
       if (!nomes.includes(params.addTeam)) nomes.push(params.addTeam);
       await ref.set({ nomes });
       res.status(200).json({ ok: true, nomes });
+      return;
+    }
+
+    // Limpeza pontual: remove equipes.<nome> de todos os dias - usado pra
+    // apagar o lançamento fantasma "produção 0" que o bug do formulário
+    // "Preencher dia" gravava pra equipe recém-criada em qualquer dia que
+    // outra equipe salvasse (ver fix no commit que resolveu isso). Só
+    // remove se o valor bater exatamente com a assinatura do fantasma
+    // (numero, valor vazio/0, sem bairro) - não mexe num lançamento real.
+    if (params.removerFantasma) {
+      const nome = params.removerFantasma;
+      const snaps = await getDb().collection('producao_equipe').get();
+      const removidos = [];
+      for (const doc of snaps.docs) {
+        const e = (doc.data().equipes || {})[nome];
+        if (e && e.tipo === 'numero' && !(Number(e.valor) || 0) && !e.bairro) {
+          await doc.ref.update({ [`equipes.${nome}`]: admin.firestore.FieldValue.delete() });
+          removidos.push(doc.id);
+        }
+      }
+      res.status(200).json({ ok: true, removidos });
       return;
     }
 

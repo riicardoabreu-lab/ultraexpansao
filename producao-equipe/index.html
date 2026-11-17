@@ -567,8 +567,16 @@ document.getElementById('btn-salvar-dia').addEventListener('click', ()=>{
   document.querySelectorAll('.entry-team').forEach(card=>{
     const nome = card.dataset.time;
     const tipo = card.querySelector('.seg button.on')?.dataset.val || 'numero';
-    const valor = tipo==='numero' ? (Number(card.querySelector('.in-valor').value)||0) : null;
+    const valorRaw = card.querySelector('.in-valor').value;
     const bairro = card.querySelector('.in-bairro').value.trim();
+    // Ignora equipes que ficaram no estado padrão (ninguém mexeu nesse
+    // card) - senão salvar o dia de UMA equipe grava "produção 0" nas
+    // outras também, inflando indevidamente o "dias trabalhados" delas
+    // (bug real: equipe recém-criada aparecia com 1 dia trabalhado sem
+    // nunca ter lançado nada, só por existir no formulário no dia em que
+    // outra equipe salvou).
+    if(tipo==='numero' && valorRaw.trim()==='' && !bairro) return;
+    const valor = tipo==='numero' ? (Number(valorRaw)||0) : null;
     equipes[nome] = { tipo, valor, bairro };
   });
   window._fbSalvarDia(data, equipes)
