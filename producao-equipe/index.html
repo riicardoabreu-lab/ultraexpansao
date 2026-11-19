@@ -595,8 +595,9 @@ document.getElementById('btn-apagar-dia').addEventListener('click', ()=>{
 });
 
 // ---------- histórico ----------
-function linhaDiaHTML(k, dia){
-  const celulasEquipes = TIMES.map(t=>{
+function linhaDiaHTML(k, dia, equipeFiltro){
+  const equipesParaMostrar = equipeFiltro ? [equipeFiltro] : TIMES;
+  const celulasEquipes = equipesParaMostrar.map(t=>{
     const e = dia.equipes && dia.equipes[t];
     if(!e) return '<span class="tag tmu">—</span>';
     if(e.tipo==='numero') return `<b class="mono">${e.valor ?? 0}</b>${e.bairro?` <span style="color:var(--mu);font-size:11px">(${e.bairro})</span>`:''}`;
@@ -649,10 +650,9 @@ function renderPesquisa(){
     selEquipe.innerHTML = '<option value="">Todas</option>' + TIMES.map(t=>`<option value="${t.replace(/"/g,'&quot;')}">${t}</option>`).join('');
     if(TIMES.includes(valorAnterior)) selEquipe.value = valorAnterior;
   }
-  document.getElementById('th-equipes-pq').textContent = TIMES.join(' · ');
-
   const texto = document.getElementById('pq-texto').value.trim().toLowerCase();
   const equipeFiltro = selEquipe.value;
+  document.getElementById('th-equipes-pq').textContent = equipeFiltro || TIMES.join(' · ');
   const de = document.getElementById('pq-de').value;
   const ate = document.getElementById('pq-ate').value;
 
@@ -678,7 +678,7 @@ function renderPesquisa(){
   const tbody = document.querySelector('#tabela-pesquisa tbody');
   document.getElementById('pesquisa-vazio').style.display = chaves.length ? 'none' : 'block';
   document.getElementById('pq-contagem').textContent = chaves.length ? `(${chaves.length})` : '';
-  tbody.innerHTML = chaves.map(k=>linhaDiaHTML(k, DIAS[k])).join('');
+  tbody.innerHTML = chaves.map(k=>linhaDiaHTML(k, DIAS[k], equipeFiltro)).join('');
   ligarAcoesLinha(tbody);
 
   // dias sem nenhum lançamento no período (só até hoje, nunca aponta dia futuro)
