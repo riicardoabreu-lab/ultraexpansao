@@ -694,10 +694,26 @@ function renderPesquisa(){
   const primeiraChave = Object.keys(DIAS).sort()[0];
   const inicio = de || primeiraChave || hojeISO;
   const fim = (ate && ate < hojeISO) ? ate : hojeISO;
+  // Input type="date" dispara "input" a cada dígito digitado - enquanto o
+  // ano ainda está incompleto (ex: só "0002"), o navegador pode retornar
+  // uma data válida mas absurda, e o laço abaixo tentaria percorrer dia a
+  // dia desde o ano 2 até hoje (centenas de milhares de iterações),
+  // travando a aba. Só roda o laço se o intervalo for um tamanho plausível.
+  const inicioDate = new Date(inicio+'T00:00:00');
+  const fimDate = new Date(fim+'T00:00:00');
+  const LIMITE_DIAS = 3660; // ~10 anos, bem acima de qualquer uso real
+  const spanDias = (fimDate - inicioDate) / 86400000;
   const faltando = [];
-  for(let d = new Date(inicio+'T00:00:00'); fmtISO(d) <= fim; d.setDate(d.getDate()+1)){
-    const iso = fmtISO(d);
-    if(!DIAS[iso]) faltando.push(iso);
+  if(isFinite(spanDias) && spanDias >= 0 && spanDias <= LIMITE_DIAS){
+    for(let d = inicioDate; fmtISO(d) <= fim; d.setDate(d.getDate()+1)){
+      const iso = fmtISO(d);
+      if(!DIAS[iso]) faltando.push(iso);
+    }
+  } else {
+    gapsEl.innerHTML = '';
+    gapsVazioEl.textContent = 'Período inválido ou grande demais - confira as datas.';
+    gapsVazioEl.style.display = 'block';
+    return;
   }
   gapsVazioEl.style.display = faltando.length ? 'none' : 'block';
   gapsVazioEl.textContent = 'Nenhum dia faltando no período.';
