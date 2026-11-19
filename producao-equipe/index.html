@@ -305,7 +305,7 @@ tr:hover td{background:rgba(255,255,255,.018)}
       <div class="ph"><div><div class="pt">Pesquisa</div><div class="ps">Busque lançamentos e veja dias que ficaram sem preencher.</div></div></div>
       <div class="card">
         <div class="fg fg4">
-          <div class="fl"><label>Buscar (bairro/atividade)</label><input type="text" id="pq-texto" placeholder="Ex: Centro"></div>
+          <div class="fl"><label>Buscar (bairro/atividade ou equipe)</label><input type="text" id="pq-texto" placeholder="Ex: Centro ou Felipe"></div>
           <div class="fl"><label>Equipe</label><select id="pq-equipe"><option value="">Todas</option></select></div>
           <div class="fl"><label>De</label><input type="date" id="pq-de"></div>
           <div class="fl"><label>Até</label><input type="date" id="pq-ate"></div>
@@ -664,7 +664,11 @@ function renderPesquisa(){
       const equipesDoDia = equipeFiltro ? [equipeFiltro] : TIMES;
       const bate = equipesDoDia.some(t=>{
         const e = dia.equipes && dia.equipes[t];
-        return e && e.bairro && e.bairro.toLowerCase().includes(texto);
+        if(!e) return false;
+        // Também bate pelo nome da equipe (ex: digitar "Felipe" acha os
+        // dias dele mesmo sem nenhum texto de bairro/atividade preenchido).
+        if(t.toLowerCase().includes(texto)) return true;
+        return e.bairro && e.bairro.toLowerCase().includes(texto);
       });
       if(!bate) return false;
     }
