@@ -346,6 +346,16 @@ tr:hover td{background:rgba(255,255,255,.018)}
           <tbody></tbody>
         </table></div>
       </div>
+
+      <div class="card" id="card-prov-apelidos" style="display:none">
+        <div class="ct">Apelidos — <span id="prov-apelidos-nome"></span> <button class="btn sm" id="btn-fechar-prov-apelidos" style="float:right">Fechar</button></div>
+        <div class="ps" style="margin-bottom:10px">Outros nomes que essa mesma empresa aparece no bairro/atividade dos lançamentos (ex: "CONNECT CE" pro provedor "IP2").</div>
+        <div id="prov-apelidos-lista" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px"></div>
+        <div class="fg" style="grid-template-columns:1fr auto">
+          <div class="fl"><label>Novo apelido</label><input type="text" id="in-prov-apelido-novo" placeholder="Ex: CONNECT CE"></div>
+          <div class="fl" style="justify-content:flex-end"><button class="btn pri" id="btn-add-apelido" style="height:37px">Adicionar</button></div>
+        </div>
+      </div>
     </section>
 
     <!-- EQUIPES -->
@@ -386,6 +396,7 @@ let DIAS = {};          // { "AAAA-MM-DD": {data, equipes:{nome:{tipo,valor,bair
 let TIMES = ['Equipe 1','Equipe 2'];
 let PROVEDORES = {};    // { nomeProvedor: {nome, totalCaixas} }
 let provedorDetalheAberto = null;
+let provedorApelidosAberto = null;
 let timesVindoDoFirestore = false;
 let mesAtual = new Date(); mesAtual.setDate(1);
 let chartDiario = null;
@@ -834,26 +845,7 @@ function renderProvedores(){
     });
   });
   document.querySelectorAll('[data-apelidos-prov]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const nome = btn.dataset.apelidosProv;
-      const atual = PROVEDORES[nome];
-      const apelidosAtuais = atual.apelidos || [];
-      const listaAtual = apelidosAtuais.length ? apelidosAtuais.join(', ') : '(nenhum ainda)';
-      // Digita 1 apelido por vez - só acrescenta (ou remove, se já existir
-      // igual) - nunca apaga os outros junto, diferente do prompt antigo
-      // que substituía a lista inteira (bug real: digitar um apelido novo
-      // apagava os já cadastrados, fazendo o "coletado" cair).
-      const novo = prompt(`Apelidos atuais de "${nome}": ${listaAtual}\n\nDigite UM apelido pra adicionar (ou digite um que já está na lista pra remover só ele). Deixe em branco pra cancelar:`, '');
-      if(novo==null || !novo.trim()) return;
-      const termo = novo.trim();
-      const jaExiste = apelidosAtuais.some(a=>a.toLowerCase()===termo.toLowerCase());
-      const apelidos = jaExiste
-        ? apelidosAtuais.filter(a=>a.toLowerCase()!==termo.toLowerCase())
-        : [...apelidosAtuais, termo];
-      window._fbSalvarProvedor(nome, atual.totalCaixas, apelidos)
-        .then(()=>toast(jaExiste ? 'Apelido removido ✓' : 'Apelido adicionado ✓'))
-        .catch(()=>toast('Erro ao salvar'));
-    });
+    btn.addEventListener('click', ()=>mostrarApelidosProvedor(btn.dataset.apelidosProv));
   });
   document.querySelectorAll('[data-rm-prov]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -868,6 +860,8 @@ function renderProvedores(){
 
   if(provedorDetalheAberto && PROVEDORES[provedorDetalheAberto]) mostrarDetalheProvedor(provedorDetalheAberto);
   else fecharDetalheProvedor();
+  if(provedorApelidosAberto && PROVEDORES[provedorApelidosAberto]) mostrarApelidosProvedor(provedorApelidosAberto);
+  else fecharApelidosProvedor();
 }
 
 function mostrarDetalheProvedor(nome){
@@ -888,6 +882,45 @@ function fecharDetalheProvedor(){
   document.getElementById('card-prov-detalhe').style.display = 'none';
 }
 document.getElementById('btn-fechar-prov-detalhe').addEventListener('click', fecharDetalheProvedor);
+
+function mostrarApelidosProvedor(nome){
+  provedorApelidosAberto = nome;
+  document.getElementById('card-prov-apelidos').style.display = 'block';
+  document.getElementById('prov-apelidos-nome').textContent = nome;
+  const prov = PROVEDORES[nome] || {};
+  const apelidos = prov.apelidos || [];
+  const lista = document.getElementById('prov-apelidos-lista');
+  lista.innerHTML = apelidos.length
+    ? apelidos.map(a=>`<span class="tag tmu" style="display:inline-flex;align-items:center;gap:6px;padding:4px 6px 4px 10px">${a}<button class="del-btn" data-rm-apelido="${a.replace(/"/g,'&quot;')}" title="Remover" style="padding:0 4px">✕</button></span>`).join('')
+    : '<span style="color:var(--mu);font-size:12.5px">Nenhum apelido cadastrado ainda.</span>';
+  lista.querySelectorAll('[data-rm-apelido]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const alvo = btn.dataset.rmApelido;
+      const novaLista = apelidos.filter(a=>a!==alvo);
+      window._fbSalvarProvedor(nome, prov.totalCaixas, novaLista)
+        .then(()=>toast('Apelido removido ✓'))
+        .catch(()=>toast('Erro ao salvar'));
+    });
+  });
+}
+function fecharApelidosProvedor(){
+  provedorApelidosAberto = null;
+  document.getElementById('card-prov-apelidos').style.display = 'none';
+}
+document.getElementById('btn-fechar-prov-apelidos').addEventListener('click', fecharApelidosProvedor);
+document.getElementById('btn-add-apelido').addEventListener('click', ()=>{
+  const nome = provedorApelidosAberto;
+  if(!nome) return;
+  const input = document.getElementById('in-prov-apelido-novo');
+  const termo = input.value.trim();
+  if(!termo) return;
+  const prov = PROVEDORES[nome] || {};
+  const apelidos = prov.apelidos || [];
+  if(apelidos.some(a=>a.toLowerCase()===termo.toLowerCase())){ toast('Esse apelido já existe'); return; }
+  window._fbSalvarProvedor(nome, prov.totalCaixas, [...apelidos, termo])
+    .then(()=>{ input.value=''; toast('Apelido adicionado ✓'); })
+    .catch(()=>toast('Erro ao salvar'));
+});
 
 document.getElementById('btn-add-provedor').addEventListener('click', ()=>{
   const nomeInput = document.getElementById('in-prov-nome');
