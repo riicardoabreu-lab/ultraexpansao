@@ -96,13 +96,22 @@
   window._fbGetKmz = async (empresaId) => {
     const manifesto = await getDoc(doc(fsDb, 'aquisicoes_kmz', empresaId));
     if(!manifesto.exists()) return null;
-    const { name, totalPartes } = manifesto.data();
+    const { name, totalPartes, dataUrl } = manifesto.data();
+    // Formato antigo: o arquivo inteiro já vem no próprio documento
+    // manifesto (dataUrl), sem fatiar em "partes" - é como TODOS os KMZ
+    // reais cadastrados até agora foram gravados na nuvem (confirmado via
+    // diagnóstico: os 9 provedores com rede têm dataUrl direto, nenhum
+    // com totalPartes). Sem este fallback, _fbGetKmz retornava null pra
+    // qualquer um que não tivesse o arquivo já em cache local (IndexedDB),
+    // mesmo com o dado intacto na nuvem - só quem tinha feito o upload
+    // originalmente (cache local) via esse mesmo navegador enxergava a rede.
+    if(dataUrl) return { name, dataUrl };
     if(!totalPartes) return null;
     const partes = await Promise.all(
       Array.from({length: totalPartes}, (_, i) => getDoc(doc(fsDb, 'aquisicoes_kmz', empresaId, 'partes', String(i))))
     );
-    const dataUrl = partes.map(p => p.exists() ? (p.data().data||'') : '').join('');
-    return { name, dataUrl };
+    const dataUrlFatiado = partes.map(p => p.exists() ? (p.data().data||'') : '').join('');
+    return { name, dataUrl: dataUrlFatiado };
   };
   window._fbDeleteKmz = async (empresaId) => {
     try{
