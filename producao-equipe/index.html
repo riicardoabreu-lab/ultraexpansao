@@ -837,10 +837,22 @@ function renderProvedores(){
     btn.addEventListener('click', ()=>{
       const nome = btn.dataset.apelidosProv;
       const atual = PROVEDORES[nome];
-      const novo = prompt(`Apelidos de "${nome}" (outros nomes que aparecem no bairro/atividade dos lançamentos pra essa mesma empresa, separados por vírgula):`, (atual.apelidos||[]).join(', '));
-      if(novo==null) return;
-      const apelidos = novo.split(',').map(s=>s.trim()).filter(Boolean);
-      window._fbSalvarProvedor(nome, atual.totalCaixas, apelidos).then(()=>toast('Apelidos atualizados ✓')).catch(()=>toast('Erro ao salvar'));
+      const apelidosAtuais = atual.apelidos || [];
+      const listaAtual = apelidosAtuais.length ? apelidosAtuais.join(', ') : '(nenhum ainda)';
+      // Digita 1 apelido por vez - só acrescenta (ou remove, se já existir
+      // igual) - nunca apaga os outros junto, diferente do prompt antigo
+      // que substituía a lista inteira (bug real: digitar um apelido novo
+      // apagava os já cadastrados, fazendo o "coletado" cair).
+      const novo = prompt(`Apelidos atuais de "${nome}": ${listaAtual}\n\nDigite UM apelido pra adicionar (ou digite um que já está na lista pra remover só ele). Deixe em branco pra cancelar:`, '');
+      if(novo==null || !novo.trim()) return;
+      const termo = novo.trim();
+      const jaExiste = apelidosAtuais.some(a=>a.toLowerCase()===termo.toLowerCase());
+      const apelidos = jaExiste
+        ? apelidosAtuais.filter(a=>a.toLowerCase()!==termo.toLowerCase())
+        : [...apelidosAtuais, termo];
+      window._fbSalvarProvedor(nome, atual.totalCaixas, apelidos)
+        .then(()=>toast(jaExiste ? 'Apelido removido ✓' : 'Apelido adicionado ✓'))
+        .catch(()=>toast('Erro ao salvar'));
     });
   });
   document.querySelectorAll('[data-rm-prov]').forEach(btn=>{

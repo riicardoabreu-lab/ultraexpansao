@@ -108,7 +108,7 @@ module.exports = async (req, res) => {
     // testar/forçar manualmente direto pela URL (sem corpo de requisição).
     const params = { ...req.query, ...body };
 
-    if (req.method === 'GET' && !params.data && !params.backfillAll && !params.addTeam && !params.removerFantasma) {
+    if (req.method === 'GET' && !params.data && !params.backfillAll && !params.addTeam && !params.removerFantasma && !params.verProvedor) {
       // Só pra configuração inicial: descobrir o e-mail da service account
       // pra compartilhar a planilha como Editor com ela. Não expõe a chave privada.
       res.status(200).json({ clientEmail: carregarCredencial().clientEmail });
@@ -128,6 +128,22 @@ module.exports = async (req, res) => {
       if (!nomes.includes(params.addTeam)) nomes.push(params.addTeam);
       await ref.set({ nomes });
       res.status(200).json({ ok: true, nomes });
+      return;
+    }
+
+    // Leitura avulsa de 1 provedor (diagnóstico pontual) e, opcionalmente,
+    // acrescenta um apelido sem apagar os existentes (?verProvedor=IP2 ou
+    // ?verProvedor=IP2&addApelido=CONNECT+CE).
+    if (params.verProvedor) {
+      const ref = getDb().collection('producao_equipe_provedores').doc(params.verProvedor);
+      const snap = await ref.get();
+      if (!snap.exists) { res.status(404).json({ error: 'provedor não encontrado' }); return; }
+      let apelidos = snap.data().apelidos || [];
+      if (params.addApelido && !apelidos.includes(params.addApelido)) {
+        apelidos = [...apelidos, params.addApelido];
+        await ref.set({ apelidos }, { merge: true });
+      }
+      res.status(200).json({ ...snap.data(), apelidos });
       return;
     }
 
