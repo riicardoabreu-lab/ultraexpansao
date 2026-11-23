@@ -28,15 +28,20 @@ module.exports = async (req, res) => {
         resultados.push({ nome: e.nome, id: e.id, status: 'SEM MANIFESTO NA NUVEM - precisa reenviar' });
         continue;
       }
-      const { totalPartes, name } = manifesto.data();
+      const manifestoData = manifesto.data();
       const partesSnap = await db.collection('aquisicoes_kmz').doc(e.id).collection('partes').get();
       const partesComDados = partesSnap.docs.filter(d => (d.data().data || '').length > 0).length;
       const tamanhoTotal = partesSnap.docs.reduce((s, d) => s + (d.data().data || '').length, 0);
-      if (partesSnap.size < (totalPartes || 0) || partesComDados < (totalPartes || 0)) {
-        resultados.push({ nome: e.nome, id: e.id, status: `INCOMPLETO - manifesto espera ${totalPartes} parte(s), só ${partesComDados} com dados na nuvem - precisa reenviar` });
-      } else {
-        resultados.push({ nome: e.nome, id: e.id, arquivo: name, totalPartes, tamanhoTotalChars: tamanhoTotal, status: 'OK' });
-      }
+      const partesIds = partesSnap.docs.map(d => d.id);
+      const totalPartes = manifestoData.totalPartes;
+      resultados.push({
+        nome: e.nome, id: e.id,
+        manifestoRaw: manifestoData,
+        partesSnapSize: partesSnap.size,
+        partesIds,
+        partesComDados, tamanhoTotalChars: tamanhoTotal,
+        status: (partesSnap.size >= (totalPartes || 0) && partesComDados >= (totalPartes || 0) && tamanhoTotal > 0) ? 'OK' : 'INCOMPLETO',
+      });
     }
     res.status(200).json({ total: empresas.length, resultados });
   } catch (err) {
