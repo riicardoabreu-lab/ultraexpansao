@@ -210,6 +210,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
   <div id="view-caixa" class="view" style="display:none">
     <div class="wrap" style="max-width:480px;margin:0">
       <div class="card">
+        <div class="fl"><label>Técnico / equipe que está enviando</label><select id="cx-tec"></select></div>
         <div class="fl"><label>Tipo</label>
           <select id="cx-tipo"><option>CTO</option><option>CEO</option><option>Reserva</option><option>Poste</option><option>Outro</option></select>
         </div>
@@ -459,6 +460,7 @@ window._aplicarTimesTecnico = (nomes) => {
   sel.innerHTML = TIMES.map(t=>`<option value="${t.replace(/"/g,'&quot;')}">${t}</option>`).join('')
     || '<option value="">Nenhuma equipe cadastrada</option>';
   if(TIMES.includes(anterior)) sel.value = anterior;
+  cxSyncTec();
   renderRecentes();
   if(viewAtual==='painel') renderPainelTecnico();
   if(viewAtual==='provedores') renderProvedoresTecnico();
@@ -467,6 +469,7 @@ window._aplicarProvedoresTecnico = (provedores) => {
   PROVEDORES_TEC = provedores;
   if(viewAtual==='provedores') renderProvedoresTecnico();
 };
+document.getElementById('sel-equipe').addEventListener('change', ()=>cxSyncTec());
 document.getElementById('sel-equipe').addEventListener('change', e=>{
   localStorage.setItem('producao_tecnico_equipe', e.target.value);
   renderRecentes();
@@ -559,10 +562,19 @@ function cxGps(){
 }
 document.getElementById('cx-gps-btn').addEventListener('click', cxGps);
 cxSlots();
+function cxSyncTec(){
+  const a = document.getElementById('sel-equipe'), b = document.getElementById('cx-tec');
+  if(!a || !b) return;
+  b.innerHTML = a.innerHTML; b.value = a.value;
+}
+document.getElementById('cx-tec').addEventListener('change', e=>{
+  const a = document.getElementById('sel-equipe'); a.value = e.target.value;
+  localStorage.setItem('producao_tecnico_equipe', a.value); renderRecentes();
+});
 
 document.getElementById('cx-salvar').addEventListener('click', ()=>{
-  const equipe = document.getElementById('sel-equipe').value;
-  if(!equipe){ toast('Escolha a equipe na aba Lançar'); return; }
+  const equipe = document.getElementById('cx-tec').value;
+  if(!equipe){ toast('Escolha o técnico que está enviando'); return; }
   if(!cxPos){ toast('Pegue a localização primeiro'); return; }
   if(!cxFotos[0]){ toast('Tire pelo menos 1 foto'); return; }
   if(!cxDb) return;
