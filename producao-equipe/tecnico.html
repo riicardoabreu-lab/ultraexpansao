@@ -131,6 +131,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
     <button type="button" data-view="lancar" class="on">Lançar</button>
     <button type="button" data-view="painel">Painel</button>
     <button type="button" data-view="provedores">Provedores</button>
+    <button type="button" data-view="caixa">Caixa</button>
   </div>
 
   <!-- LANÇAR -->
@@ -204,6 +205,31 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
     <div id="tec-provedores-list"></div>
     <div id="tec-provedores-vazio" style="display:none;color:var(--mu);font-size:13px;text-align:center;padding:2rem">Nenhum provedor cadastrado ainda.</div>
   </div>
+
+  <!-- CAIXA (adicionar caixa + até 3 fotos -> Google Drive, numeração automática) -->
+  <div id="view-caixa" class="view" style="display:none">
+    <div class="wrap" style="max-width:480px;margin:0">
+      <div class="card">
+        <div class="fl"><label>Tipo</label>
+          <select id="cx-tipo"><option>CTO</option><option>CEO</option><option>Reserva</option><option>Poste</option><option>Outro</option></select>
+        </div>
+        <div class="fl"><label>Localização</label>
+          <button type="button" class="btn" id="cx-gps-btn">📍 Pegar localização</button>
+          <div id="cx-gps" style="font-size:12.5px;color:var(--mu);margin-top:4px">Sem localização ainda</div>
+        </div>
+        <div class="fl"><label>Fotos (até 3)</label>
+          <div id="cx-fotos" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+        </div>
+        <div class="fl"><label>Observação</label><input type="text" id="cx-obs" placeholder="opcional"></div>
+        <button class="btn pri" id="cx-salvar">Salvar caixa</button>
+        <div style="font-size:11.5px;color:var(--hi);margin-top:10px">O número da caixa é gerado automaticamente. Sem sinal, fica guardado no celular e envia sozinho depois.</div>
+      </div>
+      <div class="card recentes">
+        <div style="font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Minhas últimas caixas</div>
+        <div id="cx-lista"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="toast"></div>
@@ -241,6 +267,7 @@ function mudarView(v){
   document.querySelectorAll('#tabs-tecnico button').forEach(b=>b.classList.toggle('on', b.dataset.view===v));
   if(v==='painel') renderPainelTecnico();
   if(v==='provedores') renderProvedoresTecnico();
+  if(v==='caixa') cxListar();
 }
 document.querySelectorAll('#tabs-tecnico button').forEach(btn=>{
   btn.addEventListener('click', ()=>mudarView(btn.dataset.view));
@@ -486,6 +513,89 @@ function renderRecentes(){
     const texto = e.tipo==='numero' ? `${e.valor ?? 0}${e.bairro?` · ${e.bairro}`:''}` : (STATUS_LABEL_TEC[e.tipo] || e.tipo);
     return `<div class="rec-item"><span class="d">${k}</span><span>${texto}</span></div>`;
   }).join('') || '<div style="color:var(--mu);font-size:12.5px">Nenhum lançamento ainda.</div>';
+}
+
+// ---------- CAIXA: numeração automática + fotos no Drive (Google Apps Script) ----------
+// CX_API = URL /exec do script caixas_drive.gs (Apps Script). Vazia = ainda não configurado.
+const CX_API = '';
+const CX_CHAVE = 'troque-esta-chave';
+let cxPos = null, cxFotos = [null,null,null], cxDb = null, cxOcupado = false;
+
+const cxReq = indexedDB.open('caixas-v1', 1);
+cxReq.onupgradeneeded = ()=>cxReq.result.createObjectStore('fila',{keyPath:'id'});
+cxReq.onsuccess = ()=>{ cxDb = cxReq.result; cxListar(); cxEnviar(); };
+const cxSt = m=>cxDb.transaction('fila',m).objectStore('fila');
+function cxTodos(cb){ if(!cxDb) return; const r = cxSt('readonly').getAll(); r.onsuccess = ()=>cb(r.result); }
+
+function cxSlots(){
+  const box = document.getElementById('cx-fotos'); box.innerHTML = '';
+  cxFotos.forEach((f,i)=>{
+    const d = document.createElement('div');
+    d.style.cssText = 'aspect-ratio:1;border:1px dashed var(--b2);border-radius:10px;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:26px;color:var(--mu)';
+    if(f){ const im = new Image(); im.src = 'data:image/jpeg;base64,'+f; im.style.cssText='position:absolute;inset:0;width:100%;height:100%;object-fit:cover'; d.appendChild(im); }
+    else d.textContent = '📷';
+    const inp = document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.setAttribute('capture','environment');
+    inp.style.cssText = 'position:absolute;inset:0;opacity:0;width:100%;height:100%';
+    inp.onchange = ()=>{ if(inp.files[0]) cxReduzir(inp.files[0], b=>{ cxFotos[i]=b; cxSlots(); }); };
+    d.appendChild(inp); box.appendChild(d);
+  });
+}
+function cxReduzir(file, cb){ // reduz no celular: ~1280px, JPEG 72%
+  const im = new Image(), u = URL.createObjectURL(file);
+  im.onload = ()=>{
+    const s = Math.min(1, 1280/Math.max(im.width, im.height)), c = document.createElement('canvas');
+    c.width = Math.round(im.width*s); c.height = Math.round(im.height*s);
+    c.getContext('2d').drawImage(im,0,0,c.width,c.height); URL.revokeObjectURL(u);
+    cb(c.toDataURL('image/jpeg',.72).split(',')[1]);
+  };
+  im.src = u;
+}
+function cxGps(){
+  const el = document.getElementById('cx-gps'); el.textContent = 'Buscando…';
+  navigator.geolocation.getCurrentPosition(p=>{
+    cxPos = {lat:+p.coords.latitude.toFixed(6), lng:+p.coords.longitude.toFixed(6)};
+    el.textContent = cxPos.lat+', '+cxPos.lng+'  (±'+Math.round(p.coords.accuracy)+' m)';
+  }, ()=>{ el.textContent = 'Não consegui a localização. Ative o GPS.'; }, {enableHighAccuracy:true, timeout:20000});
+}
+document.getElementById('cx-gps-btn').addEventListener('click', cxGps);
+cxSlots();
+
+document.getElementById('cx-salvar').addEventListener('click', ()=>{
+  const equipe = document.getElementById('sel-equipe').value;
+  if(!equipe){ toast('Escolha a equipe na aba Lançar'); return; }
+  if(!cxPos){ toast('Pegue a localização primeiro'); return; }
+  if(!cxFotos[0]){ toast('Tire pelo menos 1 foto'); return; }
+  if(!cxDb) return;
+  cxSt('readwrite').put({
+    id: Date.now()+'-'+Math.random().toString(36).slice(2,8), chave: CX_CHAVE, tecnico: equipe,
+    tipo: document.getElementById('cx-tipo').value, lat: cxPos.lat, lng: cxPos.lng,
+    obs: document.getElementById('cx-obs').value.trim(), fotos: cxFotos.filter(Boolean), t: Date.now(), numero: null
+  });
+  cxFotos = [null,null,null]; document.getElementById('cx-obs').value = ''; cxSlots();
+  toast(CX_API ? 'Caixa salva — enviando…' : 'Caixa salva no celular (envio ainda não configurado)');
+  setTimeout(()=>{ cxListar(); cxEnviar(); }, 150);
+});
+function cxEnviar(){
+  if(cxOcupado || !navigator.onLine || !CX_API || !cxDb) return;
+  cxTodos(a=>{
+    const p = a.filter(x=>!x.numero).sort((x,y)=>x.t-y.t)[0]; if(!p) return;
+    cxOcupado = true;
+    fetch(CX_API, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(p)})
+      .then(r=>r.json()).then(j=>{
+        cxOcupado = false;
+        if(j.ok){ p.numero = j.numero; p.fotos = []; cxSt('readwrite').put(p); toast('Caixa '+j.numero+' enviada ✓'); cxListar(); cxEnviar(); } // fotos locais só somem após confirmação
+        else { toast('Erro ao enviar caixa'); }
+      }).catch(()=>{ cxOcupado = false; });
+  });
+}
+window.addEventListener('online', cxEnviar); setInterval(cxEnviar, 30000);
+function cxListar(){
+  cxTodos(a=>{
+    a.sort((x,y)=>y.t-x.t);
+    document.getElementById('cx-lista').innerHTML = a.slice(0,10).map(x=>
+      `<div class="rec-item"><span>${x.numero ? '<b style="color:var(--gn);font-size:15px">'+x.numero+'</b>' : '<span style="color:#f59e0b">aguardando envio…</span>'} · ${x.tipo}</span><span class="d">${x.numero ? '✓' : x.fotos.length+' foto(s)'}</span></div>`
+    ).join('') || '<div style="color:var(--mu);font-size:12.5px">Nenhuma ainda.</div>';
+  });
 }
 </script>
 </body>
