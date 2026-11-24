@@ -124,7 +124,8 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
 <div id="tela-form" class="wrap" style="display:none;max-width:920px">
   <div class="topo">
     <div><h1>🚀 Produção da Equipe</h1><div class="sub">Infolink · Expansão</div></div>
-    <button class="btn" id="btn-sair">Sair</button>
+    <div style="display:flex;gap:8px"><button class="btn" id="btn-atualizar" title="Atualizar a página">🔄 Atualizar</button>
+    <button class="btn" id="btn-sair">Sair</button></div>
   </div>
 
   <div class="seg" id="tabs-tecnico" style="max-width:420px;margin-bottom:1.1rem">
@@ -418,6 +419,7 @@ function entrar(){
 }
 document.getElementById('btn-entrar').addEventListener('click', entrar);
 document.getElementById('in-senha').addEventListener('keydown', e=>{ if(e.key==='Enter') entrar(); });
+document.getElementById('btn-atualizar').addEventListener('click', ()=>window.location.reload());
 document.getElementById('btn-sair').addEventListener('click', ()=>{
   sessionStorage.removeItem('producao_tecnico_auth');
   window.location.reload();
