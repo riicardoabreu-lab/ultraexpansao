@@ -580,12 +580,12 @@ function cxEnviar(){
   cxTodos(a=>{
     const p = a.filter(x=>!x.numero).sort((x,y)=>x.t-y.t)[0]; if(!p) return;
     cxOcupado = true;
-    fetch(CX_API, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(p)})
+    fetch(CX_API, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(Object.assign({}, p, {chave: CX_CHAVE}))})
       .then(r=>r.json()).then(j=>{
         cxOcupado = false;
         if(j.ok){ p.numero = j.numero; p.fotos = []; cxSt('readwrite').put(p); toast('Caixa '+j.numero+' enviada ✓'); cxListar(); cxEnviar(); } // fotos locais só somem após confirmação
-        else { toast('Erro ao enviar caixa'); }
-      }).catch(()=>{ cxOcupado = false; });
+        else { toast('Erro ao enviar caixa: '+(j.erro||'?')); }
+      }).catch(e=>{ cxOcupado = false; toast('Sem conexão com o envio ('+(e&&e.message||'erro')+')'); });
   });
 }
 window.addEventListener('online', cxEnviar); setInterval(cxEnviar, 30000);
