@@ -30,6 +30,12 @@
   // login anônimo satisfaz isso sem precisar de conta/senha de verdade por
   // trás (só a senha de tela acima controla quem chega até aqui).
   window._iniciarSessaoTecnico = () => signInAnonymously(auth);
+  // Lista de técnicos com login próprio (nome + senha). Precisa do login anônimo antes (regras do Firestore).
+  window._carregarUsuarios = async () => {
+    await signInAnonymously(auth);
+    const s = await getDoc(doc(fsDb, 'producao_equipe_config', 'usuarios'));
+    return s.exists() ? (s.data().lista || []) : [];
+  };
 
   // ---- Aba KMZ: guarda o KMZ de cada projeto (provedor) em subcoleção do próprio provedor ----
   // producao_equipe_provedores/{projeto}/kmz/{meta, p000.., l000..}. Campo "j" = JSON em texto
@@ -162,6 +168,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
 <div id="tela-senha" class="wrap">
   <div class="card">
     <div class="topo"><div><h1>🚀 Lançamento diário</h1><div class="sub">Produção da Equipe · Infolink</div></div></div>
+    <div class="fl" id="fl-nome" style="display:none"><label>Meu nome</label><select id="in-nome"></select></div>
     <div class="fl"><label>Senha de acesso</label><input type="password" id="in-senha" placeholder="Senha" autocomplete="off"></div>
     <button class="btn pri" id="btn-entrar">Entrar</button>
     <p id="erro-senha" style="color:var(--rd);font-size:12.5px;margin-top:10px;display:none">Senha incorreta.</p>
@@ -171,7 +178,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
 <!-- ÁREA LOGADA (lançar / painel / provedores) -->
 <div id="tela-form" class="wrap" style="display:none;max-width:920px">
   <div class="topo">
-    <div><h1>🚀 Produção da Equipe</h1><div class="sub">Infolink · Expansão</div></div>
+    <div><h1>🚀 Produção da Equipe</h1><div class="sub">Infolink · Expansão <span id="quem" style="margin-left:6px;color:var(--tx);font-weight:600"></span></div></div>
     <div style="display:flex;gap:8px"><button class="btn" id="btn-atualizar" title="Atualizar a página">🔄 Atualizar</button>
     <button class="btn" id="btn-sair">Sair</button></div>
   </div>
@@ -303,7 +310,7 @@ const MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','ag
 
 if(window.KmzAba) KmzAba.init({
   getProvedores: ()=>Object.keys(PROVEDORES_TEC),
-  foto: { get api(){ return CX_API; }, get chave(){ return CX_CHAVE; }, tecnico: ()=>{ const e=document.getElementById('sel-equipe'); return e ? e.value : ''; } },
+  foto: { get api(){ return CX_API; }, get chave(){ return CX_CHAVE; }, tecnico: ()=>{ const e=document.getElementById('sel-equipe'); return tecnicoNome(e ? e.value : ''); } },
   onFotografar: (num)=>{ mudarView('caixa'); document.getElementById('cx-obs').value = num; toast('Caixa '+num+': tire as fotos e salve'); }
 });
 function toast(msg){
@@ -466,8 +473,31 @@ function renderProvedoresTecnico(){
 }
 
 // ---------- login ----------
-function entrar(){
+let USUARIOS = [], USUARIO = null;
+async function hashSenha(salt, senha){
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + senha));
+  return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+function tecnicoNome(equipe){ return USUARIO ? USUARIO.nome + (equipe ? ' (' + equipe + ')' : '') : (equipe || ''); }
+function popularLogin(lista){
+  USUARIOS = lista || [];
+  const tem = USUARIOS.length > 0;
+  document.getElementById('fl-nome').style.display = tem ? 'flex' : 'none';
+  document.getElementById('in-nome').innerHTML = USUARIOS.map(u=>`<option value="${u.nome.replace(/"/g,'&quot;')}">${u.nome}</option>`).join('');
+}
+function carregarUsuariosLogin(){
+  return window._carregarUsuarios().then(popularLogin).catch(err=>{ console.error('lista de técnicos falhou:', err); });
+}
+async function entrar(){
   const senha = document.getElementById('in-senha').value;
+  if(USUARIOS.length){
+    const nome = document.getElementById('in-nome').value, u = USUARIOS.find(x=>x.nome===nome);
+    if(!u || (await hashSenha(u.salt, senha)) !== u.hash){ document.getElementById('erro-senha').style.display = 'block'; return; }
+    USUARIO = { nome: u.nome, equipe: u.equipe || '' };
+    sessionStorage.setItem('producao_tecnico_user', JSON.stringify(USUARIO));
+    window._iniciarSessaoTecnico().then(abrirFormulario).catch(()=>toast('Erro ao conectar - tenta de novo'));
+    return;
+  }
   if(senha !== window._SENHA_TECNICO){
     document.getElementById('erro-senha').style.display = 'block';
     return;
@@ -483,6 +513,7 @@ document.getElementById('in-senha').addEventListener('keydown', e=>{ if(e.key===
 document.getElementById('btn-atualizar').addEventListener('click', ()=>window.location.reload());
 document.getElementById('btn-sair').addEventListener('click', ()=>{
   sessionStorage.removeItem('producao_tecnico_auth');
+  sessionStorage.removeItem('producao_tecnico_user');
   window.location.reload();
 });
 
@@ -491,6 +522,7 @@ function abrirFormulario(){
   document.getElementById('tela-senha').style.display = 'none';
   document.getElementById('tela-form').style.display = 'block';
   document.getElementById('in-data').value = fmtISO(new Date());
+  document.getElementById('quem').textContent = USUARIO ? '· 👤 ' + USUARIO.nome : '';
   if(!listenersJaIniciados){
     listenersJaIniciados = true;
     window._iniciarListenersTecnico();
@@ -503,11 +535,16 @@ function abrirFormulario(){
 // terminar de carregar (módulos sempre rodam antes do DOMContentLoaded)
 // antes de tentar retomar a sessão já logada.
 window.addEventListener('DOMContentLoaded', () => {
-  if(sessionStorage.getItem('producao_tecnico_auth') === 'ok'){
-    window._iniciarSessaoTecnico().then(abrirFormulario).catch(()=>{
-      sessionStorage.removeItem('producao_tecnico_auth');
-    });
-  }
+  carregarUsuariosLogin().then(()=>{
+    const salvo = sessionStorage.getItem('producao_tecnico_user');
+    if(USUARIOS.length){
+      if(salvo){ try{ USUARIO = JSON.parse(salvo); }catch(e){ USUARIO = null; }
+        if(USUARIO && USUARIOS.some(u=>u.nome===USUARIO.nome)) window._iniciarSessaoTecnico().then(abrirFormulario).catch(()=>{});
+        else { USUARIO = null; sessionStorage.removeItem('producao_tecnico_user'); } }
+    } else if(sessionStorage.getItem('producao_tecnico_auth') === 'ok'){
+      window._iniciarSessaoTecnico().then(abrirFormulario).catch(()=>{ sessionStorage.removeItem('producao_tecnico_auth'); });
+    }
+  });
 });
 
 // ---------- dados do Firestore ----------
@@ -522,7 +559,8 @@ window._aplicarTimesTecnico = (nomes) => {
   const anterior = localStorage.getItem('producao_tecnico_equipe') || sel.value;
   sel.innerHTML = TIMES.map(t=>`<option value="${t.replace(/"/g,'&quot;')}">${t}</option>`).join('')
     || '<option value="">Nenhuma equipe cadastrada</option>';
-  if(TIMES.includes(anterior)) sel.value = anterior;
+  if(USUARIO && USUARIO.equipe && TIMES.includes(USUARIO.equipe) && !sel.dataset.uj){ sel.value = USUARIO.equipe; sel.dataset.uj = '1'; }
+  else if(TIMES.includes(anterior)) sel.value = anterior;
   cxSyncTec();
   renderRecentes();
   if(viewAtual==='painel') renderPainelTecnico();
@@ -556,7 +594,7 @@ document.getElementById('btn-salvar').addEventListener('click', ()=>{
   const tipo = document.querySelector('#seg-tipo button.on')?.dataset.val || 'numero';
   const valor = tipo==='numero' ? (Number(document.getElementById('in-valor').value)||0) : null;
   const bairro = document.getElementById('in-bairro').value.trim();
-  window._fbSalvarDiaTecnico(data, equipe, {tipo, valor, bairro})
+  window._fbSalvarDiaTecnico(data, equipe, {tipo, valor, bairro, lancado_por: USUARIO ? USUARIO.nome : '', lancado_em: Date.now()})
     .then(()=>{
       toast('Lançamento salvo ✓');
       document.getElementById('in-valor').value = '';
@@ -643,7 +681,7 @@ document.getElementById('cx-salvar').addEventListener('click', ()=>{
   if(!cxFotos[0]){ toast('Tire pelo menos 1 foto'); return; }
   if(!cxDb) return;
   cxSt('readwrite').put({
-    id: Date.now()+'-'+Math.random().toString(36).slice(2,8), chave: CX_CHAVE, tecnico: equipe,
+    id: Date.now()+'-'+Math.random().toString(36).slice(2,8), chave: CX_CHAVE, tecnico: tecnicoNome(equipe),
     tipo: document.getElementById('cx-tipo').value, lat: cxPos.lat, lng: cxPos.lng,
     obs: document.getElementById('cx-obs').value.trim(), fotos: cxFotos.filter(Boolean), t: Date.now(), numero: null
   });

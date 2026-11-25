@@ -66,6 +66,12 @@
     if (window._aplicarTimes) window._aplicarTimes(nomes);
   }, err => console.error('listener producao_equipe_config falhou:', err));
 
+  window._fbSalvarUsuarios = (lista) => setDoc(doc(fsDb, 'producao_equipe_config', 'usuarios'), { lista });
+  onSnapshot(doc(fsDb, 'producao_equipe_config', 'usuarios'), snap => {
+    const lista = snap.exists() ? (snap.data().lista || []) : [];
+    if (window._aplicarUsuarios) window._aplicarUsuarios(lista);
+  }, err => console.error('listener usuarios falhou:', err));
+
   // Provedores: meta de caixas existentes por provedor (ex: "IP2"), comparada
   // com o que já foi coletado (somado a partir do texto "bairro/atividade" de
   // cada lançamento diário que mencione o nome do provedor). Doc id = nome do
@@ -423,6 +429,17 @@ tr:hover td{background:rgba(255,255,255,.018)}
           <div class="fl" style="justify-content:flex-end"><button class="btn pri" id="btn-add-equipe" style="height:37px">Adicionar</button></div>
         </div>
       </div>
+      <div class="card" style="margin-top:12px">
+        <div class="ct">Logins dos técnicos</div>
+        <div class="ps" style="margin-bottom:10px">Cada técnico entra com o próprio nome e senha, e o nome dele fica gravado nos lançamentos e nas caixas. Enquanto não houver nenhum cadastrado, vale a senha única antiga da tela do técnico.</div>
+        <div id="usuarios-list" style="margin-bottom:12px"></div>
+        <div class="fg" style="grid-template-columns:1fr 1fr 1fr auto">
+          <div class="fl"><label>Nome</label><input type="text" id="in-user-nome" placeholder="Ex: Felipe"></div>
+          <div class="fl"><label>Equipe</label><select id="in-user-equipe"></select></div>
+          <div class="fl"><label>Senha</label><input type="text" id="in-user-senha" placeholder="Senha do técnico" autocomplete="off"></div>
+          <div class="fl" style="justify-content:flex-end"><button class="btn pri" id="btn-add-user" style="height:37px">Adicionar</button></div>
+        </div>
+      </div>
     </section>
 
   </main>
@@ -449,6 +466,11 @@ const MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','ag
 const DIAS_SEMANA = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
 
 let DIAS = {};          // { "AAAA-MM-DD": {data, equipes:{nome:{tipo,valor,bairro}}, atualizado_em} }
+async function hashSenha(salt, senha){
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + senha));
+  return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+let USUARIOS = [];
 let TIMES = ['Equipe 1','Equipe 2'];
 let PROVEDORES = {};    // { nomeProvedor: {nome, totalCaixas} }
 let provedorDetalheAberto = null;
@@ -507,11 +529,43 @@ window._aplicarProvedores = (provedores) => {
   const ativo = document.querySelector('.panel.on')?.id.replace('panel-','');
   if(ativo==='provedores') renderProvedores();
 };
+window._aplicarUsuarios = (lista) => { USUARIOS = lista || []; renderUsuarios(); };
+function renderUsuarios(){
+  const box = document.getElementById('usuarios-list'); if(!box) return;
+  box.innerHTML = USUARIOS.map((u,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--b1)"><span style="flex:1"><b>${u.nome}</b> <span style="color:var(--mu);font-size:12px">${u.equipe?'· '+u.equipe:''}</span></span><button class="btn" data-uk="${i}" data-a="senha">Trocar senha</button><button class="btn" data-uk="${i}" data-a="del">Excluir</button></div>`).join('') || '<div style="color:var(--mu);font-size:12.5px">Nenhum técnico cadastrado ainda.</div>';
+  const sel = document.getElementById('in-user-equipe');
+  if(sel && sel.dataset.n !== TIMES.join('|')){ sel.innerHTML = '<option value="">(sem equipe)</option>' + TIMES.map(t=>`<option>${t}</option>`).join(''); sel.dataset.n = TIMES.join('|'); }
+}
+async function novoUsuario(nome, equipe, senha){
+  const salt = Math.random().toString(36).slice(2,12);
+  return { nome, equipe, salt, hash: await hashSenha(salt, senha) };
+}
+document.addEventListener('click', async (ev)=>{
+  const b = ev.target.closest('#btn-add-user, [data-uk]'); if(!b) return;
+  if(b.id === 'btn-add-user'){
+    const nome = document.getElementById('in-user-nome').value.trim(), senha = document.getElementById('in-user-senha').value;
+    const equipe = document.getElementById('in-user-equipe').value;
+    if(!nome || senha.length < 4){ toast('Informe o nome e uma senha de pelo menos 4 caracteres'); return; }
+    if(USUARIOS.some(u=>u.nome.toLowerCase()===nome.toLowerCase())){ toast('Já existe um técnico com esse nome'); return; }
+    const lista = USUARIOS.concat([await novoUsuario(nome, equipe, senha)]);
+    window._fbSalvarUsuarios(lista).then(()=>{ document.getElementById('in-user-nome').value=''; document.getElementById('in-user-senha').value=''; toast('Técnico cadastrado ✓'); }).catch(()=>toast('Erro ao salvar'));
+    return;
+  }
+  const i = +b.dataset.uk, u = USUARIOS[i]; if(!u) return;
+  if(b.dataset.a === 'del'){
+    if(!confirm('Excluir o login de '+u.nome+'? Os lançamentos já feitos continuam.')) return;
+    window._fbSalvarUsuarios(USUARIOS.filter((_,k)=>k!==i)).then(()=>toast('Login excluído')).catch(()=>toast('Erro ao salvar'));
+  } else {
+    const nova = prompt('Nova senha para '+u.nome+':'); if(!nova || nova.length < 4){ if(nova!==null) toast('Senha curta demais (mínimo 4)'); return; }
+    const lista = USUARIOS.slice(); lista[i] = await novoUsuario(u.nome, u.equipe, nova);
+    window._fbSalvarUsuarios(lista).then(()=>toast('Senha trocada ✓')).catch(()=>toast('Erro ao salvar'));
+  }
+});
 window._aplicarTimes = (nomes) => {
   if(nomes && nomes.length){ TIMES = nomes; timesVindoDoFirestore = true; }
   else if(!timesVindoDoFirestore){ window._fbSalvarTimes(TIMES).catch(()=>{}); }
   const ativo = document.querySelector('.panel.on')?.id.replace('panel-','');
-  if(ativo==='equipes') renderListaTimes();
+  if(ativo==='equipes'){ renderListaTimes(); renderUsuarios(); }
   if(ativo==='preencher') renderFormularioEquipes();
   if(ativo==='painel') renderPainel();
   if(ativo==='historico') renderHistorico();
@@ -669,7 +723,7 @@ function linhaDiaHTML(k, dia, equipeFiltro){
   const celulasEquipes = equipesParaMostrar.map(t=>{
     const e = dia.equipes && dia.equipes[t];
     if(!e) return '<span class="tag tmu">—</span>';
-    if(e.tipo==='numero') return `<b class="mono">${e.valor ?? 0}</b>${e.bairro?` <span style="color:var(--mu);font-size:11px">(${e.bairro})</span>`:''}`;
+    if(e.tipo==='numero') return `<b class="mono">${e.valor ?? 0}</b>${e.bairro?` <span style="color:var(--mu);font-size:11px">(${e.bairro})</span>`:''}${e.lancado_por?` <span style="color:var(--mu);font-size:10.5px" title="Lançado por">👤 ${e.lancado_por}</span>`:''}`;
     const cls = e.tipo==='folga' ? 'tam' : e.tipo==='feriado' ? 'trd' : e.tipo==='atestado' ? 'trd' : 'tmu';
     return `<span class="tag ${cls}">${STATUS_LABEL[e.tipo]}</span>`;
   }).join(' &nbsp; ');
