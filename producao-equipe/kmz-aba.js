@@ -57,7 +57,11 @@ function css(){
   '.kz-bar{display:none;position:absolute;top:10px;left:10px;z-index:1050;gap:0;background:#f6f0fa;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.4);overflow:hidden}'+
   '.kz-bar button{width:46px;height:44px;border:0;background:none;font-size:20px;color:#222;cursor:pointer;border-right:1px solid #ddd}.kz-bar button:last-child{border:0}'+
   '#kz-add{position:absolute;right:12px;bottom:18px;z-index:1050;width:58px;height:58px;border-radius:50%;border:0;background:#f6f0fa;color:#222;font-size:22px;box-shadow:0 2px 8px rgba(0,0,0,.5);cursor:pointer}'+
-  '#kz-cross{display:none;position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-17px 0 0 -17px;z-index:900;pointer-events:none;font-size:34px;line-height:34px;text-align:center;color:#ef4444;text-shadow:0 0 3px #000}'+
+  '#kz-cross{display:none;position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px 0 0 -27px;z-index:900;pointer-events:none}'+
+  '#kz-pbar{display:none;position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:1060;flex-direction:column;align-items:center;gap:8px}'+
+  '#kz-pbar button{min-width:76px;height:52px;border:0;border-radius:10px;background:#f6f0fa;color:#222;font-size:16px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.5);padding:0 14px}'+
+  '#kz-pco{background:#f6f0fa;color:#222;border-radius:10px;padding:6px 14px;font-size:13px;text-align:left;box-shadow:0 2px 6px rgba(0,0,0,.5)}'+
+  '#kz-card.kz-cardfull{top:0;bottom:0;max-height:none;overflow:auto;padding:16px}'+
   '#kmz-root.kz-full{position:fixed;left:0;top:0;right:0;bottom:0;height:100dvh;z-index:3000;background:var(--bg,#0f0f11);padding:0;margin:0}'+
   '#kmz-root.kz-full .kz-body{display:block;height:100%}'+
   '#kmz-root.kz-full .kz-mapwrap{position:absolute;left:0;top:0;right:0;bottom:0;border:0;border-radius:0}'+
@@ -220,7 +224,7 @@ function montar(){
    '<div class="kz-body"><aside class="kz-side" id="kz-side"><button class="kz-btn" id="kz-sx" style="display:none;width:100%;margin-bottom:8px">✕ Fechar menu</button><button class="kz-btn" id="kz-addp" style="width:100%;margin-bottom:8px">📁 Adicionar pasta</button><input type="search" id="kz-busca" placeholder="Buscar nº ou nome da caixa"><div id="kz-res"></div><div id="kz-pastas"></div></aside>'+
    '<div class="kz-mapwrap"><button class="kz-btn" id="kz-tog">☰ Pastas</button>'+
    '<div class="kz-bar"><button id="kz-b-menu" title="Menu">☰</button><button id="kz-b-busca" title="Buscar">🔍</button><button id="kz-b-sair" title="Voltar ao painel">⬅</button></div>'+
-   '<button id="kz-add" title="Adicionar caixa">➕📍</button><div id="kz-cross">＋</div><div id="kz-map"></div><div id="kz-card"></div></div></div>';
+   '<button id="kz-add" title="Adicionar caixa">➕📍</button><div id="kz-cross"><svg width="54" height="54" viewBox="0 0 54 54"><circle cx="27" cy="27" r="14" fill="rgba(255,255,255,.35)" stroke="#000" stroke-width="4"/><path d="M27 2v14M27 38v14M2 27h14M38 27h14" stroke="#000" stroke-width="4"/><path d="M27 2v14M27 38v14M2 27h14M38 27h14" stroke="#fff" stroke-width="1.5"/></svg></div><div id="kz-pbar"><div style="display:flex;gap:10px"><button id="kz-pn">Cancelar</button><button id="kz-pok">OK</button><button id="kz-pg" title="Ir para minha localização">🛰️</button></div><div id="kz-pco"></div></div><div id="kz-map"></div><div id="kz-card"></div></div></div>';
   S.montado=true;
   S.map=L.map('kz-map',{renderer:L.canvas({tolerance:12}),zoomControl:true}).setView([-3.78,-38.49],12);
   var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,attribution:'Esri'});
@@ -530,7 +534,7 @@ function editarCard(p){
     }).catch(function(e){ msg('Erro ao salvar: '+(e.message||e),true); abrirCard(p); });
   };
 }
-function fecharCard(){ var c=$('kz-card'); if(c) c.style.display='none'; S.atual=null; var a=$('kz-add'); if(a) a.style.display=''; var x=$('kz-cross'); if(x) x.style.display='none'; }
+function fecharCard(){ var c=$('kz-card'); if(c){ c.style.display='none'; c.className=''; } S.atual=null; var a=$('kz-add'); if(a) a.style.display=''; var x=$('kz-cross'); if(x) x.style.display='none'; }
 function buscar(){
   var q=semAcento($('kz-busca').value.trim()), box=$('kz-res'); box.innerHTML='';
   if(q.length<2 || !S.dados) return;
@@ -553,35 +557,46 @@ function sairTela(){
   var bs=Array.prototype.slice.call(document.querySelectorAll('.bni,.ni,[data-view]'));
   var alvo=bs.filter(function(b){ return !/kmz/.test((b.dataset.panel||b.dataset.view||'')); })[0]; if(alvo) alvo.click();
 }
+function fimMira(){
+  $('kz-cross').style.display='none'; $('kz-pbar').style.display='none'; $('kz-add').style.display='';
+  if(S.movAdd){ S.map.off('move',S.movAdd); S.movAdd=null; }
+}
 function novaCaixa(){
   if(!S.prov || !S.dados){ msg('Escolha o projeto primeiro.',true); return; }
-  var c=$('kz-card'); $('kz-cross').style.display='block'; $('kz-add').style.display='none';
-  var pastas=S.dados.pastas.length?S.dados.pastas:['Pasta padrão'];
-  c.innerHTML='<div class="kz-ef"><b>Nova caixa</b> <span style="font-size:11.5px;color:var(--mu,#8a8a96)">— mova o mapa até a mira ＋ ou use sua localização</span>'+
-    '<label>Título</label><input id="kz-nt"><label>Pasta (a caixa usa o ícone e a cor da pasta)</label><select id="kz-np">'+pastas.map(function(n,i){return '<option value="'+i+'">'+esc(n)+'</option>';}).join('')+'</select>'+
-    '<label>Descrição</label><textarea id="kz-nd" rows="2"></textarea>'+icoHtml('nv','','',grupoDe(0))+'<label>Referência</label><textarea id="kz-nr" rows="2"></textarea></div>'+
-    '<div class="acoes"><button class="kz-btn pri" id="kz-nc">📍 Salvar na mira</button><button class="kz-btn" id="kz-nl">🛰️ Salvar na minha localização</button><button class="kz-btn" id="kz-nx">Cancelar</button></div>';
+  fecharCard(); $('kz-side').classList.remove('aberto');
+  $('kz-cross').style.display='block'; $('kz-add').style.display='none'; $('kz-pbar').style.display='flex';
+  function coord(){ var m=S.map.getCenter(); $('kz-pco').innerHTML='Lat: '+m.lat.toFixed(5)+'<br>Long: '+m.lng.toFixed(5); }
+  S.movAdd=coord; S.map.on('move',coord); coord();
+  $('kz-pn').onclick=function(){ fimMira(); };
+  $('kz-pok').onclick=function(){ var m=S.map.getCenter(); fimMira(); formCaixa(+m.lat.toFixed(6), +m.lng.toFixed(6)); };
+  $('kz-pg').onclick=function(){
+    if(!navigator.geolocation){ msg('Sem GPS neste aparelho.',true); return; }
+    navigator.geolocation.getCurrentPosition(function(g){ S.map.setView([g.coords.latitude,g.coords.longitude],19); },function(){ msg('Não consegui a localização. Ative o GPS.',true); },{enableHighAccuracy:true,timeout:15000});
+  };
+}
+function formCaixa(lat,lng){
+  var c=$('kz-card'), pastas=S.dados.pastas.length?S.dados.pastas:['Pasta padrão'];
+  c.className='kz-cardfull'; $('kz-add').style.display='none';
+  c.innerHTML='<div class="kz-ef"><h4 style="margin:0 0 4px">Nova caixa</h4><div class="p" style="font-size:12px;color:var(--mu,#8a8a96)">Posição: '+lat+', '+lng+'</div>'+
+    '<label>Título</label><input id="kz-nt" placeholder="Ex.: 26456 | CTO nova"><label>Pasta (a caixa usa o ícone e a cor da pasta)</label><select id="kz-np">'+pastas.map(function(n,i){return '<option value="'+i+'">'+esc(n)+'</option>';}).join('')+'</select>'+
+    '<label>Descrição</label><textarea id="kz-nd" rows="3"></textarea>'+icoHtml('nv','','',grupoDe(0))+'<label>Referência</label><textarea id="kz-nr" rows="2"></textarea></div>'+
+    '<div class="acoes" style="margin-top:12px"><button class="kz-btn pri" id="kz-nc">💾 Salvar</button><button class="kz-btn" id="kz-nb">📍 Ajustar posição</button><button class="kz-btn" id="kz-nx">Cancelar</button></div>';
   c.style.display='block';
   icoLigar('nv','kz-np');
-  function fim(){ $('kz-cross').style.display='none'; $('kz-add').style.display=''; }
-  function gravar(lat,lng){
+  $('kz-nx').onclick=function(){ fecharCard(); };
+  $('kz-nb').onclick=function(){ fecharCard(); S.map.setView([lat,lng],Math.max(S.map.getZoom(),18)); novaCaixa(); };
+  $('kz-nc').onclick=function(){
     var n=$('kz-nt').value.trim(); if(!n){ msg('Informe o título.',true); return; }
     var pasta=pastas[+$('kz-np').value], pre=Promise.resolve();
     if(!S.dados.pastas.length){ S.dados.pastas.push(pasta); pre=gravarMeta(); }
     var idx=S.dados.pastas.indexOf(pasta);
-    var v={ novo:1, n:n, d:$('kz-nd').value.trim(), r:$('kz-nr').value.trim(), p:pasta, lat:+lat.toFixed(6), lng:+lng.toFixed(6) }; var ico=icoLer('nv'); v.ic=ico.ic; v.cor=ico.cor;
-    var key='novo'+Date.now();
+    var v={ novo:1, n:n, d:$('kz-nd').value.trim(), r:$('kz-nr').value.trim(), p:pasta, lat:lat, lng:lng }; var ico=icoLer('nv'); v.ic=ico.ic; v.cor=ico.cor;
+    var key='novo'+Date.now(); $('kz-nc').disabled=true; $('kz-nc').textContent='Salvando…';
     pre.then(function(){ return window._kmzApi.salvarEdit(S.prov,key,v); }).then(function(){
       var pt=['',v.n,v.lat,v.lng,idx,v.d,v.r,v.ic,v.cor]; S.dados.pts.push(pt); S.dados.ed=S.dados.ed||{}; S.dados.ed[key]=v;
-      fim(); redesenhar(); abrirCard(pt); msg('Caixa adicionada.');
-    }).catch(function(e){ msg('Erro ao salvar: '+(e.message||e),true); });
-  }
-  $('kz-nc').onclick=function(){ var m=S.map.getCenter(); gravar(m.lat,m.lng); };
-  $('kz-nl').onclick=function(){
-    if(!navigator.geolocation){ msg('Sem GPS neste aparelho.',true); return; }
-    navigator.geolocation.getCurrentPosition(function(g){ gravar(g.coords.latitude,g.coords.longitude); },function(){ msg('Não consegui a localização. Ative o GPS.',true); },{enableHighAccuracy:true,timeout:15000});
+      fecharCard(); redesenhar(); abrirCard(pt); msg('Caixa adicionada.');
+    }).catch(function(e){ msg('Erro ao salvar: '+(e.message||e),true); $('kz-nc').disabled=false; $('kz-nc').textContent='💾 Salvar'; });
   };
-  $('kz-nx').onclick=function(){ fim(); fecharCard(); };
 }
 window.KmzAba = {
   init:function(cfg){ S.cfg=cfg; },
