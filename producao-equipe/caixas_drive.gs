@@ -8,7 +8,9 @@
  * Nova implantacao > Aplicativo da Web > Executar como: EU > Acesso: Qualquer pessoa.
  * Copie a URL /exec e cole no caixa.html (constante API).
  */
-var NUMERO_INICIAL = 25000;
+// Caixas do KMZ da IP2 ja ocupam 25000 a 26455; as NOVAS comecam em 26456.
+var NUMERO_EXISTENTE_MIN = 25000;
+var NUMERO_INICIAL = 26456;
 var CHAVE = 'troque-esta-chave';   // mesma chave no caixa.html
 
 function props_() { return PropertiesService.getScriptProperties(); }
@@ -62,8 +64,17 @@ function doPost(e) {
     }
 
     var p = props_();
-    var num = parseInt(p.getProperty('PROX') || NUMERO_INICIAL, 10);
-    p.setProperty('PROX', String(num + 1));
+    // Observacao comecando com um numero ja existente (ex.: "25123" ou "25123 - Rua X")
+    // = foto de caixa que ja existe: usa esse numero e NAO gasta numero novo.
+    var mm = String(d.obs || '').match(/^\s*(\d{5})(?!\d)/);
+    var exist = mm ? parseInt(mm[1], 10) : 0;
+    var num;
+    if (exist >= NUMERO_EXISTENTE_MIN && exist < NUMERO_INICIAL) {
+      num = exist;
+    } else {
+      num = Math.max(parseInt(p.getProperty('PROX') || '0', 10), NUMERO_INICIAL);
+      p.setProperty('PROX', String(num + 1));
+    }
 
     var pasta = pasta_(), links = [], fotos = d.fotos || [];
     // nome do arquivo = o que o tecnico digitou em Observacao (sem caracteres proibidos); sem texto, usa o numero
