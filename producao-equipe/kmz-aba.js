@@ -26,7 +26,7 @@ function css(){
   '.kz-btn.pri{background:var(--ac,#6a00b8);border-color:var(--ac,#6a00b8);color:#fff}'+
   '.kz-btn:disabled{opacity:.4;pointer-events:none}'+
   '#kz-status{font-size:12.5px;color:var(--mu,#8a8a96);flex:1;min-width:160px}'+
-  '.kz-body{display:grid;grid-template-columns:1fr 300px;gap:10px}'+
+  '.kz-body{display:grid;grid-template-columns:320px 1fr;gap:10px;position:relative}'+
   '.kz-mapwrap{position:relative;border:1px solid var(--b1,rgba(255,255,255,.07));border-radius:14px;overflow:hidden;background:#111}'+
   '#kz-map{height:68vh;min-height:360px}'+
   '.kz-side{background:var(--s1,#18181c);border:1px solid var(--b1,rgba(255,255,255,.07));border-radius:14px;padding:10px;max-height:68vh;overflow:auto}'+
@@ -44,7 +44,16 @@ function css(){
   '.kz-lbl{background:rgba(0,0,0,.65);color:#fff;border:0;box-shadow:none;font-size:11px;padding:1px 5px}'+
   '.kz-lbl:before{display:none}'+
   '.kz-vazio{padding:3rem 1rem;text-align:center;color:var(--mu,#8a8a96);font-size:13.5px}'+
-  '@media(max-width:760px){.kz-body{grid-template-columns:1fr}#kz-map{height:56vh}.kz-side{max-height:none}}';
+  '.kz-n{display:flex;align-items:center;gap:6px;padding:8px 6px;margin-bottom:5px;background:var(--s2,#222228);border:1px solid var(--b1,rgba(255,255,255,.07));border-radius:9px;font-size:13px}'+
+  '.kz-n .sw{width:6px;align-self:stretch;border-radius:3px;flex:none}'+
+  '.kz-n .tx{flex:1;min-width:0;cursor:pointer}.kz-n .tx b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'+
+  '.kz-n .tx small{color:var(--mu,#8a8a96);font-size:11.5px}'+
+  '.kz-n .ch{width:26px;height:26px;border:0;background:none;color:var(--tx,#f0f0f2);font-size:15px;cursor:pointer;flex:none}'+
+  '.kz-n input{width:18px;height:18px;flex:none}'+
+  '.kz-fil{margin-left:14px;border-left:2px solid var(--b2,rgba(255,255,255,.13));padding-left:6px}'+
+  '#kz-tog{display:none;position:absolute;top:10px;left:56px;z-index:1050}'+
+  '@media(max-width:760px){.kz-body{grid-template-columns:1fr}#kz-map{height:62vh}'+
+  '.kz-side{position:absolute;left:0;top:0;bottom:0;width:88%;max-height:none;z-index:1100;display:none;box-shadow:4px 0 18px rgba(0,0,0,.5)}.kz-side.aberto{display:block}#kz-tog{display:block}}';
   document.head.appendChild(st);
 }
 
@@ -148,10 +157,10 @@ function montar(){
    '<input type="file" id="kz-file" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/zip" hidden>'+
    '<button class="kz-btn" id="kz-del">🗑️ Apagar KMZ do projeto</button>'+
    '<div id="kz-status"></div></div>'+
-   '<div class="kz-body"><div class="kz-mapwrap"><div id="kz-map"></div><div id="kz-card"></div></div>'+
-   '<aside class="kz-side"><input type="search" id="kz-busca" placeholder="Buscar nº ou nome da caixa"><div id="kz-res"></div><div id="kz-pastas"></div></aside></div>';
+   '<div class="kz-body"><aside class="kz-side" id="kz-side"><input type="search" id="kz-busca" placeholder="Buscar nº ou nome da caixa"><div id="kz-res"></div><div id="kz-pastas"></div></aside>'+
+   '<div class="kz-mapwrap"><button class="kz-btn" id="kz-tog">☰ Pastas</button><div id="kz-map"></div><div id="kz-card"></div></div></div>';
   S.montado=true;
-  S.map=L.map('kz-map',{preferCanvas:true,zoomControl:true}).setView([-3.78,-38.49],12);
+  S.map=L.map('kz-map',{renderer:L.canvas({tolerance:12}),zoomControl:true}).setView([-3.78,-38.49],12);
   var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,attribution:'Esri'});
   var rua=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,maxNativeZoom:19,attribution:'© OpenStreetMap'});
   sat.addTo(S.map);
@@ -165,6 +174,7 @@ function montar(){
   $('kz-imp').onclick=function(){ if(!S.prov){ msg('Escolha o projeto primeiro.',true); return; } $('kz-file').value=''; $('kz-file').click(); };
   $('kz-file').onchange=function(){ if(this.files[0]) importar(this.files[0]); };
   $('kz-del').onclick=apagar;
+  $('kz-tog').onclick=function(){ $('kz-side').classList.toggle('aberto'); };
   $('kz-proj').onchange=function(){ selecionar(this.value); };
   $('kz-busca').oninput=buscar;
 }
@@ -220,26 +230,58 @@ function desenhar(){
   });
   d.pts.forEach(function(p){
     var g=tot[p[4]]; if(!g) return; g.pts++;
-    var m=L.circleMarker([p[2],p[3]],{radius:7,color:'#000',weight:1,fillColor:g.cor,fillOpacity:.95});
-    m.on('click',function(e){ L.DomEvent.stopPropagation(e); abrirCard(p); });
+    var m=L.circleMarker([p[2],p[3]],{radius:8,color:'#000',weight:1,fillColor:g.cor,fillOpacity:.95,bubblingMouseEvents:false});
+    m.on('click',function(){ abrirCard(p); var sd=$('kz-side'); if(sd) sd.classList.remove('aberto'); });
     m.addTo(g.camada); m._p=p; m._g=g; S.marcadores.push(m); limites.push([p[2],p[3]]);
   });
   tot.forEach(function(g){ g.camada.addTo(S.map); });
   if(limites.length) S.map.fitBounds(limites,{padding:[30,30],maxZoom:17});
   else if(d.lns.length) S.map.fitBounds(d.lns[0][2]);
-  var h=''; tot.forEach(function(g){
-    var prof=(g.nome.match(/\//g)||[]).length, ult=g.nome.split('/').pop();
-    h+='<label class="kz-pasta" style="padding-left:'+(4+prof*10)+'px"><input type="checkbox" data-i="'+g.i+'" checked><i style="background:'+g.cor+'"></i><span title="'+esc(g.nome)+'">'+esc(ult)+'</span><small>'+(g.pts||'')+(g.lns?(g.pts?' + ':'')+g.lns+'↝':'')+'</small></label>';
-  });
-  $('kz-pastas').innerHTML = h || '<div class="kz-vazio">Sem pastas.</div>';
-  $('kz-pastas').onchange=function(e){ var g=tot[+e.target.dataset.i]; if(!g) return; g.on=e.target.checked; if(g.on) g.camada.addTo(S.map); else S.map.removeLayer(g.camada); rotular(); };
+  montarArvore();
   var dt=d.meta&&d.meta.atualizado ? new Date(d.meta.atualizado).toLocaleDateString('pt-BR') : '';
   msg(d.pts.length+' pontos'+(d.lns.length?' · '+d.lns.length+' linhas':'')+' · '+(d.meta&&d.meta.arquivo||'KMZ')+(dt?' · '+dt:''));
   setTimeout(function(){ S.map.invalidateSize(); rotular(); },50);
 }
+function montarArvore(){
+  var nodes={}, raiz=[];
+  S.grupos.forEach(function(g){
+    var acc='', pai=null;
+    g.nome.split('/').forEach(function(nm){
+      acc=acc?acc+'/'+nm:nm; var n=nodes[acc];
+      if(!n){ n=nodes[acc]={nome:nm,filhos:[],grupos:[],aberto:false}; (pai?pai.filhos:raiz).push(n); }
+      pai=n;
+    });
+    pai.grupos.push(g);
+  });
+  function gs(n){ var r=n.grupos.slice(); n.filhos.forEach(function(f){ r=r.concat(gs(f)); }); return r; }
+  function html(n){
+    var todos=gs(n), tot=0, vis=0, on=0;
+    todos.forEach(function(g){ tot+=g.pts; if(g.on){ vis+=g.pts; on++; } });
+    var cor=(n.grupos[0]||todos[0]||{}).cor||'#888';
+    var h='<div class="kz-n"><span class="sw" style="background:'+cor+'"></span>'+
+      (n.filhos.length?'<button class="ch" data-t="'+n.id+'">'+(n.aberto?'⌄':'›')+'</button>':'')+
+      '<div class="tx" data-t="'+n.id+'"><b>'+esc(n.nome)+'</b><small>'+vis+'/'+tot+' marcadores</small></div>'+
+      '<input type="checkbox" data-c="'+n.id+'"'+(on===todos.length?' checked':'')+'></div>';
+    if(n.aberto && n.filhos.length) h+='<div class="kz-fil">'+n.filhos.map(html).join('')+'</div>';
+    return h;
+  }
+  var lista=[]; (function num(a){ a.forEach(function(n){ n.id=lista.length; lista.push(n); num(n.filhos); }); })(raiz);
+  function pintar(){ $('kz-pastas').innerHTML=raiz.map(html).join('') || '<div class="kz-vazio">Sem pastas.</div>'; }
+  $('kz-pastas').onclick=function(e){
+    var t=e.target.closest('[data-t]'); if(!t) return; var n=lista[+t.dataset.t];
+    if(n.filhos.length){ n.aberto=!n.aberto; pintar(); }
+    else { var g=n.grupos[0]; if(g && g.pts){ var b=[]; S.marcadores.forEach(function(m){ if(m._g===g) b.push(m.getLatLng()); }); if(b.length) S.map.fitBounds(L.latLngBounds(b),{maxZoom:18,padding:[30,30]}); $('kz-side').classList.remove('aberto'); } }
+  };
+  $('kz-pastas').onchange=function(e){
+    var id=e.target.dataset.c; if(id==null) return; var on=e.target.checked;
+    gs(lista[+id]).forEach(function(g){ g.on=on; if(on) g.camada.addTo(S.map); else S.map.removeLayer(g.camada); });
+    pintar(); rotular();
+  };
+  pintar();
+}
 function rotular(){
   S.rotulados.forEach(function(m){ m.unbindTooltip(); }); S.rotulados=[];
-  if(!S.map || S.map.getZoom()<17) return;
+  if(!S.map || S.map.getZoom()<16) return;
   var b=S.map.getBounds(), n=0;
   for(var i=0;i<S.marcadores.length && n<250;i++){
     var m=S.marcadores[i]; if(!m._g.on || !b.contains(m.getLatLng())) continue;
@@ -250,12 +292,13 @@ function abrirCard(p){
   S.atual=p; var c=$('kz-card');
   c.innerHTML='<h4>'+esc(p[1]||p[0]||'Sem nome')+'</h4><div class="p">'+esc(S.dados.pastas[p[4]]||'')+' · '+p[2]+', '+p[3]+'</div>'+
     (p[5]?'<pre>'+esc(p[5])+'</pre>':'')+
-    '<div class="acoes"><button class="kz-btn pri" id="kz-nav">🧭 Navegar</button>'+
-    (S.cfg.onFotografar && p[0] ? '<button class="kz-btn" id="kz-foto">📷 Fotografar esta caixa</button>':'')+
+    '<div class="acoes"><button class="kz-btn pri" id="kz-nav">🧭 Navegar</button><button class="kz-btn" id="kz-cp">📋 Copiar coord.</button>'+
+    (S.cfg.onFotografar && (p[0]||/\d{5}/.test(p[1])) ? '<button class="kz-btn" id="kz-foto">📷 Fotografar esta caixa</button>':'')+
     '<button class="kz-btn" id="kz-fch">Fechar</button></div>';
   c.style.display='block';
   $('kz-nav').onclick=function(){ window.open('https://www.google.com/maps/dir/?api=1&destination='+p[2]+','+p[3],'_blank'); };
-  if($('kz-foto')) $('kz-foto').onclick=function(){ S.cfg.onFotografar(p[0]); };
+  $('kz-cp').onclick=function(){ var t=p[2]+', '+p[3]; if(navigator.clipboard) navigator.clipboard.writeText(t); msg('Coordenadas copiadas: '+t); };
+  if($('kz-foto')) $('kz-foto').onclick=function(){ S.cfg.onFotografar(p[0]||(/\d{5,9}/.exec(p[1])||[''])[0]); };
   $('kz-fch').onclick=fecharCard;
 }
 function fecharCard(){ var c=$('kz-card'); if(c) c.style.display='none'; S.atual=null; }
