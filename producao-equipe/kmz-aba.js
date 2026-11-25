@@ -54,6 +54,27 @@ function css(){
   '.kz-menu{display:flex;gap:6px;flex-wrap:wrap;margin:-2px 0 7px 8px}.kz-menu .kz-btn{padding:6px 9px;font-size:12px}'+
   '.kz-fil{margin-left:14px;border-left:2px solid var(--b2,rgba(255,255,255,.13));padding-left:6px}'+
   '#kz-tog{display:none;position:absolute;top:10px;left:56px;z-index:1050}'+
+  '.kz-bar{display:none;position:absolute;top:10px;left:10px;z-index:1050;gap:0;background:#f6f0fa;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.4);overflow:hidden}'+
+  '.kz-bar button{width:46px;height:44px;border:0;background:none;font-size:20px;color:#222;cursor:pointer;border-right:1px solid #ddd}.kz-bar button:last-child{border:0}'+
+  '#kz-add{position:absolute;right:12px;bottom:18px;z-index:1050;width:58px;height:58px;border-radius:50%;border:0;background:#f6f0fa;color:#222;font-size:22px;box-shadow:0 2px 8px rgba(0,0,0,.5);cursor:pointer}'+
+  '#kz-cross{display:none;position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-17px 0 0 -17px;z-index:900;pointer-events:none;font-size:34px;line-height:34px;text-align:center;color:#ef4444;text-shadow:0 0 3px #000}'+
+  '#kmz-root.kz-full{position:fixed;left:0;top:0;right:0;bottom:0;height:100dvh;z-index:3000;background:var(--bg,#0f0f11);padding:0;margin:0}'+
+  '#kmz-root.kz-full .kz-body{display:block;height:100%}'+
+  '#kmz-root.kz-full .kz-mapwrap{position:absolute;left:0;top:0;right:0;bottom:0;border:0;border-radius:0}'+
+  '#kmz-root.kz-full #kz-map{height:100%;min-height:0}'+
+  '#kmz-root.kz-full .kz-side{position:absolute;left:0;top:0;bottom:0;width:88%;max-width:380px;max-height:none;border-radius:0;z-index:3100;display:none;overflow:auto;background:#f6f0fa;color:#222}'+
+  '#kmz-root.kz-full .kz-side.aberto{display:block}'+
+  '#kmz-root.kz-full .kz-bar{display:flex}'+
+  '#kmz-root.kz-full #kz-tog{display:none}#kmz-root.kz-full #kz-sx{display:block!important}'+
+  '#kmz-root.kz-full .leaflet-control-zoom{display:none}'+
+  '#kmz-root.kz-full .leaflet-top.leaflet-left{top:62px}'+
+  '#kmz-root.kz-full .kz-top{display:flex;flex-direction:column;align-items:stretch;margin:0 0 8px}'+
+  '#kmz-root.kz-full .kz-top select,#kmz-root.kz-full .kz-side input[type=search]{background:#fff;color:#222;border-color:#ccc}'+
+  '#kmz-root.kz-full .kz-btn{background:#e8dff0;color:#222;border-color:#d4c6e0}'+
+  '#kmz-root.kz-full .kz-btn.pri{background:var(--ac,#6a00b8);color:#fff}'+
+  '#kmz-root.kz-full #kz-status{color:#555!important}'+
+  '#kmz-root.kz-full .kz-n{background:#fff;color:#222;border-color:#ddd}#kmz-root.kz-full .kz-n .tx small{color:#666}#kmz-root.kz-full .kz-n .ch{color:#222}'+
+  '#kmz-root.kz-full .kz-res{background:#fff;color:#222}#kmz-root.kz-full .kz-vazio{color:#666}'+
   '@media(max-width:760px){.kz-body{grid-template-columns:1fr}#kz-map{height:62vh}'+
   '.kz-side{position:absolute;left:0;top:0;bottom:0;width:88%;max-height:none;z-index:1100;display:none;box-shadow:4px 0 18px rgba(0,0,0,.5)}.kz-side.aberto{display:block}#kz-tog{display:block}}';
   document.head.appendChild(st);
@@ -148,6 +169,7 @@ function montarDados(carregado){
     if(!/^[pl]\d{3}$/.test(p.id)) return; var d=JSON.parse(p.j); if(p.id.charAt(0)==='p') pts=pts.concat(d); else lns=lns.concat(d);
   });
   var ed={}; Object.keys(carregado.edits||{}).forEach(function(k){ try{ ed[k]=JSON.parse(carregado.edits[k]); }catch(e){} });
+  Object.keys(ed).forEach(function(k){ var e=ed[k]; if(e&&e.novo){ var ix=(meta.pastas||[]).indexOf(e.p); pts.push(['',e.n,e.lat,e.lng,ix>=0?ix:0,e.d||'',e.r||'']); } });
   pts.forEach(function(p){ var e=ed[chave(p)]; if(e){ if(e.n) p[1]=e.n; if(e.d!=null) p[5]=e.d; if(e.r!=null) p[6]=e.r; if(e.p){ var ix=(meta.pastas||[]).indexOf(e.p); if(ix>=0) p[4]=ix; } } });
   return { pastas:meta.pastas||[], pts:pts, lns:lns, meta:meta, ed:ed };
 }
@@ -164,8 +186,10 @@ function montar(){
    '<input type="file" id="kz-file" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/zip" hidden>'+
    '<button class="kz-btn" id="kz-del">🗑️ Apagar KMZ do projeto</button>'+
    '<div id="kz-status"></div></div>'+
-   '<div class="kz-body"><aside class="kz-side" id="kz-side"><button class="kz-btn" id="kz-addp" style="width:100%;margin-bottom:8px">📁 Adicionar pasta</button><input type="search" id="kz-busca" placeholder="Buscar nº ou nome da caixa"><div id="kz-res"></div><div id="kz-pastas"></div></aside>'+
-   '<div class="kz-mapwrap"><button class="kz-btn" id="kz-tog">☰ Pastas</button><div id="kz-map"></div><div id="kz-card"></div></div></div>';
+   '<div class="kz-body"><aside class="kz-side" id="kz-side"><button class="kz-btn" id="kz-sx" style="display:none;width:100%;margin-bottom:8px">✕ Fechar menu</button><button class="kz-btn" id="kz-addp" style="width:100%;margin-bottom:8px">📁 Adicionar pasta</button><input type="search" id="kz-busca" placeholder="Buscar nº ou nome da caixa"><div id="kz-res"></div><div id="kz-pastas"></div></aside>'+
+   '<div class="kz-mapwrap"><button class="kz-btn" id="kz-tog">☰ Pastas</button>'+
+   '<div class="kz-bar"><button id="kz-b-menu" title="Menu">☰</button><button id="kz-b-busca" title="Buscar">🔍</button><button id="kz-b-sair" title="Voltar ao painel">⬅</button></div>'+
+   '<button id="kz-add" title="Adicionar caixa">➕📍</button><div id="kz-cross">＋</div><div id="kz-map"></div><div id="kz-card"></div></div></div>';
   S.montado=true;
   S.map=L.map('kz-map',{renderer:L.canvas({tolerance:12}),zoomControl:true}).setView([-3.78,-38.49],12);
   var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,attribution:'Esri'});
@@ -177,11 +201,16 @@ function montar(){
   S.map.on('locationfound',function(e){ if(S.pos) S.map.removeLayer(S.pos); S.pos=L.circleMarker(e.latlng,{radius:8,color:'#fff',weight:2,fillColor:'#2563eb',fillOpacity:1}).addTo(S.map); });
   S.map.on('locationerror',function(){ msg('Não consegui a localização. Ative o GPS.',true); });
   S.map.on('moveend zoomend', rotular);
-  S.map.on('click', function(){ fecharCard(); });
+  S.map.on('click', function(){ fecharCard(); $('kz-side').classList.remove('aberto'); });
   $('kz-imp').onclick=function(){ if(!S.prov){ msg('Escolha o projeto primeiro.',true); return; } $('kz-file').value=''; $('kz-file').click(); };
   $('kz-file').onchange=function(){ if(this.files[0]) importar(this.files[0]); };
   $('kz-del').onclick=apagar;
+  $('kz-sx').onclick=function(){ $('kz-side').classList.remove('aberto'); };
   $('kz-novo').onclick=novoProjeto;
+  $('kz-b-menu').onclick=function(){ $('kz-side').classList.toggle('aberto'); };
+  $('kz-b-busca').onclick=function(){ $('kz-side').classList.add('aberto'); setTimeout(function(){ $('kz-busca').focus(); },50); };
+  $('kz-b-sair').onclick=sairTela;
+  $('kz-add').onclick=novaCaixa;
   $('kz-xk').onclick=function(){ exportar('kmz'); }; $('kz-xl').onclick=function(){ exportar('kml'); };
   $('kz-addp').onclick=function(){ addPasta(''); };
   $('kz-tog').onclick=function(){ $('kz-side').classList.toggle('aberto'); };
@@ -359,7 +388,7 @@ function excluirPasta(path){
   var lns=d.lns.filter(function(l){ return !rem[l[0]]; }); lns.forEach(function(l){ l[0]=novoIdx[l[0]]; });
   var m=d.meta=d.meta||{}, c2={}; Object.keys(m.cores||{}).forEach(function(k){ if(!sob(k,path)) c2[k]=m.cores[k]; }); m.cores=c2;
   Object.keys(S.off).forEach(function(k){ if(sob(k,path)) delete S.off[k]; });
-  var ed=d.ed||{}; Object.keys(ed).forEach(function(k){ if(ed[k].p && sob(ed[k].p,path)) delete ed[k].p; });
+  var ed=d.ed||{}; Object.keys(ed).forEach(function(k){ if(ed[k].p && sob(ed[k].p,path)){ if(ed[k].novo) delete ed[k]; else delete ed[k].p; } });
   d.pastas=pastas; d.pts=pts; d.lns=lns; S.menu='';
   redesenhar(); msg('Excluindo…');
   var tarefa = (nPts||nLns)
@@ -421,7 +450,7 @@ function abrirCard(p){
     '<div class="acoes"><button class="kz-btn pri" id="kz-nav">🧭 Navegar</button><button class="kz-btn" id="kz-ed">✏️ Editar</button><button class="kz-btn" id="kz-cp">📋 Copiar coord.</button>'+
     (S.cfg.onFotografar && (p[0]||/\d{5}/.test(p[1])) ? '<button class="kz-btn" id="kz-foto">📷 Fotografar esta caixa</button>':'')+
     '<button class="kz-btn" id="kz-fch">Fechar</button></div>';
-  c.style.display='block';
+  c.style.display='block'; $('kz-add').style.display='none';
   $('kz-nav').onclick=function(){ window.open('https://www.google.com/maps/dir/?api=1&destination='+p[2]+','+p[3],'_blank'); };
   $('kz-cp').onclick=function(){ var t=p[2]+', '+p[3]; if(navigator.clipboard) navigator.clipboard.writeText(t); msg('Coordenadas copiadas: '+t); };
   $('kz-ed').onclick=function(){ editarCard(p); };
@@ -448,7 +477,7 @@ function editarCard(p){
     }).catch(function(e){ msg('Erro ao salvar: '+(e.message||e),true); abrirCard(p); });
   };
 }
-function fecharCard(){ var c=$('kz-card'); if(c) c.style.display='none'; S.atual=null; }
+function fecharCard(){ var c=$('kz-card'); if(c) c.style.display='none'; S.atual=null; var a=$('kz-add'); if(a) a.style.display=''; var x=$('kz-cross'); if(x) x.style.display='none'; }
 function buscar(){
   var q=semAcento($('kz-busca').value.trim()), box=$('kz-res'); box.innerHTML='';
   if(q.length<2 || !S.dados) return;
@@ -458,9 +487,51 @@ function buscar(){
   box.onclick=function(e){ var k=e.target.dataset && e.target.dataset.k; if(k==null) return; var p=ach[+k]; S.map.setView([p[2],p[3]],19); abrirCard(p); box.innerHTML=''; };
 }
 
+function modo(){
+  var root=$('kmz-root'), top=root.querySelector('.kz-top'), side=$('kz-side');
+  var cheio=window.matchMedia('(max-width:760px)').matches;
+  root.classList.toggle('kz-full',cheio);
+  if(cheio){ side.insertBefore(top, side.firstChild); document.body.style.overflow='hidden'; }
+  else { root.insertBefore(top, root.firstChild); document.body.style.overflow=''; }
+}
+function sairTela(){
+  var root=$('kmz-root'); root.classList.remove('kz-full'); document.body.style.overflow='';
+  $('kz-side').classList.remove('aberto');
+  var bs=Array.prototype.slice.call(document.querySelectorAll('.bni,.ni,[data-view]'));
+  var alvo=bs.filter(function(b){ return !/kmz/.test((b.dataset.panel||b.dataset.view||'')); })[0]; if(alvo) alvo.click();
+}
+function novaCaixa(){
+  if(!S.prov || !S.dados){ msg('Escolha o projeto primeiro.',true); return; }
+  var c=$('kz-card'); $('kz-cross').style.display='block'; $('kz-add').style.display='none';
+  var pastas=S.dados.pastas.length?S.dados.pastas:['Pasta padrão'];
+  c.innerHTML='<div class="kz-ef"><b>Nova caixa</b> <span style="font-size:11.5px;color:var(--mu,#8a8a96)">— mova o mapa até a mira ＋ ou use sua localização</span>'+
+    '<label>Título</label><input id="kz-nt"><label>Pasta</label><select id="kz-np">'+pastas.map(function(n,i){return '<option value="'+i+'">'+esc(n)+'</option>';}).join('')+'</select>'+
+    '<label>Descrição</label><textarea id="kz-nd" rows="2"></textarea><label>Referência</label><textarea id="kz-nr" rows="2"></textarea></div>'+
+    '<div class="acoes"><button class="kz-btn pri" id="kz-nc">📍 Salvar na mira</button><button class="kz-btn" id="kz-nl">🛰️ Salvar na minha localização</button><button class="kz-btn" id="kz-nx">Cancelar</button></div>';
+  c.style.display='block';
+  function fim(){ $('kz-cross').style.display='none'; $('kz-add').style.display=''; }
+  function gravar(lat,lng){
+    var n=$('kz-nt').value.trim(); if(!n){ msg('Informe o título.',true); return; }
+    var pasta=pastas[+$('kz-np').value], pre=Promise.resolve();
+    if(!S.dados.pastas.length){ S.dados.pastas.push(pasta); pre=gravarMeta(); }
+    var idx=S.dados.pastas.indexOf(pasta);
+    var v={ novo:1, n:n, d:$('kz-nd').value.trim(), r:$('kz-nr').value.trim(), p:pasta, lat:+lat.toFixed(6), lng:+lng.toFixed(6) };
+    var key='novo'+Date.now();
+    pre.then(function(){ return window._kmzApi.salvarEdit(S.prov,key,v); }).then(function(){
+      var pt=['',v.n,v.lat,v.lng,idx,v.d,v.r]; S.dados.pts.push(pt); S.dados.ed=S.dados.ed||{}; S.dados.ed[key]=v;
+      fim(); redesenhar(); abrirCard(pt); msg('Caixa adicionada.');
+    }).catch(function(e){ msg('Erro ao salvar: '+(e.message||e),true); });
+  }
+  $('kz-nc').onclick=function(){ var m=S.map.getCenter(); gravar(m.lat,m.lng); };
+  $('kz-nl').onclick=function(){
+    if(!navigator.geolocation){ msg('Sem GPS neste aparelho.',true); return; }
+    navigator.geolocation.getCurrentPosition(function(g){ gravar(g.coords.latitude,g.coords.longitude); },function(){ msg('Não consegui a localização. Ative o GPS.',true); },{enableHighAccuracy:true,timeout:15000});
+  };
+  $('kz-nx').onclick=function(){ fim(); fecharCard(); };
+}
 window.KmzAba = {
   init:function(cfg){ S.cfg=cfg; },
-  abrir:function(){ montar(); if(!S.map) return; popularProjetos(); setTimeout(function(){ S.map.invalidateSize(); },60); },
+  abrir:function(){ montar(); if(!S.map) return; modo(); popularProjetos(); setTimeout(function(){ S.map.invalidateSize(); },60); },
   _parse:lerKml, _limpar:limpar, _partir:partir, _montarDados:montarDados, _estado:function(){return S;}
 };
 })();
