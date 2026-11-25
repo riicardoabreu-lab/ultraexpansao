@@ -515,6 +515,7 @@ function editarDia(dataISO){
 }
 if(window.KmzAba) KmzAba.init({ getProvedores: ()=>Object.keys(PROVEDORES), foto: { api: 'https://script.google.com/macros/s/AKfycbya4zWB8r3-goL2cZA5aDX8UUyom3WMzr2ijCODJeIcq1mN18iZUucBFqvAJ3s7_PNUYA/exec', chave: 'Expansao2026', tecnico: ()=>'Painel' } });
 document.querySelectorAll('.ni, .bni').forEach(b=>b.addEventListener('click', ()=>mostrarPanel(b.dataset.panel)));
+if(new URLSearchParams(location.search).get('aba')==='kmz') mostrarPanel('kmz');
 document.getElementById('btn-voltar-hub').addEventListener('click', ()=>{ window.location.href = '../home.html'; });
 document.getElementById('btn-atualizar-pagina').addEventListener('click', ()=>{ window.location.reload(); });
 
