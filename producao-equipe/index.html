@@ -101,6 +101,11 @@
     },
     salvarMeta: (prov, meta) => setDoc(doc(_kmzCol(prov), 'meta'), meta),
     criarProjeto: (nome) => setDoc(doc(fsDb, 'producao_equipe_provedores', nome), { nome, totalCaixas: 0 }, { merge: true }),
+    apagarProjeto: async (nome) => {
+      const snap = await getDocs(_kmzCol(nome));
+      await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+      await deleteDoc(doc(fsDb, 'producao_equipe_provedores', nome));
+    },
     salvarPartes: async (prov, meta, partes, tipo) => {
       const col = _kmzCol(prov);
       const antigos = await getDocs(col);

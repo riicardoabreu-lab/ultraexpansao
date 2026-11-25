@@ -345,6 +345,7 @@ function montar(){
    '<button class="kz-btn" id="kz-xk">⬇️ KMZ</button><button class="kz-btn" id="kz-xl">⬇️ KML</button>'+
    '<input type="file" id="kz-file" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/zip" hidden>'+
    '<button class="kz-btn" id="kz-del">🗑️ Apagar KMZ do projeto</button>'+
+   '<button class="kz-btn" id="kz-delp">🗑️ Apagar projeto</button>'+
    '<div id="kz-status"></div></div>'+
    '<div class="kz-body"><aside class="kz-side" id="kz-side"><button class="kz-btn" id="kz-sx" style="display:none;width:100%;margin-bottom:8px">✕ Fechar menu</button><button class="kz-btn" id="kz-addp" style="width:100%;margin-bottom:8px">📁 Adicionar pasta</button><input type="search" id="kz-busca" placeholder="Buscar nº ou nome da caixa"><div id="kz-res"></div><div id="kz-pastas"></div></aside><div id="kz-bd"></div>'+
    '<div class="kz-mapwrap"><button class="kz-btn" id="kz-tog">☰ Pastas</button>'+
@@ -365,6 +366,7 @@ function montar(){
   $('kz-imp').onclick=function(){ if(!S.prov){ msg('Escolha o projeto primeiro.',true); return; } $('kz-file').value=''; $('kz-file').click(); };
   $('kz-file').onchange=function(){ if(this.files[0]) importar(this.files[0]); };
   $('kz-del').onclick=apagar;
+  $('kz-delp').onclick=apagarProjeto;
   $('kz-bd').onclick=function(){ $('kz-side').classList.remove('aberto'); };
   $('kz-sx').onclick=function(){ $('kz-side').classList.remove('aberto'); };
   $('kz-novo').onclick=novoProjeto;
@@ -379,7 +381,7 @@ function montar(){
   $('kz-busca').oninput=buscar;
 }
 function popularProjetos(){
-  var sel=$('kz-proj'), nomes=(S.cfg.getProvedores()||[]).slice(); S.extra.forEach(function(n){ if(nomes.indexOf(n)<0) nomes.push(n); }); nomes.sort();
+  var sel=$('kz-proj'), nomes=(S.cfg.getProvedores()||[]).slice(); S.extra.forEach(function(n){ if(nomes.indexOf(n)<0) nomes.push(n); }); var rem=S.removidos||[]; nomes=nomes.filter(function(n){ return rem.indexOf(n)<0; }); nomes.sort();
   var antes=S.prov || localStorage.getItem('kmz_projeto') || '';
   sel.innerHTML='<option value="">— Escolha o projeto —</option>'+nomes.map(function(n){return '<option value="'+esc(n)+'">'+esc(n)+'</option>';}).join('');
   if(nomes.indexOf(antes)>=0){ sel.value=antes; if(antes!==S.prov || !S.dados) selecionar(antes); }
@@ -419,6 +421,18 @@ function apagar(){
   if(!confirm('Apagar o KMZ do projeto "'+S.prov+'"? Isso não apaga as fotos do Drive.')) return;
   var prov=S.prov;
   window._kmzApi.apagar(prov).then(function(){ limparMapa(); S.dados={pastas:[],pts:[],lns:[],meta:{}}; desenhar(); msg('KMZ do projeto apagado.'); }).catch(function(e){ msg('Erro ao apagar: '+(e.message||e), true); });
+}
+function apagarProjeto(){
+  var prov=S.prov;
+  if(!prov){ msg('Escolha o projeto primeiro.',true); return; }
+  if(!window._kmzApi.apagarProjeto){ msg('Apagar projeto não está disponível nesta tela.',true); return; }
+  if(!confirm('Apagar o PROJETO "'+prov+'" inteiro?\n\nIsso remove o projeto da lista, o KMZ dele e os dados do provedor na aba Provedores (meta de caixas e apelidos). Não apaga as fotos do Drive nem a produção já lançada. Não dá para desfazer.')) return;
+  window._kmzApi.apagarProjeto(prov).then(function(){
+    S.removidos=(S.removidos||[]).concat([prov]);
+    S.extra=S.extra.filter(function(n){ return n!==prov; });
+    S.prov=''; localStorage.setItem('kmz_projeto','');
+    limparMapa(); popularProjetos(); $('kz-proj').value=''; msg('Projeto "'+prov+'" apagado.');
+  }).catch(function(e){ msg('Erro ao apagar projeto: '+(e.message||e), true); });
 }
 function desenhar(){
   var d=S.dados, np=d.pastas.length, tot=[];
@@ -576,6 +590,7 @@ function novoProjeto(){
   var nm=(prompt('Nome do novo projeto:')||'').trim(); if(!nm) return;
   if(nm.indexOf('/')>=0){ msg('Não use "/" no nome.',true); return; }
   window._kmzApi.criarProjeto(nm).then(function(){
+    S.removidos=(S.removidos||[]).filter(function(n){ return n!==nm; });
     if(S.extra.indexOf(nm)<0) S.extra.push(nm);
     popularProjetos(); $('kz-proj').value=nm; selecionar(nm);
   }).catch(function(e){ msg('Erro ao criar projeto: '+(e.message||e),true); });
