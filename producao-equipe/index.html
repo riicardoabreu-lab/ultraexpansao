@@ -22,6 +22,7 @@
     appId: "1:374725918192:web:5afa4ee05de2db85bbf135"
   });
   const auth = getAuth(fb);
+  window._emailLogado = () => (auth.currentUser && auth.currentUser.email) || '';
   const fsDb = getFirestore(fb);
   window._doLogout = function(){
     signOut(auth).finally(()=>{
@@ -541,7 +542,7 @@ function editarDia(dataISO){
   mostrarPanel('preencher');
   renderFormularioEquipes(dataISO);
 }
-if(window.KmzAba) KmzAba.init({ getProvedores: ()=>Object.keys(PROVEDORES), foto: { api: 'https://script.google.com/macros/s/AKfycbya4zWB8r3-goL2cZA5aDX8UUyom3WMzr2ijCODJeIcq1mN18iZUucBFqvAJ3s7_PNUYA/exec', chave: 'Expansao2026', tecnico: ()=>'Painel' } });
+if(window.KmzAba) KmzAba.init({ getProvedores: ()=>Object.keys(PROVEDORES), foto: { api: 'https://script.google.com/macros/s/AKfycbya4zWB8r3-goL2cZA5aDX8UUyom3WMzr2ijCODJeIcq1mN18iZUucBFqvAJ3s7_PNUYA/exec', chave: 'Expansao2026', tecnico: ()=>{ const e = window._emailLogado ? window._emailLogado() : ''; return e ? 'Painel · ' + e.split('@')[0] : 'Painel'; } } });
 document.querySelectorAll('.ni, .bni').forEach(b=>b.addEventListener('click', ()=>mostrarPanel(b.dataset.panel)));
 // Dois modos: Produção da Equipe (sem KMZ) e MAPA COLETA (?aba=kmz, só o KMZ)
 (function(){
