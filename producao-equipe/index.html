@@ -12,7 +12,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import { getFirestore, collection, doc, setDoc, deleteDoc, deleteField, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, deleteField, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   const fb = initializeApp({
     apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
     authDomain: "isp-manager-ce.firebaseapp.com",
@@ -80,6 +80,36 @@
   };
   window._fbApagarProvedor = (nome) => deleteDoc(doc(fsDb, 'producao_equipe_provedores', nome));
 
+  // ---- Aba KMZ: guarda o KMZ de cada projeto (provedor) em subcoleção do próprio provedor ----
+  // producao_equipe_provedores/{projeto}/kmz/{meta, p000.., l000..}. Campo "j" = JSON em texto
+  // (o Firestore não aceita arrays dentro de arrays).
+  const _kmzCol = (prov) => collection(fsDb, 'producao_equipe_provedores', prov, 'kmz');
+  window._kmzApi = {
+    carregar: async (prov) => {
+      const m = await getDoc(doc(_kmzCol(prov), 'meta'));
+      if(!m.exists()) return null;
+      const snap = await getDocs(_kmzCol(prov));
+      const partes = [];
+      snap.forEach(d => { if(d.id !== 'meta') partes.push({ id: d.id, j: d.data().j }); });
+      return { meta: m.data(), partes };
+    },
+    salvar: async (prov, meta, partes) => {
+      const col = _kmzCol(prov);
+      const antigos = await getDocs(col);
+      const novos = new Set(partes.map(p => p.id));
+      for(const p of partes) await setDoc(doc(col, p.id), { j: JSON.stringify(p.d) });
+      await setDoc(doc(col, 'meta'), meta);
+      const apagar = [];
+      antigos.forEach(d => { if(d.id !== 'meta' && !novos.has(d.id)) apagar.push(deleteDoc(d.ref)); });
+      await Promise.all(apagar);
+    },
+    apagar: async (prov) => {
+      const snap = await getDocs(_kmzCol(prov));
+      const t = []; snap.forEach(d => t.push(deleteDoc(d.ref)));
+      await Promise.all(t);
+    },
+  };
+
   onSnapshot(collection(fsDb, 'producao_equipe_provedores'), snap => {
     const provedores = {};
     snap.forEach(d => { provedores[d.id] = d.data(); });
@@ -87,6 +117,10 @@
   }, err => console.error('listener producao_equipe_provedores falhou:', err));
 </script>
 <title>Produção da Equipe · Infolink</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="kmz-aba.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -226,6 +260,7 @@ tr:hover td{background:rgba(255,255,255,.018)}
       <button class="ni" data-panel="historico"><span class="ico">🗓️</span> Histórico</button>
       <button class="ni" data-panel="pesquisa"><span class="ico">🔎</span> Pesquisa</button>
       <button class="ni" data-panel="provedores"><span class="ico">📦</span> Provedores</button>
+      <button class="ni" data-panel="kmz"><span class="ico">🗺️</span> KMZ</button>
       <div class="nav-sec" style="font-size:10px;color:var(--hi);text-transform:uppercase;letter-spacing:.1em;padding:10px 8px 4px">Config</div>
       <button class="ni" data-panel="equipes"><span class="ico">👥</span> Equipes</button>
     </nav>
@@ -326,6 +361,12 @@ tr:hover td{background:rgba(255,255,255,.018)}
       </div>
     </section>
 
+    <!-- KMZ -->
+    <section class="panel" id="panel-kmz">
+      <div class="ph"><div><div class="pt">KMZ do projeto</div><div class="ps">Escolha o projeto e importe o KMZ que vai ser coletado. Ao escolher o projeto, só aparece o que foi importado para ele.</div></div></div>
+      <div id="kmz-root"></div>
+    </section>
+
     <!-- PROVEDORES -->
     <section class="panel" id="panel-provedores">
       <div class="ph"><div><div class="pt">Provedores</div><div class="ps">Meta de caixas por provedor (ex: IP2) x o que já foi coletado, a partir do bairro/atividade lançado nos dias.</div></div></div>
@@ -380,6 +421,7 @@ tr:hover td{background:rgba(255,255,255,.018)}
     <button class="bni" data-panel="historico"><span>🗓️</span><span>Histórico</span></button>
     <button class="bni" data-panel="pesquisa"><span>🔎</span><span>Pesquisa</span></button>
     <button class="bni" data-panel="provedores"><span>📦</span><span>Provedores</span></button>
+    <button class="bni" data-panel="kmz"><span>🗺️</span><span>KMZ</span></button>
     <button class="bni" data-panel="equipes"><span>👥</span><span>Equipes</span></button>
   </div>
 </div>
@@ -423,12 +465,14 @@ function mostrarPanel(nome){
   if(nome==='equipes') renderListaTimes();
   if(nome==='pesquisa') renderPesquisa();
   if(nome==='provedores') renderProvedores();
+  if(nome==='kmz' && window.KmzAba) KmzAba.abrir();
 }
 function editarDia(dataISO){
   window._pularRenderPreencher = true;
   mostrarPanel('preencher');
   renderFormularioEquipes(dataISO);
 }
+if(window.KmzAba) KmzAba.init({ getProvedores: ()=>Object.keys(PROVEDORES) });
 document.querySelectorAll('.ni, .bni').forEach(b=>b.addEventListener('click', ()=>mostrarPanel(b.dataset.panel)));
 document.getElementById('btn-voltar-hub').addEventListener('click', ()=>{ window.location.href = '../home.html'; });
 document.getElementById('btn-atualizar-pagina').addEventListener('click', ()=>{ window.location.reload(); });

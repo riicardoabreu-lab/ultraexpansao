@@ -14,7 +14,7 @@
 
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   const fb = initializeApp({
     apiKey: "AIzaSyCryi9kBLRbe1Vc8nqwYa886Pc9GxaXWwU",
     authDomain: "isp-manager-ce.firebaseapp.com",
@@ -30,6 +30,36 @@
   // login anônimo satisfaz isso sem precisar de conta/senha de verdade por
   // trás (só a senha de tela acima controla quem chega até aqui).
   window._iniciarSessaoTecnico = () => signInAnonymously(auth);
+
+  // ---- Aba KMZ: guarda o KMZ de cada projeto (provedor) em subcoleção do próprio provedor ----
+  // producao_equipe_provedores/{projeto}/kmz/{meta, p000.., l000..}. Campo "j" = JSON em texto
+  // (o Firestore não aceita arrays dentro de arrays).
+  const _kmzCol = (prov) => collection(fsDb, 'producao_equipe_provedores', prov, 'kmz');
+  window._kmzApi = {
+    carregar: async (prov) => {
+      const m = await getDoc(doc(_kmzCol(prov), 'meta'));
+      if(!m.exists()) return null;
+      const snap = await getDocs(_kmzCol(prov));
+      const partes = [];
+      snap.forEach(d => { if(d.id !== 'meta') partes.push({ id: d.id, j: d.data().j }); });
+      return { meta: m.data(), partes };
+    },
+    salvar: async (prov, meta, partes) => {
+      const col = _kmzCol(prov);
+      const antigos = await getDocs(col);
+      const novos = new Set(partes.map(p => p.id));
+      for(const p of partes) await setDoc(doc(col, p.id), { j: JSON.stringify(p.d) });
+      await setDoc(doc(col, 'meta'), meta);
+      const apagar = [];
+      antigos.forEach(d => { if(d.id !== 'meta' && !novos.has(d.id)) apagar.push(deleteDoc(d.ref)); });
+      await Promise.all(apagar);
+    },
+    apagar: async (prov) => {
+      const snap = await getDocs(_kmzCol(prov));
+      const t = []; snap.forEach(d => t.push(deleteDoc(d.ref)));
+      await Promise.all(t);
+    },
+  };
 
   window._fbSalvarDiaTecnico = (dataISO, nomeEquipe, valorEntry) =>
     setDoc(doc(fsDb, 'producao_equipe', dataISO), {
@@ -67,6 +97,10 @@
   window._SENHA_TECNICO = SENHA_TECNICO;
 </script>
 <title>Produção da Equipe · Lançamento (Técnico)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="kmz-aba.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
@@ -133,6 +167,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
     <button type="button" data-view="painel">Painel</button>
     <button type="button" data-view="provedores">Provedores</button>
     <button type="button" data-view="caixa">Caixa</button>
+    <button type="button" data-view="kmz">KMZ</button>
   </div>
 
   <!-- LANÇAR -->
@@ -207,6 +242,12 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
     <div id="tec-provedores-vazio" style="display:none;color:var(--mu);font-size:13px;text-align:center;padding:2rem">Nenhum provedor cadastrado ainda.</div>
   </div>
 
+  <!-- KMZ (projeto + mapa) -->
+  <div id="view-kmz" class="view" style="display:none">
+    <div class="sub" style="font-size:13px;color:var(--tx);margin-bottom:12px">Escolha o projeto: só aparece o KMZ dele. Importe um KMZ novo quando for coletar outro projeto.</div>
+    <div id="kmz-root"></div>
+  </div>
+
   <!-- CAIXA (adicionar caixa + até 3 fotos -> Google Drive, numeração automática) -->
   <div id="view-caixa" class="view" style="display:none">
     <div class="wrap" style="max-width:480px;margin:0">
@@ -246,6 +287,10 @@ let chartDiarioTec = null;
 const CORES = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
 const MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 
+if(window.KmzAba) KmzAba.init({
+  getProvedores: ()=>Object.keys(PROVEDORES_TEC),
+  onFotografar: (num)=>{ mudarView('caixa'); document.getElementById('cx-obs').value = num; toast('Caixa '+num+': tire as fotos e salve'); }
+});
 function toast(msg){
   const el = document.getElementById('toast');
   el.textContent = msg; el.classList.add('on');
@@ -270,6 +315,7 @@ function mudarView(v){
   if(v==='painel') renderPainelTecnico();
   if(v==='provedores') renderProvedoresTecnico();
   if(v==='caixa') cxListar();
+  if(v==='kmz' && window.KmzAba) KmzAba.abrir();
 }
 document.querySelectorAll('#tabs-tecnico button').forEach(btn=>{
   btn.addEventListener('click', ()=>mudarView(btn.dataset.view));
