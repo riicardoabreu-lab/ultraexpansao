@@ -93,6 +93,8 @@
       snap.forEach(d => { if(d.id === 'edits') edits = d.data(); else if(d.id !== 'meta') partes.push({ id: d.id, j: d.data().j }); });
       return { meta: m.data(), partes, edits };
     },
+    salvarMeta: (prov, meta) => setDoc(doc(_kmzCol(prov), 'meta'), meta),
+    criarProjeto: (nome) => setDoc(doc(fsDb, 'producao_equipe_provedores', nome), { nome, totalCaixas: 0 }, { merge: true }),
     salvarEdit: (prov, chave, valor) => setDoc(doc(_kmzCol(prov), 'edits'), { [chave]: JSON.stringify(valor) }, { merge: true }),
     salvar: async (prov, meta, partes) => {
       const col = _kmzCol(prov);
