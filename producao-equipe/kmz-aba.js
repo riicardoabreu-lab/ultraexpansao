@@ -157,10 +157,21 @@ function partir(tipo, itens){
   if(atual.length) partes.push(atual);
   return partes.map(function(d,i){ return { id: tipo+('000'+i).slice(-3), d:d }; });
 }
-function salvar(prov, r, nomeArq, cores){
+function salvar(prov, r, nomeArq, cores, icones){
   var partes=partir('p',r.pts).concat(partir('l',r.lns));
-  var meta={ pastas:r.pastas, nPts:r.pts.length, nLns:r.lns.length, partes:partes.map(function(p){return p.id;}), atualizado:Date.now(), arquivo:nomeArq||'', cores:cores||{} };
+  var meta={ pastas:r.pastas, nPts:r.pts.length, nLns:r.lns.length, partes:partes.map(function(p){return p.id;}), atualizado:Date.now(), arquivo:nomeArq||'', cores:cores||{}, icones:icones||{} };
   return window._kmzApi.salvar(prov, meta, partes).then(function(){ return meta; });
+}
+var ICONES={ circulo:'Círculo', quadrado:'Caixa (■)', losango:'CTO (◆)', triangulo:'CEO (▲)', pino:'Pino', estrela:'Estrela' };
+var ICONE_LISTA=['circulo','quadrado','losango','triangulo','pino','estrela'];
+function mkIcon(tipo, cor){
+  var f='fill="'+cor+'" stroke="#000" stroke-width="1.5"', sh='';
+  if(tipo==='quadrado') sh='<rect x="3" y="3" width="18" height="18" rx="2" '+f+'/>';
+  else if(tipo==='losango') sh='<polygon points="12,1 23,12 12,23 1,12" '+f+'/>';
+  else if(tipo==='triangulo') sh='<polygon points="12,2 23,21 1,21" '+f+'/>';
+  else if(tipo==='estrela') sh='<polygon points="12,1 15,9 23,9 17,14 19,22 12,17 5,22 7,14 1,9 9,9" '+f+'/>';
+  else sh='<path d="M12 23C12 23 4 14 4 9a8 8 0 0 1 16 0c0 5-8 14-8 14z" '+f+'/><circle cx="12" cy="9" r="3" fill="#fff"/>';
+  return L.divIcon({ className:'kz-ic', html:'<svg width="24" height="24" viewBox="0 0 24 24">'+sh+'</svg>', iconSize:[24,24], iconAnchor:tipo==='pino'?[12,22]:[12,12] });
 }
 function chave(p){ return 'k'+String(p[2]).replace(/[-.]/g,function(c){return c==='-'?'m':'p';})+'_'+String(p[3]).replace(/[-.]/g,function(c){return c==='-'?'m':'p';}); }
 function montarDados(carregado){
@@ -171,6 +182,7 @@ function montarDados(carregado){
   var ed={}; Object.keys(carregado.edits||{}).forEach(function(k){ try{ ed[k]=JSON.parse(carregado.edits[k]); }catch(e){} });
   Object.keys(ed).forEach(function(k){ var e=ed[k]; if(e&&e.novo){ var ix=(meta.pastas||[]).indexOf(e.p); pts.push(['',e.n,e.lat,e.lng,ix>=0?ix:0,e.d||'',e.r||'']); } });
   pts.forEach(function(p){ var e=ed[chave(p)]; if(e){ if(e.n) p[1]=e.n; if(e.d!=null) p[5]=e.d; if(e.r!=null) p[6]=e.r; if(e.p){ var ix=(meta.pastas||[]).indexOf(e.p); if(ix>=0) p[4]=ix; } } });
+  pts=pts.filter(function(p){ var e=ed[chave(p)]; return !(e&&e.del); });
   return { pastas:meta.pastas||[], pts:pts, lns:lns, meta:meta, ed:ed };
 }
 
@@ -261,7 +273,7 @@ function apagar(){
 }
 function desenhar(){
   var d=S.dados, np=d.pastas.length, tot=[];
-  for(var i=0;i<np;i++) tot.push({ i:i, nome:d.pastas[i], pts:0, lns:0, cor:((d.meta&&d.meta.cores&&d.meta.cores[d.pastas[i]])||CORES[i%CORES.length]), camada:L.layerGroup(), on:!S.off[d.pastas[i]], linhas:[] });
+  for(var i=0;i<np;i++) tot.push({ i:i, nome:d.pastas[i], pts:0, lns:0, cor:((d.meta&&d.meta.cores&&d.meta.cores[d.pastas[i]])||CORES[i%CORES.length]), camada:L.layerGroup(), on:!S.off[d.pastas[i]], linhas:[], icone:((d.meta&&d.meta.icones&&d.meta.icones[d.pastas[i]])||'circulo') });
   S.grupos=tot; var limites=[];
   d.lns.forEach(function(l){
     var g=tot[l[0]]; if(!g) return; g.lns++;
@@ -269,7 +281,7 @@ function desenhar(){
   });
   d.pts.forEach(function(p){
     var g=tot[p[4]]; if(!g) return; g.pts++;
-    var m=L.circleMarker([p[2],p[3]],{radius:8,color:'#000',weight:1,fillColor:g.cor,fillOpacity:.95,bubblingMouseEvents:false});
+    var m=(g.icone&&g.icone!=='circulo') ? L.marker([p[2],p[3]],{icon:mkIcon(g.icone,g.cor),bubblingMouseEvents:false}) : L.circleMarker([p[2],p[3]],{radius:8,color:'#000',weight:1,fillColor:g.cor,fillOpacity:.95,bubblingMouseEvents:false});
     m.on('click',function(){ abrirCard(p); var sd=$('kz-side'); if(sd) sd.classList.remove('aberto'); });
     m.addTo(g.camada); m._p=p; m._g=g; S.marcadores.push(m); limites.push([p[2],p[3]]);
   });
@@ -302,7 +314,7 @@ function montarArvore(){
       '<input type="color" data-k="'+n.id+'" value="'+cor+'" title="Cor dos ícones">'+
       '<button class="ch" data-m="'+n.id+'" title="Opções da pasta">⋮</button>'+
       '<input type="checkbox" data-c="'+n.id+'"'+(on===todos.length&&todos.length?' checked':'')+'></div>';
-    if(S.menu===n.path) h+='<div class="kz-menu"><button class="kz-btn" data-a="'+n.id+'">＋ Subpasta</button><button class="kz-btn" data-r="'+n.id+'">✏️ Renomear</button><button class="kz-btn" data-x="'+n.id+'">🗑️ Excluir</button></div>';
+    if(S.menu===n.path) h+='<div class="kz-menu"><button class="kz-btn" data-a="'+n.id+'">＋ Subpasta</button><button class="kz-btn" data-i="'+n.id+'">🔷 Ícone</button><button class="kz-btn" data-r="'+n.id+'">✏️ Renomear</button><button class="kz-btn" data-x="'+n.id+'">🗑️ Excluir</button></div>';
     if(S.abertos[n.path] && n.filhos.length) h+='<div class="kz-fil">'+n.filhos.map(html).join('')+'</div>';
     return h;
   }
@@ -310,6 +322,7 @@ function montarArvore(){
   function pintar(){ $('kz-pastas').innerHTML=raiz.map(html).join('') || '<div class="kz-vazio">Sem pastas.</div>'; }
   $('kz-pastas').onclick=function(e){
     var mm=e.target.closest('[data-m]'); if(mm){ var pm=lista[+mm.dataset.m].path; S.menu=(S.menu===pm?'':pm); pintar(); return; }
+    var ic=e.target.closest('[data-i]'); if(ic){ iconePasta(lista[+ic.dataset.i].path); return; }
     var rr=e.target.closest('[data-r]'); if(rr){ renomearPasta(lista[+rr.dataset.r].path); return; }
     var xx=e.target.closest('[data-x]'); if(xx){ excluirPasta(lista[+xx.dataset.x].path); return; }
     var ad=e.target.closest('[data-a]'); if(ad){ S.menu=''; addPasta(lista[+ad.dataset.a].path); return; }
@@ -327,7 +340,7 @@ function montarArvore(){
 }
 function metaAtual(){
   var d=S.dados, m=d.meta||{};
-  return { pastas:d.pastas, nPts:d.pts.length, nLns:d.lns.length, partes:m.partes||[], atualizado:m.atualizado||Date.now(), arquivo:m.arquivo||'', cores:m.cores||{} };
+  return { pastas:d.pastas, nPts:d.pts.length, nLns:d.lns.length, partes:m.partes||[], atualizado:m.atualizado||Date.now(), arquivo:m.arquivo||'', cores:m.cores||{}, icones:m.icones||{} };
 }
 function gravarMeta(){ S.dados.meta=metaAtual(); return window._kmzApi.salvarMeta(S.prov, S.dados.meta); }
 function redesenhar(){
@@ -341,8 +354,16 @@ function corPasta(grupos, cor){
     g.cor=cor; m.cores[g.nome]=cor;
     g.linhas.forEach(function(l){ l.setStyle({color:cor}); });
   });
-  S.marcadores.forEach(function(mk){ if(grupos.indexOf(mk._g)>=0) mk.setStyle({fillColor:cor}); });
+  S.marcadores.forEach(function(mk){ if(grupos.indexOf(mk._g)>=0){ if(mk.setStyle) mk.setStyle({fillColor:cor}); else mk.setIcon(mkIcon(mk._g.icone,cor)); } });
   gravarMeta().catch(function(e){ msg('Erro ao salvar cor: '+(e.message||e),true); });
+}
+function iconePasta(path){
+  var txt='Ícone das caixas desta pasta (as caixas seguem o ícone da pasta):\n'+ICONE_LISTA.map(function(k,i){ return (i+1)+' = '+ICONES[k]; }).join('\n');
+  var r=parseInt(prompt(txt,'1'),10); if(!(r>=1 && r<=ICONE_LISTA.length)) return;
+  var tipo=ICONE_LISTA[r-1], m=S.dados.meta=S.dados.meta||{}; m.icones=m.icones||{};
+  S.grupos.filter(function(g){ return sob(g.nome,path); }).forEach(function(g){ m.icones[g.nome]=tipo; });
+  S.menu=''; redesenhar();
+  gravarMeta().then(function(){ msg('Ícone alterado.'); }).catch(function(e){ msg('Erro ao salvar: '+(e.message||e),true); });
 }
 function addPasta(pai){
   if(!S.prov){ msg('Escolha o projeto primeiro.',true); return; }
@@ -370,6 +391,7 @@ function renomearPasta(path){
   function mv(n){ return sob(n,path) ? novo+n.slice(path.length) : n; }
   d.pastas=d.pastas.map(mv);
   var m=d.meta=d.meta||{}, c2={}; Object.keys(m.cores||{}).forEach(function(k){ c2[mv(k)]=m.cores[k]; }); m.cores=c2;
+  var i2={}; Object.keys(m.icones||{}).forEach(function(k){ i2[mv(k)]=m.icones[k]; }); m.icones=i2;
   var o2={}; Object.keys(S.off).forEach(function(k){ o2[mv(k)]=1; }); S.off=o2;
   var a2={}; Object.keys(S.abertos).forEach(function(k){ a2[mv(k)]=S.abertos[k]; }); S.abertos=a2;
   S.menu='';
@@ -387,12 +409,13 @@ function excluirPasta(path){
   var pts=d.pts.filter(function(p){ return !rem[p[4]]; }); pts.forEach(function(p){ p[4]=novoIdx[p[4]]; });
   var lns=d.lns.filter(function(l){ return !rem[l[0]]; }); lns.forEach(function(l){ l[0]=novoIdx[l[0]]; });
   var m=d.meta=d.meta||{}, c2={}; Object.keys(m.cores||{}).forEach(function(k){ if(!sob(k,path)) c2[k]=m.cores[k]; }); m.cores=c2;
+  var i3={}; Object.keys(m.icones||{}).forEach(function(k){ if(!sob(k,path)) i3[k]=m.icones[k]; }); m.icones=i3;
   Object.keys(S.off).forEach(function(k){ if(sob(k,path)) delete S.off[k]; });
   var ed=d.ed||{}; Object.keys(ed).forEach(function(k){ if(ed[k].p && sob(ed[k].p,path)){ if(ed[k].novo) delete ed[k]; else delete ed[k].p; } });
   d.pastas=pastas; d.pts=pts; d.lns=lns; S.menu='';
   redesenhar(); msg('Excluindo…');
   var tarefa = (nPts||nLns)
-    ? salvar(S.prov,{pastas:pastas,pts:pts,lns:lns},(m.arquivo||''),c2).then(function(ms){ d.meta=ms; return salvarEditsTodos(); })
+    ? salvar(S.prov,{pastas:pastas,pts:pts,lns:lns},(m.arquivo||''),c2,i3).then(function(ms){ d.meta=ms; return salvarEditsTodos(); })
     : gravarMeta();
   tarefa.then(function(){ msg('Pasta excluída.'); }).catch(function(e){ msg('Erro ao excluir: '+(e.message||e),true); });
 }
@@ -447,13 +470,22 @@ function abrirCard(p){
   c.innerHTML='<h4>'+esc(p[1]||p[0]||'Sem nome')+'</h4><div class="p">'+esc(S.dados.pastas[p[4]]||'')+' · '+p[2]+', '+p[3]+'</div>'+
     (p[5]?'<pre>'+esc(p[5])+'</pre>':'')+
     (p[6]?'<pre><b>Referência:</b> '+esc(p[6])+'</pre>':'')+
-    '<div class="acoes"><button class="kz-btn pri" id="kz-nav">🧭 Navegar</button><button class="kz-btn" id="kz-ed">✏️ Editar</button><button class="kz-btn" id="kz-cp">📋 Copiar coord.</button>'+
+    '<div class="acoes"><button class="kz-btn pri" id="kz-nav">🧭 Navegar</button><button class="kz-btn" id="kz-ed">✏️ Editar</button><button class="kz-btn" id="kz-cp">📋 Copiar coord.</button><button class="kz-btn" id="kz-dl">🗑️ Excluir</button>'+
     (S.cfg.onFotografar && (p[0]||/\d{5}/.test(p[1])) ? '<button class="kz-btn" id="kz-foto">📷 Fotografar esta caixa</button>':'')+
     '<button class="kz-btn" id="kz-fch">Fechar</button></div>';
   c.style.display='block'; $('kz-add').style.display='none';
   $('kz-nav').onclick=function(){ window.open('https://www.google.com/maps/dir/?api=1&destination='+p[2]+','+p[3],'_blank'); };
   $('kz-cp').onclick=function(){ var t=p[2]+', '+p[3]; if(navigator.clipboard) navigator.clipboard.writeText(t); msg('Coordenadas copiadas: '+t); };
   $('kz-ed').onclick=function(){ editarCard(p); };
+  $('kz-dl').onclick=function(){
+    if(!confirm('Excluir a caixa "'+(p[1]||p[0])+'"? Não dá para desfazer.')) return;
+    var k=chave(p), v={del:1};
+    window._kmzApi.salvarEdit(S.prov,k,v).then(function(){
+      S.dados.ed=S.dados.ed||{}; S.dados.ed[k]=v;
+      S.dados.pts=S.dados.pts.filter(function(x){ return x!==p; });
+      fecharCard(); redesenhar(); msg('Caixa excluída.');
+    }).catch(function(e){ msg('Erro ao excluir: '+(e.message||e),true); });
+  };
   if($('kz-foto')) $('kz-foto').onclick=function(){ S.cfg.onFotografar(p[0]||(/\d{5,9}/.exec(p[1])||[''])[0]); };
   $('kz-fch').onclick=fecharCard;
 }
@@ -505,7 +537,7 @@ function novaCaixa(){
   var c=$('kz-card'); $('kz-cross').style.display='block'; $('kz-add').style.display='none';
   var pastas=S.dados.pastas.length?S.dados.pastas:['Pasta padrão'];
   c.innerHTML='<div class="kz-ef"><b>Nova caixa</b> <span style="font-size:11.5px;color:var(--mu,#8a8a96)">— mova o mapa até a mira ＋ ou use sua localização</span>'+
-    '<label>Título</label><input id="kz-nt"><label>Pasta</label><select id="kz-np">'+pastas.map(function(n,i){return '<option value="'+i+'">'+esc(n)+'</option>';}).join('')+'</select>'+
+    '<label>Título</label><input id="kz-nt"><label>Pasta (a caixa usa o ícone e a cor da pasta)</label><select id="kz-np">'+pastas.map(function(n,i){return '<option value="'+i+'">'+esc(n)+'</option>';}).join('')+'</select>'+
     '<label>Descrição</label><textarea id="kz-nd" rows="2"></textarea><label>Referência</label><textarea id="kz-nr" rows="2"></textarea></div>'+
     '<div class="acoes"><button class="kz-btn pri" id="kz-nc">📍 Salvar na mira</button><button class="kz-btn" id="kz-nl">🛰️ Salvar na minha localização</button><button class="kz-btn" id="kz-nx">Cancelar</button></div>';
   c.style.display='block';
