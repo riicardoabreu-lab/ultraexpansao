@@ -530,6 +530,7 @@ function blankEmpresa(nome){
     crescPctProvedorMes:0, crescPctInfolinkMes:0,
     kmz:null, // {name} — o arquivo em si fica no IndexedDB deste navegador, não aqui
     kmzCustoCaixa:0, kmzCustoCeo:0,
+    kmzQtd1x8:0, kmzQtd1x16:0, // nº de caixas com splitter 1x8/1x16 (classificação manual - o KMZ não traz essa info), usado só pra estimar o total de portas da rede
     kmzCustoMetroPorModelo:{}, // ex: {"12": 2.5, "24": 4, "outro": 1.8} — R$/metro por bitola de fibra
     kmzValorRedeCache:0, // último "Valor estimado da rede" calculado (cacheado pra comparar entre provedores sem precisar reabrir o KMZ de cada um)
     kmzComparacaoPropostaId:null, // qual proposta usar como "preço de compra" na comparação Rede x Clientes ('sug' = Proposta Sugerida, ou o índice da proposta)
@@ -1505,6 +1506,15 @@ function tplRede(){
         <div class="kpi"><div class="label">Segmentos de cabo</div><div class="value" id="kpi-kmz-cabos">—</div></div>
         <div class="kpi"><div class="label">Metragem total</div><div class="value" id="kpi-kmz-metragem">—</div></div>
         <div class="kpi" id="kpi-kmz-outros-wrap" style="display:none;"><div class="label">Pontos não classificados</div><div class="value" id="kpi-kmz-outros">—</div></div>
+      </div>
+      <div class="field-grid" style="margin-top:16px;">
+        <div class="field"><label>Caixas com splitter 1x8</label><input id="in-kmz-qtd-1x8" type="number" min="0" step="1"></div>
+        <div class="field"><label>Caixas com splitter 1x16</label><input id="in-kmz-qtd-1x16" type="number" min="0" step="1"></div>
+      </div>
+      <div class="kpi-row" style="margin-top:16px;">
+        <div class="kpi"><div class="label">Portas 1x8</div><div class="value" id="kpi-kmz-portas-1x8">—</div></div>
+        <div class="kpi"><div class="label">Portas 1x16</div><div class="value" id="kpi-kmz-portas-1x16">—</div></div>
+        <div class="kpi hi"><div class="label">Total de portas</div><div class="value" id="kpi-kmz-portas-total">—</div><div class="sub" id="kpi-kmz-portas-sub"></div></div>
       </div>
       <div class="field-grid" style="margin-top:16px;">
         <div class="field"><label>Custo por caixa/CTO (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-kmz-custo-caixa" type="text" inputmode="numeric"></div></div>
@@ -2986,6 +2996,21 @@ function renderKmzStatsPanel(){
     setText('kpi-kmz-outros', fmtNum(s.outros));
   }
 
+  // Total de portas: nº de caixas classificadas como 1x8/1x16 (informado à
+  // mão, já que o KMZ não traz o modelo do splitter) × portas de cada uma.
+  const qtd1x8 = Number(p.kmzQtd1x8) || 0;
+  const qtd1x16 = Number(p.kmzQtd1x16) || 0;
+  const portas1x8 = qtd1x8 * 8;
+  const portas1x16 = qtd1x16 * 16;
+  setText('kpi-kmz-portas-1x8', fmtNum(portas1x8));
+  setText('kpi-kmz-portas-1x16', fmtNum(portas1x16));
+  setText('kpi-kmz-portas-total', fmtNum(portas1x8 + portas1x16));
+  const qtdInformada = qtd1x8 + qtd1x16;
+  const subPortas = document.getElementById('kpi-kmz-portas-sub');
+  if(subPortas){
+    subPortas.textContent = `${fmtNum(qtdInformada)} de ${fmtNum(s.caixas)} caixas classificadas`;
+  }
+
   if(!p.kmzCabosManuais) p.kmzCabosManuais = [];
   if(!p.kmzCabosExcluidos) p.kmzCabosExcluidos = [];
   if(!p.kmzCabosRenomeados) p.kmzCabosRenomeados = {};
@@ -3386,7 +3411,7 @@ function bindKmzControls(){
       current()[field] = raw; renderKmzStatsPanel(); saveApp();
     };
   });
-  [['in-kmz-coleta-equipes','kmzColetaEquipes'],['in-kmz-coleta-ritmo','kmzColetaCaixasPorDia'],['in-kmz-coleta-feitas','kmzColetaJaFeitas']].forEach(([id, field])=>{
+  [['in-kmz-qtd-1x8','kmzQtd1x8'],['in-kmz-qtd-1x16','kmzQtd1x16'],['in-kmz-coleta-equipes','kmzColetaEquipes'],['in-kmz-coleta-ritmo','kmzColetaCaixasPorDia'],['in-kmz-coleta-feitas','kmzColetaJaFeitas']].forEach(([id, field])=>{
     const el = document.getElementById(id); if(!el) return;
     el.value = current()[field] || '';
     el.oninput = () => {
