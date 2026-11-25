@@ -167,6 +167,8 @@ function salvar(prov, r, nomeArq, cores, icones){
   var meta={ pastas:r.pastas, nPts:r.pts.length, nLns:r.lns.length, partes:partes.map(function(p){return p.id;}), atualizado:Date.now(), arquivo:nomeArq||'', cores:cores||{}, icones:icones||{} };
   return window._kmzApi.salvar(prov, meta, partes).then(function(){ return meta; });
 }
+var MODELO_DESC='SPLITTER:\nFIBRA:\nCABO:\nPOTENCIA:\nCLIENTE:';
+function descLimpa(v){ v=(v||'').trim(); return v===MODELO_DESC ? '' : v; }
 var ICONES={ circulo:'Círculo', quadrado:'Caixa (■)', losango:'CTO (◆)', triangulo:'CEO (▲)', pino:'Pino', estrela:'Estrela' };
 var ICONE_LISTA=['circulo','quadrado','losango','triangulo','pino','estrela'];
 function mkIcon(tipo, cor){
@@ -518,14 +520,14 @@ function abrirCard(p){
 function editarCard(p){
   var c=$('kz-card');
   c.innerHTML='<div class="kz-ef"><label>Título</label><input id="kz-et" value="'+esc(p[1])+'">'+
-    '<label>Descrição</label><textarea id="kz-edsc" rows="2">'+esc(p[5]||'')+'</textarea>'+
+    '<label>Descrição</label><textarea id="kz-edsc" rows="6">'+esc(p[5]||MODELO_DESC)+'</textarea>'+
     '<label>Pasta</label><select id="kz-ep">'+S.dados.pastas.map(function(n,i){return '<option value="'+i+'"'+(i===p[4]?' selected':'')+'>'+esc(n)+'</option>';}).join('')+'</select>'+
     icoHtml('ed',p[7]||'',p[8]||'',grupoDe(p[4]))+'<label>Referência (ponto de referência / endereço)</label><textarea id="kz-er" rows="2">'+esc(p[6]||'')+'</textarea></div>'+
     '<div class="acoes"><button class="kz-btn pri" id="kz-sv">💾 Salvar</button><button class="kz-btn" id="kz-cn">Cancelar</button></div>';
   icoLigar('ed','kz-ep');
   $('kz-cn').onclick=function(){ abrirCard(p); };
   $('kz-sv').onclick=function(){
-    var v={ n:$('kz-et').value.trim(), d:$('kz-edsc').value.trim(), r:$('kz-er').value.trim(), p:S.dados.pastas[+$('kz-ep').value] }; var ico=icoLer('ed'); v.ic=ico.ic; v.cor=ico.cor;
+    var v={ n:$('kz-et').value.trim(), d:descLimpa($('kz-edsc').value), r:$('kz-er').value.trim(), p:S.dados.pastas[+$('kz-ep').value] }; var ico=icoLer('ed'); v.ic=ico.ic; v.cor=ico.cor;
     if(!v.n){ msg('Informe o título.',true); return; }
     $('kz-sv').disabled=true; $('kz-sv').textContent='Salvando…';
     S.dados.ed=S.dados.ed||{}; S.dados.ed[chave(p)]=v;
@@ -581,7 +583,7 @@ function formCaixa(lat,lng){
   c.className='kz-cardfull'; $('kz-add').style.display='none';
   c.innerHTML='<div class="kz-ef"><h4 style="margin:0 0 4px">Nova caixa</h4><div class="p" style="font-size:12px;color:var(--mu,#8a8a96)">Posição: '+lat+', '+lng+'</div>'+
     '<label>Título</label><input id="kz-nt" placeholder="Ex.: 26456 | CTO nova"><label>Pasta (a caixa usa o ícone e a cor da pasta)</label><select id="kz-np">'+pastas.map(function(n,i){return '<option value="'+i+'">'+esc(n)+'</option>';}).join('')+'</select>'+
-    '<label>Descrição</label><textarea id="kz-nd" rows="3"></textarea>'+icoHtml('nv','','',grupoDe(0))+'<label>Referência</label><textarea id="kz-nr" rows="2"></textarea></div>'+
+    '<label>Descrição</label><textarea id="kz-nd" rows="6">'+esc(MODELO_DESC)+'</textarea>'+icoHtml('nv','','',grupoDe(0))+'<label>Referência</label><textarea id="kz-nr" rows="2"></textarea></div>'+
     '<div class="acoes" style="margin-top:12px"><button class="kz-btn pri" id="kz-nc">💾 Salvar</button><button class="kz-btn" id="kz-nb">📍 Ajustar posição</button><button class="kz-btn" id="kz-nx">Cancelar</button></div>';
   c.style.display='block';
   icoLigar('nv','kz-np');
@@ -592,7 +594,7 @@ function formCaixa(lat,lng){
     var pasta=pastas[+$('kz-np').value], pre=Promise.resolve();
     if(!S.dados.pastas.length){ S.dados.pastas.push(pasta); pre=gravarMeta(); }
     var idx=S.dados.pastas.indexOf(pasta);
-    var v={ novo:1, n:n, d:$('kz-nd').value.trim(), r:$('kz-nr').value.trim(), p:pasta, lat:lat, lng:lng }; var ico=icoLer('nv'); v.ic=ico.ic; v.cor=ico.cor;
+    var v={ novo:1, n:n, d:descLimpa($('kz-nd').value), r:$('kz-nr').value.trim(), p:pasta, lat:lat, lng:lng }; var ico=icoLer('nv'); v.ic=ico.ic; v.cor=ico.cor;
     var key='novo'+Date.now(); $('kz-nc').disabled=true; $('kz-nc').textContent='Salvando…';
     pre.then(function(){ return window._kmzApi.salvarEdit(S.prov,key,v); }).then(function(){
       var pt=['',v.n,v.lat,v.lng,idx,v.d,v.r,v.ic,v.cor]; S.dados.pts.push(pt); S.dados.ed=S.dados.ed||{}; S.dados.ed[key]=v;
