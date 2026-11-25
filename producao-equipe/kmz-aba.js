@@ -69,6 +69,7 @@ function css(){
   '#kmz-root.kz-full .kz-side{position:absolute;left:0;top:0;bottom:0;width:88%;max-width:380px;max-height:none;border-radius:0;z-index:3100;display:none;overflow:auto;background:#f6f0fa;color:#222}'+
   '#kmz-root.kz-full .kz-side.aberto{display:block}'+
   '#kmz-root.kz-full .kz-bar{display:flex}'+
+  '#kz-bd{display:none;position:absolute;left:0;top:0;right:0;bottom:0;z-index:3050;background:rgba(0,0,0,.35)}.kz-side.aberto + #kz-bd{display:block}'+
   '#kmz-root.kz-full #kz-tog{display:none}#kmz-root.kz-full #kz-sx{display:block!important}'+
   '#kmz-root.kz-full .leaflet-control-zoom{display:none}'+
   '#kmz-root.kz-full .leaflet-top.leaflet-left{top:62px}'+
@@ -221,7 +222,7 @@ function montar(){
    '<input type="file" id="kz-file" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/zip" hidden>'+
    '<button class="kz-btn" id="kz-del">🗑️ Apagar KMZ do projeto</button>'+
    '<div id="kz-status"></div></div>'+
-   '<div class="kz-body"><aside class="kz-side" id="kz-side"><button class="kz-btn" id="kz-sx" style="display:none;width:100%;margin-bottom:8px">✕ Fechar menu</button><button class="kz-btn" id="kz-addp" style="width:100%;margin-bottom:8px">📁 Adicionar pasta</button><input type="search" id="kz-busca" placeholder="Buscar nº ou nome da caixa"><div id="kz-res"></div><div id="kz-pastas"></div></aside>'+
+   '<div class="kz-body"><aside class="kz-side" id="kz-side"><button class="kz-btn" id="kz-sx" style="display:none;width:100%;margin-bottom:8px">✕ Fechar menu</button><button class="kz-btn" id="kz-addp" style="width:100%;margin-bottom:8px">📁 Adicionar pasta</button><input type="search" id="kz-busca" placeholder="Buscar nº ou nome da caixa"><div id="kz-res"></div><div id="kz-pastas"></div></aside><div id="kz-bd"></div>'+
    '<div class="kz-mapwrap"><button class="kz-btn" id="kz-tog">☰ Pastas</button>'+
    '<div class="kz-bar"><button id="kz-b-menu" title="Menu">☰</button><button id="kz-b-busca" title="Buscar">🔍</button><button id="kz-b-sair" title="Voltar ao painel">⬅</button></div>'+
    '<button id="kz-add" title="Adicionar caixa">➕📍</button><div id="kz-cross"><svg width="54" height="54" viewBox="0 0 54 54"><circle cx="27" cy="27" r="14" fill="rgba(255,255,255,.35)" stroke="#000" stroke-width="4"/><path d="M27 2v14M27 38v14M2 27h14M38 27h14" stroke="#000" stroke-width="4"/><path d="M27 2v14M27 38v14M2 27h14M38 27h14" stroke="#fff" stroke-width="1.5"/></svg></div><div id="kz-pbar"><div style="display:flex;gap:10px"><button id="kz-pn">Cancelar</button><button id="kz-pok">OK</button><button id="kz-pg" title="Ir para minha localização">🛰️</button></div><div id="kz-pco"></div></div><div id="kz-map"></div><div id="kz-card"></div></div></div>';
@@ -240,6 +241,7 @@ function montar(){
   $('kz-imp').onclick=function(){ if(!S.prov){ msg('Escolha o projeto primeiro.',true); return; } $('kz-file').value=''; $('kz-file').click(); };
   $('kz-file').onchange=function(){ if(this.files[0]) importar(this.files[0]); };
   $('kz-del').onclick=apagar;
+  $('kz-bd').onclick=function(){ $('kz-side').classList.remove('aberto'); };
   $('kz-sx').onclick=function(){ $('kz-side').classList.remove('aberto'); };
   $('kz-novo').onclick=novoProjeto;
   $('kz-b-menu').onclick=function(){ $('kz-side').classList.toggle('aberto'); };
