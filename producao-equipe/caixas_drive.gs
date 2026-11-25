@@ -32,7 +32,22 @@ function planilha_() {
       ['Numero', 'Data/hora', 'Tecnico', 'Tipo', 'Latitude', 'Longitude', 'Observacao', 'Fotos', 'Link fotos', 'ID']);
     p.setProperty('PLANILHA', ss.getId());
   }
-  return ss.getSheetByName('Caixas');
+  var sh = ss.getSheetByName('Caixas');
+  if (sh.getRange(1, 11).getValue() === '') sh.getRange(1, 11).setValue('Link mapa');
+  if (!p.getProperty('LINKS_OK')) {              // uma vez so: completa as linhas antigas
+    var n = sh.getLastRow() - 1;
+    if (n > 0) {
+      var v = sh.getRange(2, 5, n, 2).getValues(), out = [];
+      for (var i = 0; i < n; i++) out.push([v[i][0] !== '' ? linkMapa_(v[i][0], v[i][1]) : '']);
+      sh.getRange(2, 11, n, 1).setValues(out);
+    }
+    p.setProperty('LINKS_OK', '1');
+  }
+  return sh;
+}
+
+function linkMapa_(lat, lng) {
+  return 'https://www.google.com/maps?q=' + String(lat).replace(',', '.') + ',' + String(lng).replace(',', '.');
 }
 
 function saida_(o) {
@@ -85,7 +100,8 @@ function doPost(e) {
       links.push(pasta.createFile(blob).getUrl());
     }
     sh.appendRow([num, new Date(), d.tecnico || '', d.tipo || '', d.lat || '', d.lng || '',
-                  d.obs || '', links.length, links.join('\n'), d.id]);
+                  d.obs || '', links.length, links.join('\n'), d.id,
+                  (d.lat !== undefined && d.lat !== '') ? linkMapa_(d.lat, d.lng) : '']);
     return saida_({ ok: true, numero: num, fotos: links.length });
   } catch (err) {
     return saida_({ ok: false, erro: String(err) });
