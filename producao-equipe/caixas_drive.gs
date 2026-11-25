@@ -66,8 +66,10 @@ function doPost(e) {
     p.setProperty('PROX', String(num + 1));
 
     var pasta = pasta_(), links = [], fotos = d.fotos || [];
+    // nome do arquivo = o que o tecnico digitou em Observacao (sem caracteres proibidos); sem texto, usa o numero
+    var base = String(d.obs || '').replace(/[\\\/:*?"<>|\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 80) || String(num);
     for (var k = 0; k < fotos.length && k < 3; k++) {
-      var nome = num + (k === 0 ? '' : ' (' + (k + 1) + ')') + '.jpg';
+      var nome = base + (k === 0 ? '' : ' (' + (k + 1) + ')') + '.jpg';
       var blob = Utilities.newBlob(Utilities.base64Decode(fotos[k]), 'image/jpeg', nome);
       links.push(pasta.createFile(blob).getUrl());
     }

@@ -222,9 +222,9 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
         <div class="fl"><label>Fotos (até 3)</label>
           <div id="cx-fotos" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
         </div>
-        <div class="fl"><label>Observação</label><input type="text" id="cx-obs" placeholder="opcional"></div>
+        <div class="fl"><label>Observação (nome das fotos no Drive)</label><input type="text" id="cx-obs" placeholder="ex.: CTO 123 - Rua Tal"></div>
         <button class="btn pri" id="cx-salvar">Salvar caixa</button>
-        <div style="font-size:11.5px;color:var(--hi);margin-top:10px">O número da caixa é gerado automaticamente. Sem sinal, fica guardado no celular e envia sozinho depois.</div>
+        <div style="font-size:11.5px;color:var(--hi);margin-top:10px">As fotos são salvas no Drive com o nome digitado em Observação; o número da caixa é gerado automaticamente e fica na planilha. Sem sinal, fica guardado no celular e envia sozinho depois.</div>
       </div>
       <div class="card recentes">
         <div style="font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Minhas últimas caixas</div>
@@ -578,6 +578,7 @@ document.getElementById('cx-salvar').addEventListener('click', ()=>{
   const equipe = document.getElementById('cx-tec').value;
   if(!equipe){ toast('Escolha o técnico que está enviando'); return; }
   if(!cxPos){ toast('Pegue a localização primeiro'); return; }
+  if(!document.getElementById('cx-obs').value.trim()){ toast('Digite o nome da caixa em Observação'); return; }
   if(!cxFotos[0]){ toast('Tire pelo menos 1 foto'); return; }
   if(!cxDb) return;
   cxSt('readwrite').put({
