@@ -158,6 +158,12 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
 .rec-item{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--b1);font-size:13px}
 .rec-item:last-child{border-bottom:none}
 .rec-item .d{color:var(--mu)}
+.home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:6px}
+.home-card{display:block;width:100%;text-align:left;cursor:pointer;background:var(--card,#161922);border:1px solid var(--b1,#2a2f3d);border-radius:14px;padding:1.6rem 1.3rem;color:var(--tx);font-family:inherit}
+.home-card:hover{border-color:var(--ac)}
+.home-card .ic{font-size:34px;margin-bottom:10px}
+.home-card .tt{font-size:17px;font-weight:700;margin-bottom:4px}
+.home-card .ds{font-size:12.5px;color:var(--mu)}
 .logout-row{text-align:center;margin-top:1rem}
 .logout-row button{background:none;border:none;color:var(--hi);font-size:12px;cursor:pointer;text-decoration:underline}
 </style>
@@ -183,16 +189,27 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
     <button class="btn" id="btn-sair">Sair</button></div>
   </div>
 
-  <div class="seg" id="tabs-tecnico" style="max-width:420px;margin-bottom:1.1rem">
-    <button type="button" data-view="lancar" class="on">Lançar</button>
-    <button type="button" data-view="painel">Painel</button>
-    <button type="button" data-view="provedores">Provedores</button>
-    <button type="button" data-view="caixa">Caixa</button>
-    <button type="button" data-view="kmz">KMZ</button>
+  <!-- INÍCIO: dois cards -->
+  <div id="tela-home">
+    <div class="home-grid">
+      <button type="button" class="home-card" data-area="producao"><div class="ic">🚀</div><div class="tt">Produção da equipe</div><div class="ds">Lançar o dia, painel e provedores</div></button>
+      <button type="button" class="home-card" data-area="coleta"><div class="ic">🗺️</div><div class="tt">MAPA COLETA</div><div class="ds">Adicionar caixa + fotos e mapa KMZ</div></button>
+    </div>
+  </div>
+
+  <div id="area-nav" style="display:none">
+    <button type="button" class="btn" id="btn-inicio" style="margin-bottom:10px">← Início</button>
+    <div class="seg" id="tabs-tecnico" style="max-width:420px;margin-bottom:1.1rem">
+      <button type="button" data-view="lancar" data-area="producao" class="on">Lançar</button>
+      <button type="button" data-view="painel" data-area="producao">Painel</button>
+      <button type="button" data-view="provedores" data-area="producao">Provedores</button>
+      <button type="button" data-view="caixa" data-area="coleta">Caixa</button>
+      <button type="button" data-view="kmz" data-area="coleta">KMZ</button>
+    </div>
   </div>
 
   <!-- LANÇAR -->
-  <div id="view-lancar" class="view">
+  <div id="view-lancar" class="view" style="display:none">
     <div class="wrap" style="max-width:480px;margin:0">
       <div class="card">
         <div class="fl">
@@ -302,7 +319,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
 let DIAS = {};
 let TIMES = [];
 let PROVEDORES_TEC = {};
-let viewAtual = 'lancar';
+let viewAtual = null;
 let mesAtualTec = new Date(); mesAtualTec.setDate(1);
 let chartDiarioTec = null;
 const CORES = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
@@ -342,6 +359,22 @@ function mudarView(v){
 document.querySelectorAll('#tabs-tecnico button').forEach(btn=>{
   btn.addEventListener('click', ()=>mudarView(btn.dataset.view));
 });
+// ---------- início: Produção da equipe x MAPA COLETA ----------
+function abrirArea(area){
+  document.getElementById('tela-home').style.display = 'none';
+  document.getElementById('area-nav').style.display = 'block';
+  const abas = [...document.querySelectorAll('#tabs-tecnico button')];
+  abas.forEach(b=>{ b.style.display = b.dataset.area===area ? '' : 'none'; });
+  mudarView(abas.find(b=>b.dataset.area===area).dataset.view);
+}
+function voltarInicio(){
+  viewAtual = null;
+  document.querySelectorAll('.view').forEach(el=>{ el.style.display = 'none'; });
+  document.getElementById('area-nav').style.display = 'none';
+  document.getElementById('tela-home').style.display = 'block';
+}
+document.querySelectorAll('.home-card').forEach(c=>c.addEventListener('click', ()=>abrirArea(c.dataset.area)));
+document.getElementById('btn-inicio').addEventListener('click', voltarInicio);
 document.getElementById('tec-mes-prev').addEventListener('click', ()=>{ mesAtualTec.setMonth(mesAtualTec.getMonth()-1); renderPainelTecnico(); });
 document.getElementById('tec-mes-next').addEventListener('click', ()=>{ mesAtualTec.setMonth(mesAtualTec.getMonth()+1); renderPainelTecnico(); });
 
@@ -521,6 +554,7 @@ let listenersJaIniciados = false;
 function abrirFormulario(){
   document.getElementById('tela-senha').style.display = 'none';
   document.getElementById('tela-form').style.display = 'block';
+  if(typeof voltarInicio==='function') voltarInicio();
   document.getElementById('in-data').value = fmtISO(new Date());
   document.getElementById('quem').textContent = USUARIO ? '· 👤 ' + USUARIO.nome : '';
   if(!listenersJaIniciados){
