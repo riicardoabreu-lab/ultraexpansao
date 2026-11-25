@@ -38,6 +38,7 @@ function css(){
   '.kz-pasta span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'+
   '.kz-pasta small{color:var(--mu,#8a8a96)}'+
   '#kz-card{position:absolute;left:0;right:0;bottom:0;z-index:1000;background:var(--s1,#18181c);border-top:1px solid var(--b2,rgba(255,255,255,.13));padding:12px 14px;display:none}'+
+  '#kz-card{max-height:75%;overflow:auto}.kz-ef label{display:block;font-size:11.5px;color:var(--mu,#8a8a96);margin:6px 0 2px}.kz-ef input,.kz-ef textarea{width:100%;box-sizing:border-box;background:var(--bg,#0f0f11);border:1px solid var(--b2,rgba(255,255,255,.13));border-radius:9px;padding:8px 10px;color:var(--tx,#f0f0f2);font:inherit}'+
   '#kz-card h4{margin:0 0 2px;font-size:15px}#kz-card .p{font-size:11.5px;color:var(--mu,#8a8a96);margin-bottom:6px}'+
   '#kz-card pre{margin:0 0 8px;white-space:pre-wrap;font:12.5px/1.4 inherit;color:var(--tx,#f0f0f2);max-height:90px;overflow:auto}'+
   '#kz-card .acoes{display:flex;gap:8px;flex-wrap:wrap}'+
@@ -139,11 +140,14 @@ function salvar(prov, r, nomeArq){
   var meta={ pastas:r.pastas, nPts:r.pts.length, nLns:r.lns.length, partes:partes.map(function(p){return p.id;}), atualizado:Date.now(), arquivo:nomeArq||'' };
   return window._kmzApi.salvar(prov, meta, partes);
 }
+function chave(p){ return 'k'+String(p[2]).replace(/[-.]/g,function(c){return c==='-'?'m':'p';})+'_'+String(p[3]).replace(/[-.]/g,function(c){return c==='-'?'m':'p';}); }
 function montarDados(carregado){
   var meta=carregado.meta, pts=[], lns=[];
   carregado.partes.sort(function(a,b){return a.id<b.id?-1:1;}).forEach(function(p){
-    var d=JSON.parse(p.j); if(p.id.charAt(0)==='p') pts=pts.concat(d); else lns=lns.concat(d);
+    if(!/^[pl]\d{3}$/.test(p.id)) return; var d=JSON.parse(p.j); if(p.id.charAt(0)==='p') pts=pts.concat(d); else lns=lns.concat(d);
   });
+  var ed={}; Object.keys(carregado.edits||{}).forEach(function(k){ try{ ed[k]=JSON.parse(carregado.edits[k]); }catch(e){} });
+  pts.forEach(function(p){ var e=ed[chave(p)]; if(e){ if(e.n) p[1]=e.n; if(e.d!=null) p[5]=e.d; if(e.r!=null) p[6]=e.r; } });
   return { pastas:meta.pastas||[], pts:pts, lns:lns, meta:meta };
 }
 
@@ -292,14 +296,34 @@ function abrirCard(p){
   S.atual=p; var c=$('kz-card');
   c.innerHTML='<h4>'+esc(p[1]||p[0]||'Sem nome')+'</h4><div class="p">'+esc(S.dados.pastas[p[4]]||'')+' · '+p[2]+', '+p[3]+'</div>'+
     (p[5]?'<pre>'+esc(p[5])+'</pre>':'')+
-    '<div class="acoes"><button class="kz-btn pri" id="kz-nav">🧭 Navegar</button><button class="kz-btn" id="kz-cp">📋 Copiar coord.</button>'+
+    (p[6]?'<pre><b>Referência:</b> '+esc(p[6])+'</pre>':'')+
+    '<div class="acoes"><button class="kz-btn pri" id="kz-nav">🧭 Navegar</button><button class="kz-btn" id="kz-ed">✏️ Editar</button><button class="kz-btn" id="kz-cp">📋 Copiar coord.</button>'+
     (S.cfg.onFotografar && (p[0]||/\d{5}/.test(p[1])) ? '<button class="kz-btn" id="kz-foto">📷 Fotografar esta caixa</button>':'')+
     '<button class="kz-btn" id="kz-fch">Fechar</button></div>';
   c.style.display='block';
   $('kz-nav').onclick=function(){ window.open('https://www.google.com/maps/dir/?api=1&destination='+p[2]+','+p[3],'_blank'); };
   $('kz-cp').onclick=function(){ var t=p[2]+', '+p[3]; if(navigator.clipboard) navigator.clipboard.writeText(t); msg('Coordenadas copiadas: '+t); };
+  $('kz-ed').onclick=function(){ editarCard(p); };
   if($('kz-foto')) $('kz-foto').onclick=function(){ S.cfg.onFotografar(p[0]||(/\d{5,9}/.exec(p[1])||[''])[0]); };
   $('kz-fch').onclick=fecharCard;
+}
+function editarCard(p){
+  var c=$('kz-card');
+  c.innerHTML='<div class="kz-ef"><label>Título</label><input id="kz-et" value="'+esc(p[1])+'">'+
+    '<label>Descrição</label><textarea id="kz-edsc" rows="2">'+esc(p[5]||'')+'</textarea>'+
+    '<label>Referência (ponto de referência / endereço)</label><textarea id="kz-er" rows="2">'+esc(p[6]||'')+'</textarea></div>'+
+    '<div class="acoes"><button class="kz-btn pri" id="kz-sv">💾 Salvar</button><button class="kz-btn" id="kz-cn">Cancelar</button></div>';
+  $('kz-cn').onclick=function(){ abrirCard(p); };
+  $('kz-sv').onclick=function(){
+    var v={ n:$('kz-et').value.trim(), d:$('kz-edsc').value.trim(), r:$('kz-er').value.trim() };
+    if(!v.n){ msg('Informe o título.',true); return; }
+    $('kz-sv').disabled=true; $('kz-sv').textContent='Salvando…';
+    window._kmzApi.salvarEdit(S.prov, chave(p), v).then(function(){
+      p[1]=v.n; p[5]=v.d; p[6]=v.r;
+      var m=S.marcadores.filter(function(x){return x._p===p;})[0]; if(m && m.getTooltip()){ m.unbindTooltip(); }
+      rotular(); abrirCard(p); msg('Caixa atualizada.');
+    }).catch(function(e){ msg('Erro ao salvar: '+(e.message||e),true); abrirCard(p); });
+  };
 }
 function fecharCard(){ var c=$('kz-card'); if(c) c.style.display='none'; S.atual=null; }
 function buscar(){

@@ -40,10 +40,11 @@
       const m = await getDoc(doc(_kmzCol(prov), 'meta'));
       if(!m.exists()) return null;
       const snap = await getDocs(_kmzCol(prov));
-      const partes = [];
-      snap.forEach(d => { if(d.id !== 'meta') partes.push({ id: d.id, j: d.data().j }); });
-      return { meta: m.data(), partes };
+      const partes = []; let edits = {};
+      snap.forEach(d => { if(d.id === 'edits') edits = d.data(); else if(d.id !== 'meta') partes.push({ id: d.id, j: d.data().j }); });
+      return { meta: m.data(), partes, edits };
     },
+    salvarEdit: (prov, chave, valor) => setDoc(doc(_kmzCol(prov), 'edits'), { [chave]: JSON.stringify(valor) }, { merge: true }),
     salvar: async (prov, meta, partes) => {
       const col = _kmzCol(prov);
       const antigos = await getDocs(col);
@@ -51,7 +52,7 @@
       for(const p of partes) await setDoc(doc(col, p.id), { j: JSON.stringify(p.d) });
       await setDoc(doc(col, 'meta'), meta);
       const apagar = [];
-      antigos.forEach(d => { if(d.id !== 'meta' && !novos.has(d.id)) apagar.push(deleteDoc(d.ref)); });
+      antigos.forEach(d => { if(d.id !== 'meta' && d.id !== 'edits' && !novos.has(d.id)) apagar.push(deleteDoc(d.ref)); });
       await Promise.all(apagar);
     },
     apagar: async (prov) => {
