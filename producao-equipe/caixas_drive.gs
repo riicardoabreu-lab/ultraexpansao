@@ -34,16 +34,18 @@ function planilha_() {
   }
   var sh = ss.getSheetByName('Caixas');
   if (sh.getRange(1, 11).getValue() === '') sh.getRange(1, 11).setValue('Link mapa');
-  if (!p.getProperty('LINKS_OK')) {              // uma vez so: completa as linhas antigas
-    var n = sh.getLastRow() - 1;
-    if (n > 0) {
-      var v = sh.getRange(2, 5, n, 2).getValues(), out = [];
-      for (var i = 0; i < n; i++) out.push([v[i][0] !== '' ? linkMapa_(v[i][0], v[i][1]) : '']);
-      sh.getRange(2, 11, n, 1).setValues(out);
-    }
-    p.setProperty('LINKS_OK', '1');
-  }
   return sh;
+}
+
+// completa o Link mapa das linhas que ainda nao tem (ex.: caixas importadas do KMZ)
+function completarLinks_(sh) {
+  var n = sh.getLastRow() - 1;
+  if (n < 1) return;
+  var v = sh.getRange(2, 5, n, 2).getValues(), k = sh.getRange(2, 11, n, 1).getValues(), mudou = false;
+  for (var i = 0; i < n; i++) {
+    if (k[i][0] === '' && v[i][0] !== '' && v[i][1] !== '') { k[i][0] = linkMapa_(v[i][0], v[i][1]); mudou = true; }
+  }
+  if (mudou) sh.getRange(2, 11, n, 1).setValues(k);
 }
 
 function linkMapa_(lat, lng) {
@@ -55,7 +57,9 @@ function saida_(o) {
 }
 
 function doGet(e) {
-  var sh = planilha_(), n = Math.max(sh.getLastRow() - 1, 0);
+  var sh = planilha_();
+  completarLinks_(sh);
+  var n = Math.max(sh.getLastRow() - 1, 0);
   return saida_({ ok: true, caixas: n, pasta: pasta_().getUrl(), planilha: sh.getParent().getUrl() });
 }
 
