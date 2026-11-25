@@ -88,7 +88,11 @@ function doPost(e) {
     var mm = String(d.obs || '').match(/^\s*(\d{5})(?!\d)/);
     var exist = mm ? parseInt(mm[1], 10) : 0;
     var num;
-    if (exist >= NUMERO_EXISTENTE_MIN && exist < NUMERO_INICIAL) {
+    var numTxt = String(d.numeroTexto || '').trim();
+    if (numTxt) {
+      // foto de ponto do mapa KMZ: usa o numero/nome do proprio ponto e NAO gasta numero novo
+      num = numTxt;
+    } else if (exist >= NUMERO_EXISTENTE_MIN && exist < NUMERO_INICIAL) {
       num = exist;
     } else {
       num = Math.max(parseInt(p.getProperty('PROX') || '0', 10), NUMERO_INICIAL);

@@ -293,6 +293,7 @@ const MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','ag
 
 if(window.KmzAba) KmzAba.init({
   getProvedores: ()=>Object.keys(PROVEDORES_TEC),
+  foto: { get api(){ return CX_API; }, get chave(){ return CX_CHAVE; }, tecnico: ()=>{ const e=document.getElementById('sel-equipe'); return e ? e.value : ''; } },
   onFotografar: (num)=>{ mudarView('caixa'); document.getElementById('cx-obs').value = num; toast('Caixa '+num+': tire as fotos e salve'); }
 });
 function toast(msg){

@@ -13,7 +13,10 @@ var S = { cfg:null, map:null, prov:'', dados:null, grupos:[], marcadores:[], rot
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 function semAcento(s){ return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(); }
-function msg(t, erro){ var el=$('kz-status'); if(el){ el.textContent=t||''; el.style.color = erro ? '#ef4444' : 'var(--mu,#8a8a96)'; } }
+function msg(t, erro){
+  var el=$('kz-status'); if(el){ el.textContent=t||''; el.style.color = erro ? '#ef4444' : 'var(--mu,#8a8a96)'; }
+  var tt=$('kz-toast'); if(tt && t){ tt.textContent=t; tt.style.background=erro?'#b91c1c':'#222'; tt.style.display='block'; clearTimeout(tt._t); tt._t=setTimeout(function(){ tt.style.display='none'; }, erro?6000:3500); }
+}
 
 // ---------- CSS ----------
 function css(){
@@ -58,6 +61,7 @@ function css(){
   '.kz-bar button{width:46px;height:44px;border:0;background:none;font-size:20px;color:#222;cursor:pointer;border-right:1px solid #ddd}.kz-bar button:last-child{border:0}'+
   '#kz-add{position:absolute;right:12px;bottom:18px;z-index:1050;width:58px;height:58px;border-radius:50%;border:0;background:#f6f0fa;color:#222;font-size:22px;box-shadow:0 2px 8px rgba(0,0,0,.5);cursor:pointer}'+
   '#kz-cross{display:none;position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px 0 0 -27px;z-index:900;pointer-events:none}'+
+  '#kz-toast{display:none;position:absolute;left:50%;top:64px;transform:translateX(-50%);z-index:1200;max-width:86%;color:#fff;padding:9px 14px;border-radius:10px;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.5);text-align:center}'+
   '#kz-pbar{display:none;position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:1060;flex-direction:column;align-items:center;gap:8px}'+
   '#kz-pbar button{min-width:76px;height:52px;border:0;border-radius:10px;background:#f6f0fa;color:#222;font-size:16px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.5);padding:0 14px}'+
   '#kz-pco{background:#f6f0fa;color:#222;border-radius:10px;padding:6px 14px;font-size:13px;text-align:left;box-shadow:0 2px 6px rgba(0,0,0,.5)}'+
@@ -199,6 +203,50 @@ function icoLigar(id, selPasta){
     prev=novo;
   };
 }
+var FQ={db:null,busy:false};
+function fotoDb(cb){
+  if(FQ.db) return cb(FQ.db);
+  try{ var rq=indexedDB.open('kmzfotos-v1',1); rq.onupgradeneeded=function(){ rq.result.createObjectStore('f',{keyPath:'id'}); };
+    rq.onsuccess=function(){ FQ.db=rq.result; cb(FQ.db); }; rq.onerror=function(){ cb(null); }; }catch(e){ cb(null); }
+}
+function fotoReduzir(file){
+  return new Promise(function(ok,err){
+    var im=new Image(), u=URL.createObjectURL(file);
+    im.onload=function(){ var k=Math.min(1,1280/Math.max(im.width,im.height)), c=document.createElement('canvas'); c.width=Math.round(im.width*k); c.height=Math.round(im.height*k);
+      c.getContext('2d').drawImage(im,0,0,c.width,c.height); URL.revokeObjectURL(u); ok(c.toDataURL('image/jpeg',.72).split(',')[1]); };
+    im.onerror=function(){ err(new Error('Foto inválida')); }; im.src=u;
+  });
+}
+function fotoEnviar(){
+  if(FQ.busy || !navigator.onLine || !S.cfg || !S.cfg.foto) return;
+  fotoDb(function(db){
+    if(!db) return;
+    var rq=db.transaction('f').objectStore('f').getAll();
+    rq.onsuccess=function(){
+      var p=rq.result[0]; if(!p || FQ.busy) return; FQ.busy=true;
+      fetch(S.cfg.foto.api,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(Object.assign({},p,{chave:S.cfg.foto.chave}))})
+        .then(function(r){ return r.json(); }).then(function(j){
+          FQ.busy=false;
+          if(j.ok){ db.transaction('f','readwrite').objectStore('f').delete(p.id); msg('Fotos de "'+p.obs+'" enviadas ✓'); fotoEnviar(); }
+          else msg('Erro ao enviar fotos: '+(j.erro||'?'),true);
+        }).catch(function(e){ FQ.busy=false; msg('Sem conexão — as fotos ficam no aparelho e são enviadas depois.',true); });
+    };
+  });
+}
+setInterval(fotoEnviar,30000); window.addEventListener('online',fotoEnviar);
+function enviarFotos(files, p){
+  files=Array.prototype.slice.call(files||[],0,3); if(!files.length || !S.cfg.foto) return;
+  msg('Preparando '+files.length+' foto(s)…');
+  Promise.all(files.map(fotoReduzir)).then(function(b64){
+    var num=(/^\s*(\d{5,12})/.exec(p[1])||[])[1]||p[1];
+    var pl={ id:Date.now()+'-'+Math.random().toString(36).slice(2,8), tecnico:(S.cfg.foto.tecnico&&S.cfg.foto.tecnico())||'', tipo:(S.dados.pastas[p[4]]||'').split('/').pop(), lat:p[2], lng:p[3], obs:p[1], numeroTexto:num, fotos:b64 };
+    fotoDb(function(db){
+      if(!db){ msg('Não foi possível guardar as fotos neste aparelho.',true); return; }
+      var tx=db.transaction('f','readwrite'); tx.objectStore('f').put(pl);
+      tx.oncomplete=function(){ msg('Enviando fotos…'); fotoEnviar(); };
+    });
+  }).catch(function(e){ msg('Erro nas fotos: '+(e.message||e),true); });
+}
 function chave(p){ return 'k'+String(p[2]).replace(/[-.]/g,function(c){return c==='-'?'m':'p';})+'_'+String(p[3]).replace(/[-.]/g,function(c){return c==='-'?'m':'p';}); }
 function montarDados(carregado){
   var meta=carregado.meta, pts=[], lns=[];
@@ -227,7 +275,7 @@ function montar(){
    '<div class="kz-body"><aside class="kz-side" id="kz-side"><button class="kz-btn" id="kz-sx" style="display:none;width:100%;margin-bottom:8px">✕ Fechar menu</button><button class="kz-btn" id="kz-addp" style="width:100%;margin-bottom:8px">📁 Adicionar pasta</button><input type="search" id="kz-busca" placeholder="Buscar nº ou nome da caixa"><div id="kz-res"></div><div id="kz-pastas"></div></aside><div id="kz-bd"></div>'+
    '<div class="kz-mapwrap"><button class="kz-btn" id="kz-tog">☰ Pastas</button>'+
    '<div class="kz-bar"><button id="kz-b-menu" title="Menu">☰</button><button id="kz-b-busca" title="Buscar">🔍</button><button id="kz-b-sair" title="Voltar ao painel">⬅</button></div>'+
-   '<button id="kz-add" title="Adicionar caixa">➕📍</button><div id="kz-cross"><svg width="54" height="54" viewBox="0 0 54 54"><circle cx="27" cy="27" r="14" fill="rgba(255,255,255,.35)" stroke="#000" stroke-width="4"/><path d="M27 2v14M27 38v14M2 27h14M38 27h14" stroke="#000" stroke-width="4"/><path d="M27 2v14M27 38v14M2 27h14M38 27h14" stroke="#fff" stroke-width="1.5"/></svg></div><div id="kz-pbar"><div style="display:flex;gap:10px"><button id="kz-pn">Cancelar</button><button id="kz-pok">OK</button><button id="kz-pg" title="Ir para minha localização">🛰️</button></div><div id="kz-pco"></div></div><div id="kz-map"></div><div id="kz-card"></div></div></div>';
+   '<button id="kz-add" title="Adicionar caixa">➕📍</button><div id="kz-cross"><svg width="54" height="54" viewBox="0 0 54 54"><circle cx="27" cy="27" r="14" fill="rgba(255,255,255,.35)" stroke="#000" stroke-width="4"/><path d="M27 2v14M27 38v14M2 27h14M38 27h14" stroke="#000" stroke-width="4"/><path d="M27 2v14M27 38v14M2 27h14M38 27h14" stroke="#fff" stroke-width="1.5"/></svg></div><div id="kz-pbar"><div style="display:flex;gap:10px"><button id="kz-pn">Cancelar</button><button id="kz-pok">OK</button><button id="kz-pg" title="Ir para minha localização">🛰️</button></div><div id="kz-pco"></div></div><div id="kz-map"></div><div id="kz-toast"></div><div id="kz-card"></div></div></div>';
   S.montado=true;
   S.map=L.map('kz-map',{renderer:L.canvas({tolerance:12}),zoomControl:true}).setView([-3.78,-38.49],12);
   var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,attribution:'Esri'});
@@ -499,12 +547,14 @@ function abrirCard(p){
     (p[5]?'<pre>'+esc(p[5])+'</pre>':'')+
     (p[6]?'<pre><b>Referência:</b> '+esc(p[6])+'</pre>':'')+
     '<div class="acoes"><button class="kz-btn pri" id="kz-nav">🧭 Navegar</button><button class="kz-btn" id="kz-ed">✏️ Editar</button><button class="kz-btn" id="kz-cp">📋 Copiar coord.</button><button class="kz-btn" id="kz-dl">🗑️ Excluir</button>'+
-    (S.cfg.onFotografar && (p[0]||/\d{5}/.test(p[1])) ? '<button class="kz-btn" id="kz-foto">📷 Fotografar esta caixa</button>':'')+
+    (S.cfg.foto ? '<button class="kz-btn" id="kz-ft">📷 Adicionar fotos</button><input type="file" id="kz-fi" accept="image/*" multiple hidden>' : '')+
+    (!S.cfg.foto && S.cfg.onFotografar && (p[0]||/\d{5}/.test(p[1])) ? '<button class="kz-btn" id="kz-foto">📷 Fotografar esta caixa</button>':'')+
     '<button class="kz-btn" id="kz-fch">Fechar</button></div>';
   c.style.display='block'; $('kz-add').style.display='none';
   $('kz-nav').onclick=function(){ window.open('https://www.google.com/maps/dir/?api=1&destination='+p[2]+','+p[3],'_blank'); };
   $('kz-cp').onclick=function(){ var t=p[2]+', '+p[3]; if(navigator.clipboard) navigator.clipboard.writeText(t); msg('Coordenadas copiadas: '+t); };
   $('kz-ed').onclick=function(){ editarCard(p); };
+  if($('kz-ft')){ $('kz-ft').onclick=function(){ $('kz-fi').value=''; $('kz-fi').click(); }; $('kz-fi').onchange=function(){ enviarFotos(this.files,p); }; }
   $('kz-dl').onclick=function(){
     if(!confirm('Excluir a caixa "'+(p[1]||p[0])+'"? Não dá para desfazer.')) return;
     var k=chave(p), v={del:1};
@@ -522,19 +572,19 @@ function editarCard(p){
   c.innerHTML='<div class="kz-ef"><label>Título</label><input id="kz-et" value="'+esc(p[1])+'">'+
     '<label>Descrição</label><textarea id="kz-edsc" rows="6">'+esc(p[5]||MODELO_DESC)+'</textarea>'+
     '<label>Pasta</label><select id="kz-ep">'+S.dados.pastas.map(function(n,i){return '<option value="'+i+'"'+(i===p[4]?' selected':'')+'>'+esc(n)+'</option>';}).join('')+'</select>'+
-    icoHtml('ed',p[7]||'',p[8]||'',grupoDe(p[4]))+'<label>Referência (ponto de referência / endereço)</label><textarea id="kz-er" rows="2">'+esc(p[6]||'')+'</textarea></div>'+
+    icoHtml('ed',p[7]||'',p[8]||'',grupoDe(p[4]))+(S.cfg.foto?'<label>Fotos (até 3) — são enviadas ao salvar</label><input type="file" id="kz-fo" accept="image/*" multiple>':'')+'<label>Referência (ponto de referência / endereço)</label><textarea id="kz-er" rows="2">'+esc(p[6]||'')+'</textarea></div>'+
     '<div class="acoes"><button class="kz-btn pri" id="kz-sv">💾 Salvar</button><button class="kz-btn" id="kz-cn">Cancelar</button></div>';
   icoLigar('ed','kz-ep');
   $('kz-cn').onclick=function(){ abrirCard(p); };
   $('kz-sv').onclick=function(){
-    var v={ n:$('kz-et').value.trim(), d:descLimpa($('kz-edsc').value), r:$('kz-er').value.trim(), p:S.dados.pastas[+$('kz-ep').value] }; var ico=icoLer('ed'); v.ic=ico.ic; v.cor=ico.cor;
+    var v={ n:$('kz-et').value.trim(), d:descLimpa($('kz-edsc').value), r:$('kz-er').value.trim(), p:S.dados.pastas[+$('kz-ep').value] }; var ico=icoLer('ed'); v.ic=ico.ic; v.cor=ico.cor; var fotos=$('kz-fo')?$('kz-fo').files:[];
     if(!v.n){ msg('Informe o título.',true); return; }
     $('kz-sv').disabled=true; $('kz-sv').textContent='Salvando…';
     S.dados.ed=S.dados.ed||{}; S.dados.ed[chave(p)]=v;
     window._kmzApi.salvarEdit(S.prov, chave(p), v).then(function(){
       p[1]=v.n; p[5]=v.d; p[6]=v.r; p[7]=v.ic; p[8]=v.cor; var mudou=true; p[4]=+$('kz-ep').value;
       var m=S.marcadores.filter(function(x){return x._p===p;})[0]; if(m && m.getTooltip()){ m.unbindTooltip(); }
-      if(mudou) redesenhar(); else rotular(); abrirCard(p); msg('Caixa atualizada.');
+      if(mudou) redesenhar(); else rotular(); abrirCard(p); msg('Caixa atualizada.'); enviarFotos(fotos,p);
     }).catch(function(e){ msg('Erro ao salvar: '+(e.message||e),true); abrirCard(p); });
   };
 }
@@ -583,7 +633,7 @@ function formCaixa(lat,lng){
   c.className='kz-cardfull'; $('kz-add').style.display='none';
   c.innerHTML='<div class="kz-ef"><h4 style="margin:0 0 4px">Nova caixa</h4><div class="p" style="font-size:12px;color:var(--mu,#8a8a96)">Posição: '+lat+', '+lng+'</div>'+
     '<label>Título</label><input id="kz-nt" placeholder="Ex.: 26456 | CTO nova"><label>Pasta (a caixa usa o ícone e a cor da pasta)</label><select id="kz-np">'+pastas.map(function(n,i){return '<option value="'+i+'">'+esc(n)+'</option>';}).join('')+'</select>'+
-    '<label>Descrição</label><textarea id="kz-nd" rows="6">'+esc(MODELO_DESC)+'</textarea>'+icoHtml('nv','','',grupoDe(0))+'<label>Referência</label><textarea id="kz-nr" rows="2"></textarea></div>'+
+    '<label>Descrição</label><textarea id="kz-nd" rows="6">'+esc(MODELO_DESC)+'</textarea>'+icoHtml('nv','','',grupoDe(0))+(S.cfg.foto?'<label>Fotos (até 3)</label><input type="file" id="kz-nfo" accept="image/*" multiple>':'')+'<label>Referência</label><textarea id="kz-nr" rows="2"></textarea></div>'+
     '<div class="acoes" style="margin-top:12px"><button class="kz-btn pri" id="kz-nc">💾 Salvar</button><button class="kz-btn" id="kz-nb">📍 Ajustar posição</button><button class="kz-btn" id="kz-nx">Cancelar</button></div>';
   c.style.display='block';
   icoLigar('nv','kz-np');
@@ -594,11 +644,11 @@ function formCaixa(lat,lng){
     var pasta=pastas[+$('kz-np').value], pre=Promise.resolve();
     if(!S.dados.pastas.length){ S.dados.pastas.push(pasta); pre=gravarMeta(); }
     var idx=S.dados.pastas.indexOf(pasta);
-    var v={ novo:1, n:n, d:descLimpa($('kz-nd').value), r:$('kz-nr').value.trim(), p:pasta, lat:lat, lng:lng }; var ico=icoLer('nv'); v.ic=ico.ic; v.cor=ico.cor;
+    var v={ novo:1, n:n, d:descLimpa($('kz-nd').value), r:$('kz-nr').value.trim(), p:pasta, lat:lat, lng:lng }; var ico=icoLer('nv'); v.ic=ico.ic; v.cor=ico.cor; var fotos=$('kz-nfo')?$('kz-nfo').files:[];
     var key='novo'+Date.now(); $('kz-nc').disabled=true; $('kz-nc').textContent='Salvando…';
     pre.then(function(){ return window._kmzApi.salvarEdit(S.prov,key,v); }).then(function(){
       var pt=['',v.n,v.lat,v.lng,idx,v.d,v.r,v.ic,v.cor]; S.dados.pts.push(pt); S.dados.ed=S.dados.ed||{}; S.dados.ed[key]=v;
-      fecharCard(); redesenhar(); abrirCard(pt); msg('Caixa adicionada.');
+      fecharCard(); redesenhar(); abrirCard(pt); msg('Caixa adicionada.'); enviarFotos(fotos,pt);
     }).catch(function(e){ msg('Erro ao salvar: '+(e.message||e),true); $('kz-nc').disabled=false; $('kz-nc').textContent='💾 Salvar'; });
   };
 }
