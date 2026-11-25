@@ -26,6 +26,9 @@ function css(){
   '.kz-top{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}'+
   '.kz-top select{background:var(--bg,#0f0f11);border:1px solid var(--b2,rgba(255,255,255,.13));border-radius:10px;padding:10px 12px;color:var(--tx,#f0f0f2);font:inherit;min-width:180px}'+
   '.kz-btn{padding:9px 14px;border-radius:10px;border:1px solid var(--b2,rgba(255,255,255,.13));background:var(--s2,#222228);color:var(--tx,#f0f0f2);font:600 13px inherit;cursor:pointer}'+
+  '.kz-gear{position:relative}.kz-gmenu{position:absolute;right:0;top:calc(100% + 4px);z-index:2000;background:#fff;color:#222;border:1px solid #d4c6e0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.35);min-width:230px;overflow:hidden}'+
+  '.kz-gmenu button{display:block;width:100%;text-align:left;padding:11px 14px;border:none;background:none;color:#222;font:600 13px inherit;cursor:pointer;border-bottom:1px solid #eee}.kz-gmenu button:hover{background:#f1e9f8}.kz-gmenu button:last-child{border-bottom:none}'+
+  '.kz-lixbox{position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:14px}.kz-lixbox>div{background:#fff;color:#222;border-radius:14px;max-width:560px;width:100%;max-height:80vh;overflow:auto;padding:16px}.kz-lixbox h3{margin:0 0 10px}.kz-lixbox .it{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid #eee;font-size:13px}'+
   '.kz-btn.pri{background:var(--ac,#6a00b8);border-color:var(--ac,#6a00b8);color:#fff}'+
   '.kz-btn:disabled{opacity:.4;pointer-events:none}'+
   '#kz-status{font-size:12.5px;color:var(--mu,#8a8a96);flex:1;min-width:160px}'+
@@ -342,10 +345,12 @@ function montar(){
    '<div class="kz-top"><select id="kz-proj"></select>'+
    '<button class="kz-btn" id="kz-novo">➕ Novo projeto</button>'+
    '<button class="kz-btn pri" id="kz-imp">📂 Importar KMZ</button>'+
-   '<button class="kz-btn" id="kz-xk">⬇️ KMZ</button><button class="kz-btn" id="kz-xl">⬇️ KML</button>'+
    '<input type="file" id="kz-file" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml,application/zip" hidden>'+
-   '<button class="kz-btn" id="kz-del">🗑️ Apagar KMZ do projeto</button>'+
-   '<button class="kz-btn" id="kz-delp">🗑️ Apagar projeto</button>'+
+   '<div class="kz-gear"><button class="kz-btn" id="kz-gear" title="Mais opções">⚙️</button>'+
+   '<div class="kz-gmenu" id="kz-gmenu" style="display:none">'+
+   '<button id="kz-xk">⬇️ Exportar KMZ</button><button id="kz-xl">⬇️ Exportar KML</button>'+
+   '<button id="kz-del">🗑️ Apagar KMZ do projeto</button><button id="kz-delp">🗑️ Apagar projeto</button>'+
+   '<button id="kz-lix">♻️ Lixeira (recuperar)</button></div></div>'+
    '<div id="kz-status"></div></div>'+
    '<div class="kz-body"><aside class="kz-side" id="kz-side"><button class="kz-btn" id="kz-sx" style="display:none;width:100%;margin-bottom:8px">✕ Fechar menu</button><button class="kz-btn" id="kz-addp" style="width:100%;margin-bottom:8px">📁 Adicionar pasta</button><input type="search" id="kz-busca" placeholder="Buscar nº ou nome da caixa"><div id="kz-res"></div><div id="kz-pastas"></div></aside><div id="kz-bd"></div>'+
    '<div class="kz-mapwrap"><button class="kz-btn" id="kz-tog">☰ Pastas</button>'+
@@ -365,8 +370,12 @@ function montar(){
   S.map.on('click', function(){ fecharCard(); $('kz-side').classList.remove('aberto'); });
   $('kz-imp').onclick=function(){ if(!S.prov){ msg('Escolha o projeto primeiro.',true); return; } $('kz-file').value=''; $('kz-file').click(); };
   $('kz-file').onchange=function(){ if(this.files[0]) importar(this.files[0]); };
+  $('kz-gear').onclick=function(ev){ ev.stopPropagation(); var m=$('kz-gmenu'); m.style.display=m.style.display==='none'?'block':'none'; };
+  document.addEventListener('click',function(ev){ var m=$('kz-gmenu'); if(m && !ev.target.closest('.kz-gear')) m.style.display='none'; });
+  $('kz-gmenu').addEventListener('click',function(){ $('kz-gmenu').style.display='none'; });
   $('kz-del').onclick=apagar;
   $('kz-delp').onclick=apagarProjeto;
+  $('kz-lix').onclick=abrirLixeira;
   $('kz-bd').onclick=function(){ $('kz-side').classList.remove('aberto'); };
   $('kz-sx').onclick=function(){ $('kz-side').classList.remove('aberto'); };
   $('kz-novo').onclick=novoProjeto;
@@ -421,6 +430,35 @@ function apagar(){
   if(!confirm('Apagar o KMZ do projeto "'+S.prov+'"? Isso não apaga as fotos do Drive.')) return;
   var prov=S.prov;
   window._kmzApi.apagar(prov).then(function(){ limparMapa(); S.dados={pastas:[],pts:[],lns:[],meta:{}}; desenhar(); msg('KMZ do projeto apagado.'); }).catch(function(e){ msg('Erro ao apagar: '+(e.message||e), true); });
+}
+function abrirLixeira(){
+  if(!window._kmzApi.lixeiraListar){ msg('Lixeira não disponível nesta tela.',true); return; }
+  var box=document.createElement('div'); box.className='kz-lixbox';
+  box.innerHTML='<div><h3>♻️ Lixeira</h3><div id="kz-lixl">Carregando…</div><div style="text-align:right;margin-top:12px"><button class="kz-btn" id="kz-lixf">Fechar</button></div></div>';
+  document.body.appendChild(box);
+  box.querySelector('#kz-lixf').onclick=function(){ box.remove(); };
+  box.addEventListener('click',function(ev){ if(ev.target===box) box.remove(); });
+  function lista(){
+    window._kmzApi.lixeiraListar().then(function(itens){
+      var l=box.querySelector('#kz-lixl');
+      if(!itens.length){ l.textContent='Nada na lixeira.'; return; }
+      l.innerHTML=itens.map(function(i,ix){
+        var dt=new Date(i.apagado_em).toLocaleString('pt-BR');
+        return '<div class="it"><span><b>'+esc(i.nome)+'</b> · '+(i.tipo==='projeto'?'projeto inteiro':'só o KMZ')+'<br><small>apagado em '+dt+(i.por?' por '+esc(i.por):'')+(i.restaurado_em?' · ✅ já restaurado':'')+'</small></span><button class="kz-btn pri" data-r="'+ix+'">Restaurar</button></div>';
+      }).join('');
+      l.querySelectorAll('[data-r]').forEach(function(b){ b.onclick=function(){
+        var it=itens[+b.getAttribute('data-r')];
+        if(!confirm('Restaurar "'+it.nome+'"? Se o projeto já existir, o KMZ salvo substitui o atual.')) return;
+        b.disabled=true; b.textContent='Restaurando…';
+        window._kmzApi.lixeiraRestaurar(it.id).then(function(){
+          S.removidos=(S.removidos||[]).filter(function(n){ return n!==it.nome; });
+          if(S.extra.indexOf(it.nome)<0) S.extra.push(it.nome);
+          popularProjetos(); $('kz-proj').value=it.nome; selecionar(it.nome); box.remove(); msg('Restaurado: '+it.nome);
+        }).catch(function(e){ b.disabled=false; b.textContent='Restaurar'; alert('Erro ao restaurar: '+(e.message||e)); });
+      }; });
+    }).catch(function(e){ box.querySelector('#kz-lixl').textContent='Erro: '+(e.message||e); });
+  }
+  lista();
 }
 function apagarProjeto(){
   var prov=S.prov;

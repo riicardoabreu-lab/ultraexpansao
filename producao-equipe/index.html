@@ -101,7 +101,34 @@
     },
     salvarMeta: (prov, meta) => setDoc(doc(_kmzCol(prov), 'meta'), meta),
     criarProjeto: (nome) => setDoc(doc(fsDb, 'producao_equipe_provedores', nome), { nome, totalCaixas: 0 }, { merge: true }),
+    // Lixeira: antes de apagar KMZ/projeto, copia tudo pra producao_equipe_config/lixeira_*
+    // (as regras já liberam essa coleção). Só apaga depois da cópia completa.
+    _lixSalvar: async (prov, tipo) => {
+      const snap = await getDocs(_kmzCol(prov));
+      const pd = await getDoc(doc(fsDb, 'producao_equipe_provedores', prov));
+      const id = 'lixeira_' + Date.now();
+      let por = ''; try { por = (window.KmzAba && KmzAba._estado().cfg.foto.tecnico()) || ''; } catch(e) {}
+      await setDoc(doc(fsDb, 'producao_equipe_config', id), { lixeira: true, nome: prov, tipo, apagado_em: Date.now(), por, n: snap.size, provedor: pd.exists() ? JSON.stringify(pd.data()) : '' });
+      for(const d of snap.docs) await setDoc(doc(fsDb, 'producao_equipe_config', id, 'kmz', d.id), d.data());
+      return id;
+    },
+    lixeiraListar: async () => {
+      const snap = await getDocs(collection(fsDb, 'producao_equipe_config'));
+      const r = []; snap.forEach(d => { if(d.id.startsWith('lixeira_')) r.push(Object.assign({ id: d.id }, d.data())); });
+      return r.sort((a, b) => b.apagado_em - a.apagado_em);
+    },
+    lixeiraRestaurar: async (id) => {
+      const m = await getDoc(doc(fsDb, 'producao_equipe_config', id));
+      if(!m.exists()) throw new Error('item não encontrado');
+      const it = m.data();
+      const pdata = it.provedor ? JSON.parse(it.provedor) : { nome: it.nome, totalCaixas: 0 };
+      await setDoc(doc(fsDb, 'producao_equipe_provedores', it.nome), pdata, { merge: true });
+      const partes = await getDocs(collection(fsDb, 'producao_equipe_config', id, 'kmz'));
+      for(const d of partes.docs) await setDoc(doc(_kmzCol(it.nome), d.id), d.data());
+      await setDoc(doc(fsDb, 'producao_equipe_config', id), { restaurado_em: Date.now() }, { merge: true });
+    },
     apagarProjeto: async (nome) => {
+      await window._kmzApi._lixSalvar(nome, 'projeto');
       const snap = await getDocs(_kmzCol(nome));
       await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
       await deleteDoc(doc(fsDb, 'producao_equipe_provedores', nome));
@@ -129,6 +156,7 @@
       await Promise.all(apagar);
     },
     apagar: async (prov) => {
+      await window._kmzApi._lixSalvar(prov, 'kmz');
       const snap = await getDocs(_kmzCol(prov));
       const t = []; snap.forEach(d => t.push(deleteDoc(d.ref)));
       await Promise.all(t);
