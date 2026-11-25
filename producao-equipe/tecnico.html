@@ -608,6 +608,7 @@ window._aplicarTimesTecnico = (nomes) => {
 window._aplicarProvedoresTecnico = (provedores) => {
   PROVEDORES_TEC = provedores;
   if(viewAtual==='provedores') renderProvedoresTecnico();
+  if(viewAtual==='kmz' && window.KmzAba) KmzAba.abrir();
 };
 document.getElementById('sel-equipe').addEventListener('change', ()=>cxSyncTec());
 document.getElementById('sel-equipe').addEventListener('change', e=>{

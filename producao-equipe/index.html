@@ -545,6 +545,7 @@ window._aplicarProvedores = (provedores) => {
   PROVEDORES = provedores;
   const ativo = document.querySelector('.panel.on')?.id.replace('panel-','');
   if(ativo==='provedores') renderProvedores();
+  if(ativo==='kmz' && window.KmzAba) KmzAba.abrir();
 };
 window._aplicarUsuarios = (lista) => { USUARIOS = lista || []; renderUsuarios(); };
 function renderUsuarios(){
