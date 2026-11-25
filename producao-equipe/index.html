@@ -95,6 +95,7 @@
     },
     salvarMeta: (prov, meta) => setDoc(doc(_kmzCol(prov), 'meta'), meta),
     criarProjeto: (nome) => setDoc(doc(fsDb, 'producao_equipe_provedores', nome), { nome, totalCaixas: 0 }, { merge: true }),
+    salvarEdits: (prov, obj) => setDoc(doc(_kmzCol(prov), 'edits'), obj),
     salvarEdit: (prov, chave, valor) => setDoc(doc(_kmzCol(prov), 'edits'), { [chave]: JSON.stringify(valor) }, { merge: true }),
     salvar: async (prov, meta, partes) => {
       const col = _kmzCol(prov);

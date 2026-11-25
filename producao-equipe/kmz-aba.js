@@ -51,6 +51,7 @@ function css(){
   '.kz-n .tx small{color:var(--mu,#8a8a96);font-size:11.5px}'+
   '.kz-n .ch{width:26px;height:26px;border:0;background:none;color:var(--tx,#f0f0f2);font-size:15px;cursor:pointer;flex:none}'+
   '.kz-n input{width:18px;height:18px;flex:none}.kz-n input[type=color]{width:24px;height:24px;padding:0;border:0;background:none;cursor:pointer}'+
+  '.kz-menu{display:flex;gap:6px;flex-wrap:wrap;margin:-2px 0 7px 8px}.kz-menu .kz-btn{padding:6px 9px;font-size:12px}'+
   '.kz-fil{margin-left:14px;border-left:2px solid var(--b2,rgba(255,255,255,.13));padding-left:6px}'+
   '#kz-tog{display:none;position:absolute;top:10px;left:56px;z-index:1050}'+
   '@media(max-width:760px){.kz-body{grid-template-columns:1fr}#kz-map{height:62vh}'+
@@ -135,9 +136,9 @@ function partir(tipo, itens){
   if(atual.length) partes.push(atual);
   return partes.map(function(d,i){ return { id: tipo+('000'+i).slice(-3), d:d }; });
 }
-function salvar(prov, r, nomeArq){
+function salvar(prov, r, nomeArq, cores){
   var partes=partir('p',r.pts).concat(partir('l',r.lns));
-  var meta={ pastas:r.pastas, nPts:r.pts.length, nLns:r.lns.length, partes:partes.map(function(p){return p.id;}), atualizado:Date.now(), arquivo:nomeArq||'' };
+  var meta={ pastas:r.pastas, nPts:r.pts.length, nLns:r.lns.length, partes:partes.map(function(p){return p.id;}), atualizado:Date.now(), arquivo:nomeArq||'', cores:cores||{} };
   return window._kmzApi.salvar(prov, meta, partes).then(function(){ return meta; });
 }
 function chave(p){ return 'k'+String(p[2]).replace(/[-.]/g,function(c){return c==='-'?'m':'p';})+'_'+String(p[3]).replace(/[-.]/g,function(c){return c==='-'?'m':'p';}); }
@@ -148,7 +149,7 @@ function montarDados(carregado){
   });
   var ed={}; Object.keys(carregado.edits||{}).forEach(function(k){ try{ ed[k]=JSON.parse(carregado.edits[k]); }catch(e){} });
   pts.forEach(function(p){ var e=ed[chave(p)]; if(e){ if(e.n) p[1]=e.n; if(e.d!=null) p[5]=e.d; if(e.r!=null) p[6]=e.r; if(e.p){ var ix=(meta.pastas||[]).indexOf(e.p); if(ix>=0) p[4]=ix; } } });
-  return { pastas:meta.pastas||[], pts:pts, lns:lns, meta:meta };
+  return { pastas:meta.pastas||[], pts:pts, lns:lns, meta:meta, ed:ed };
 }
 
 // ---------- mapa ----------
@@ -219,7 +220,7 @@ function importar(file){
     msg('Salvando '+r.pts.length+' pontos e '+r.lns.length+' linhas…');
     return salvar(prov, r, file.name).then(function(metaSalva){
       if(S.prov!==prov) return;
-      limparMapa(); S.off={}; S.dados={pastas:r.pastas,pts:r.pts,lns:r.lns,meta:metaSalva}; desenhar();
+      limparMapa(); S.off={}; S.dados={pastas:r.pastas,pts:r.pts,lns:r.lns,meta:metaSalva,ed:{}}; desenhar();
     });
   }).catch(function(e){ console.error(e); msg('Não consegui importar: '+(e.message||e), true); });
 }
@@ -270,15 +271,19 @@ function montarArvore(){
       (n.filhos.length?'<button class="ch" data-t="'+n.id+'">'+(S.abertos[n.path]?'⌄':'›')+'</button>':'')+
       '<div class="tx" data-t="'+n.id+'"><b>'+esc(n.nome)+'</b><small>'+vis+'/'+tot+' marcadores</small></div>'+
       '<input type="color" data-k="'+n.id+'" value="'+cor+'" title="Cor dos ícones">'+
-      '<button class="ch" data-a="'+n.id+'" title="Adicionar subpasta">＋</button>'+
+      '<button class="ch" data-m="'+n.id+'" title="Opções da pasta">⋮</button>'+
       '<input type="checkbox" data-c="'+n.id+'"'+(on===todos.length&&todos.length?' checked':'')+'></div>';
+    if(S.menu===n.path) h+='<div class="kz-menu"><button class="kz-btn" data-a="'+n.id+'">＋ Subpasta</button><button class="kz-btn" data-r="'+n.id+'">✏️ Renomear</button><button class="kz-btn" data-x="'+n.id+'">🗑️ Excluir</button></div>';
     if(S.abertos[n.path] && n.filhos.length) h+='<div class="kz-fil">'+n.filhos.map(html).join('')+'</div>';
     return h;
   }
   var lista=[]; (function num(a){ a.forEach(function(n){ n.id=lista.length; lista.push(n); num(n.filhos); }); })(raiz);
   function pintar(){ $('kz-pastas').innerHTML=raiz.map(html).join('') || '<div class="kz-vazio">Sem pastas.</div>'; }
   $('kz-pastas').onclick=function(e){
-    var ad=e.target.closest('[data-a]'); if(ad){ addPasta(lista[+ad.dataset.a].path); return; }
+    var mm=e.target.closest('[data-m]'); if(mm){ var pm=lista[+mm.dataset.m].path; S.menu=(S.menu===pm?'':pm); pintar(); return; }
+    var rr=e.target.closest('[data-r]'); if(rr){ renomearPasta(lista[+rr.dataset.r].path); return; }
+    var xx=e.target.closest('[data-x]'); if(xx){ excluirPasta(lista[+xx.dataset.x].path); return; }
+    var ad=e.target.closest('[data-a]'); if(ad){ S.menu=''; addPasta(lista[+ad.dataset.a].path); return; }
     var t=e.target.closest('[data-t]'); if(!t) return; var n=lista[+t.dataset.t];
     if(n.filhos.length){ S.abertos[n.path]=!S.abertos[n.path]; pintar(); }
     else { var g=n.grupos[0]; if(g && g.pts){ var b=[]; S.marcadores.forEach(function(m){ if(m._g===g) b.push(m.getLatLng()); }); if(b.length) S.map.fitBounds(L.latLngBounds(b),{maxZoom:18,padding:[30,30]}); $('kz-side').classList.remove('aberto'); } }
@@ -321,6 +326,46 @@ function addPasta(pai){
   var sup=pai; while(sup){ S.abertos[sup]=true; sup=sup.indexOf('/')>=0?sup.slice(0,sup.lastIndexOf('/')):''; }
   redesenhar();
   gravarMeta().then(function(){ msg('Pasta "'+nm+'" criada.'); }).catch(function(e){ msg('Erro ao salvar pasta: '+(e.message||e),true); });
+}
+function sob(path, base){ return path===base || path.indexOf(base+'/')===0; }
+function salvarEditsTodos(){
+  var o={}; var ed=S.dados.ed||{}; Object.keys(ed).forEach(function(k){ o[k]=JSON.stringify(ed[k]); });
+  return window._kmzApi.salvarEdits(S.prov, o);
+}
+function renomearPasta(path){
+  var atual=path.split('/').pop(), pai=path.indexOf('/')>=0?path.slice(0,path.lastIndexOf('/')):'';
+  var nm=(prompt('Novo nome da pasta:',atual)||'').replace(/\//g,'-').trim();
+  if(!nm || nm===atual) return;
+  var novo=pai?pai+'/'+nm:nm, d=S.dados;
+  if(d.pastas.some(function(n){ return sob(n,novo); }) ){ msg('Já existe uma pasta com esse nome.',true); return; }
+  function mv(n){ return sob(n,path) ? novo+n.slice(path.length) : n; }
+  d.pastas=d.pastas.map(mv);
+  var m=d.meta=d.meta||{}, c2={}; Object.keys(m.cores||{}).forEach(function(k){ c2[mv(k)]=m.cores[k]; }); m.cores=c2;
+  var o2={}; Object.keys(S.off).forEach(function(k){ o2[mv(k)]=1; }); S.off=o2;
+  var a2={}; Object.keys(S.abertos).forEach(function(k){ a2[mv(k)]=S.abertos[k]; }); S.abertos=a2;
+  S.menu='';
+  var ed=d.ed||{}, mudouEd=false; Object.keys(ed).forEach(function(k){ if(ed[k].p && sob(ed[k].p,path)){ ed[k].p=mv(ed[k].p); mudouEd=true; } });
+  redesenhar();
+  gravarMeta().then(function(){ return mudouEd ? salvarEditsTodos() : null; }).then(function(){ msg('Pasta renomeada.'); }).catch(function(e){ msg('Erro ao salvar: '+(e.message||e),true); });
+}
+function excluirPasta(path){
+  var d=S.dados, rem={}, nPts=0, nLns=0;
+  d.pastas.forEach(function(n,i){ if(sob(n,path)) rem[i]=1; });
+  d.pts.forEach(function(p){ if(rem[p[4]]) nPts++; }); d.lns.forEach(function(l){ if(rem[l[0]]) nLns++; });
+  if(!confirm('Excluir a pasta "'+path+'" e tudo dentro dela ('+nPts+' caixas, '+nLns+' cabos)? Não dá para desfazer.')) return;
+  var novoIdx={}, pastas=[];
+  d.pastas.forEach(function(n,i){ if(!rem[i]){ novoIdx[i]=pastas.length; pastas.push(n); } });
+  var pts=d.pts.filter(function(p){ return !rem[p[4]]; }); pts.forEach(function(p){ p[4]=novoIdx[p[4]]; });
+  var lns=d.lns.filter(function(l){ return !rem[l[0]]; }); lns.forEach(function(l){ l[0]=novoIdx[l[0]]; });
+  var m=d.meta=d.meta||{}, c2={}; Object.keys(m.cores||{}).forEach(function(k){ if(!sob(k,path)) c2[k]=m.cores[k]; }); m.cores=c2;
+  Object.keys(S.off).forEach(function(k){ if(sob(k,path)) delete S.off[k]; });
+  var ed=d.ed||{}; Object.keys(ed).forEach(function(k){ if(ed[k].p && sob(ed[k].p,path)) delete ed[k].p; });
+  d.pastas=pastas; d.pts=pts; d.lns=lns; S.menu='';
+  redesenhar(); msg('Excluindo…');
+  var tarefa = (nPts||nLns)
+    ? salvar(S.prov,{pastas:pastas,pts:pts,lns:lns},(m.arquivo||''),c2).then(function(ms){ d.meta=ms; return salvarEditsTodos(); })
+    : gravarMeta();
+  tarefa.then(function(){ msg('Pasta excluída.'); }).catch(function(e){ msg('Erro ao excluir: '+(e.message||e),true); });
 }
 function novoProjeto(){
   var nm=(prompt('Nome do novo projeto:')||'').trim(); if(!nm) return;
@@ -395,6 +440,7 @@ function editarCard(p){
     var v={ n:$('kz-et').value.trim(), d:$('kz-edsc').value.trim(), r:$('kz-er').value.trim(), p:S.dados.pastas[+$('kz-ep').value] };
     if(!v.n){ msg('Informe o título.',true); return; }
     $('kz-sv').disabled=true; $('kz-sv').textContent='Salvando…';
+    S.dados.ed=S.dados.ed||{}; S.dados.ed[chave(p)]=v;
     window._kmzApi.salvarEdit(S.prov, chave(p), v).then(function(){
       p[1]=v.n; p[5]=v.d; p[6]=v.r; var mudou=(+$('kz-ep').value!==p[4]); p[4]=+$('kz-ep').value;
       var m=S.marcadores.filter(function(x){return x._p===p;})[0]; if(m && m.getTooltip()){ m.unbindTooltip(); }
