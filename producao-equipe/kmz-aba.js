@@ -62,6 +62,9 @@ function css(){
   '#kz-add{position:absolute;right:12px;bottom:18px;z-index:1050;width:58px;height:58px;border-radius:50%;border:0;background:#f6f0fa;color:#222;font-size:22px;box-shadow:0 2px 8px rgba(0,0,0,.5);cursor:pointer}'+
   '#kz-cross{display:none;position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px 0 0 -27px;z-index:900;pointer-events:none}'+
   '#kz-toast{display:none;position:absolute;left:50%;top:64px;transform:translateX(-50%);z-index:1200;max-width:86%;color:#fff;padding:9px 14px;border-radius:10px;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.5);text-align:center}'+
+  '#kz-ebar{display:none;position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:1070;flex-direction:column;align-items:center;gap:6px;width:92%;max-width:440px}'+
+  '#kz-ebar .r{display:flex;gap:6px;width:100%}#kz-ebar button{flex:1;height:44px;border:0;border-radius:10px;background:#f6f0fa;color:#222;font-size:14px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.5)}'+
+  '#kz-elen{background:#f6f0fa;color:#222;border-radius:10px;padding:6px 14px;font-size:13px;font-weight:600;box-shadow:0 2px 6px rgba(0,0,0,.5)}'+
   '#kz-pbar{display:none;position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:1060;flex-direction:column;align-items:center;gap:8px}'+
   '#kz-pbar button{min-width:76px;height:52px;border:0;border-radius:10px;background:#f6f0fa;color:#222;font-size:16px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.5);padding:0 14px}'+
   '#kz-pco{background:#f6f0fa;color:#222;border-radius:10px;padding:6px 14px;font-size:13px;text-align:left;box-shadow:0 2px 6px rgba(0,0,0,.5)}'+
@@ -247,6 +250,77 @@ function enviarFotos(files, p){
     });
   }).catch(function(e){ msg('Erro nas fotos: '+(e.message||e),true); });
 }
+function medir(c){ var t=0; for(var i=1;i<c.length;i++){ t+=L.latLng(c[i-1][0],c[i-1][1]).distanceTo(L.latLng(c[i][0],c[i][1])); } return t; }
+function fmtM(m){ return Math.round(m).toLocaleString('pt-BR')+' m'; }
+function gravarLinhas(){
+  var d=S.dados, ls=partir('l', d.lns), m=metaAtual();
+  m.partes=((d.meta&&d.meta.partes)||[]).filter(function(id){ return id.charAt(0)==='p'; }).concat(ls.map(function(x){ return x.id; }));
+  m.nLns=d.lns.length; m.atualizado=Date.now();
+  return window._kmzApi.salvarPartes(S.prov, m, ls, 'l').then(function(){ d.meta=m; });
+}
+function abrirCardLinha(l){
+  S.atual=null; var c=$('kz-card'); c.className='';
+  c.innerHTML='<h4>'+esc(l[1]||'Cabo')+'</h4><div class="p">'+esc(S.dados.pastas[l[0]]||'')+' · '+l[2].length+' pontos</div>'+
+    '<pre style="font-size:15px"><b>📏 Metragem:</b> '+fmtM(medir(l[2]))+'</pre>'+
+    '<div class="acoes"><button class="kz-btn pri" id="kz-lt">〰️ Editar traçado</button><button class="kz-btn" id="kz-le">✏️ Editar</button><button class="kz-btn" id="kz-ld">🗑️ Excluir</button><button class="kz-btn" id="kz-lf">Fechar</button></div>';
+  c.style.display='block'; $('kz-add').style.display='none';
+  $('kz-lf').onclick=fecharCard;
+  $('kz-lt').onclick=function(){ editarTraco(l); };
+  $('kz-le').onclick=function(){ editarLinha(l); };
+  $('kz-ld').onclick=function(){
+    if(!confirm('Excluir o cabo "'+(l[1]||'Cabo')+'" ('+fmtM(medir(l[2]))+')? Não dá para desfazer.')) return;
+    S.dados.lns=S.dados.lns.filter(function(x){ return x!==l; }); fecharCard(); redesenhar(); msg('Excluindo cabo…');
+    gravarLinhas().then(function(){ msg('Cabo excluído.'); }).catch(function(e){ msg('Erro ao excluir: '+(e.message||e),true); });
+  };
+}
+function editarLinha(l){
+  var c=$('kz-card');
+  c.innerHTML='<div class="kz-ef"><label>Nome do cabo</label><input id="kz-ln" value="'+esc(l[1]||'')+'"><label>Pasta</label><select id="kz-lp">'+S.dados.pastas.map(function(n,i){ return '<option value="'+i+'"'+(i===l[0]?' selected':'')+'>'+esc(n)+'</option>'; }).join('')+'</select></div>'+
+    '<div class="acoes" style="margin-top:10px"><button class="kz-btn pri" id="kz-lsv">💾 Salvar</button><button class="kz-btn" id="kz-lcn">Cancelar</button></div>';
+  $('kz-lcn').onclick=function(){ abrirCardLinha(l); };
+  $('kz-lsv').onclick=function(){
+    l[1]=$('kz-ln').value.trim(); l[0]=+$('kz-lp').value; $('kz-lsv').disabled=true;
+    fecharCard(); redesenhar(); msg('Salvando…');
+    gravarLinhas().then(function(){ msg('Cabo atualizado.'); }).catch(function(e){ msg('Erro ao salvar: '+(e.message||e),true); });
+  };
+}
+function editarTraco(l){
+  fecharCard(); $('kz-add').style.display='none';
+  var pts=l[2].map(function(c){ return [c[0],c[1]]; }), ext=null, hs=L.layerGroup().addTo(S.map);
+  var pl=L.polyline(pts,{color:'#ffffff',weight:4,dashArray:'7 6',interactive:false}).addTo(S.map);
+  if(l._pl) l._pl.setStyle({opacity:.2});
+  var bar=$('kz-ebar'); bar.style.display='flex';
+  function info(){ $('kz-elen').textContent='📏 '+fmtM(medir(pts))+' · '+pts.length+' pontos'+(ext?' · toque no mapa para estender':''); }
+  function hIcon(m){ var z=m?12:24; return L.divIcon({className:'',html:'<div style="width:'+z+'px;height:'+z+'px;border-radius:50%;background:'+(m?'rgba(255,255,255,.6)':'#fff')+';border:2px solid #000;box-sizing:border-box"></div>',iconSize:[z,z],iconAnchor:[z/2,z/2]}); }
+  function alcas(){
+    hs.clearLayers();
+    pts.forEach(function(c,i){
+      var m=L.marker(c,{draggable:true,icon:hIcon(false),bubblingMouseEvents:false}).addTo(hs);
+      m.on('drag',function(e){ var ll=e.target.getLatLng(); pts[i]=[ll.lat,ll.lng]; pl.setLatLngs(pts); info(); });
+      m.on('dragend',alcas);
+    });
+    for(var i=0;i<pts.length-1;i++){ (function(i){
+      var a=pts[i], b=pts[i+1], mid=[(a[0]+b[0])/2,(a[1]+b[1])/2];
+      L.marker(mid,{icon:hIcon(true),bubblingMouseEvents:false}).addTo(hs).on('click',function(){ pts.splice(i+1,0,mid); pl.setLatLngs(pts); alcas(); info(); });
+    })(i); }
+  }
+  function fim(){
+    S.map.off('click',tocar); hs.remove(); pl.remove(); bar.style.display='none'; $('kz-add').style.display='';
+    if(l._pl) l._pl.setStyle({opacity:.85}); S.editando=null;
+  }
+  function tocar(e){ if(!ext) return; var c=[+e.latlng.lat.toFixed(6),+e.latlng.lng.toFixed(6)]; if(ext==='fim') pts.push(c); else pts.unshift(c); pl.setLatLngs(pts); alcas(); info(); }
+  S.map.on('click',tocar); S.editando=fim;
+  $('kz-ef').onclick=function(){ ext=(ext==='fim'?null:'fim'); info(); };
+  $('kz-ei').onclick=function(){ ext=(ext==='ini'?null:'ini'); info(); };
+  $('kz-eu').onclick=function(){ if(pts.length>2){ pts.pop(); pl.setLatLngs(pts); alcas(); info(); } };
+  $('kz-ep1').onclick=function(){ if(pts.length>2){ pts.shift(); pl.setLatLngs(pts); alcas(); info(); } };
+  $('kz-ecn').onclick=function(){ fim(); };
+  $('kz-esv').onclick=function(){
+    l[2]=pts.map(function(c){ return [+c[0].toFixed(6),+c[1].toFixed(6)]; }); fim(); redesenhar(); msg('Salvando cabo…');
+    gravarLinhas().then(function(){ msg('Cabo salvo: '+fmtM(medir(l[2]))); }).catch(function(e){ msg('Erro ao salvar: '+(e.message||e),true); });
+  };
+  alcas(); info();
+}
 function chave(p){ return 'k'+String(p[2]).replace(/[-.]/g,function(c){return c==='-'?'m':'p';})+'_'+String(p[3]).replace(/[-.]/g,function(c){return c==='-'?'m':'p';}); }
 function montarDados(carregado){
   var meta=carregado.meta, pts=[], lns=[];
@@ -275,7 +349,7 @@ function montar(){
    '<div class="kz-body"><aside class="kz-side" id="kz-side"><button class="kz-btn" id="kz-sx" style="display:none;width:100%;margin-bottom:8px">✕ Fechar menu</button><button class="kz-btn" id="kz-addp" style="width:100%;margin-bottom:8px">📁 Adicionar pasta</button><input type="search" id="kz-busca" placeholder="Buscar nº ou nome da caixa"><div id="kz-res"></div><div id="kz-pastas"></div></aside><div id="kz-bd"></div>'+
    '<div class="kz-mapwrap"><button class="kz-btn" id="kz-tog">☰ Pastas</button>'+
    '<div class="kz-bar"><button id="kz-b-menu" title="Menu">☰</button><button id="kz-b-busca" title="Buscar">🔍</button><button id="kz-b-sair" title="Voltar ao painel">⬅</button></div>'+
-   '<button id="kz-add" title="Adicionar caixa">➕📍</button><div id="kz-cross"><svg width="54" height="54" viewBox="0 0 54 54"><circle cx="27" cy="27" r="14" fill="rgba(255,255,255,.35)" stroke="#000" stroke-width="4"/><path d="M27 2v14M27 38v14M2 27h14M38 27h14" stroke="#000" stroke-width="4"/><path d="M27 2v14M27 38v14M2 27h14M38 27h14" stroke="#fff" stroke-width="1.5"/></svg></div><div id="kz-pbar"><div style="display:flex;gap:10px"><button id="kz-pn">Cancelar</button><button id="kz-pok">OK</button><button id="kz-pg" title="Ir para minha localização">🛰️</button></div><div id="kz-pco"></div></div><div id="kz-map"></div><div id="kz-toast"></div><div id="kz-card"></div></div></div>';
+   '<button id="kz-add" title="Adicionar caixa">➕📍</button><div id="kz-cross"><svg width="54" height="54" viewBox="0 0 54 54"><circle cx="27" cy="27" r="14" fill="rgba(255,255,255,.35)" stroke="#000" stroke-width="4"/><path d="M27 2v14M27 38v14M2 27h14M38 27h14" stroke="#000" stroke-width="4"/><path d="M27 2v14M27 38v14M2 27h14M38 27h14" stroke="#fff" stroke-width="1.5"/></svg></div><div id="kz-ebar"><div id="kz-elen"></div><div class="r"><button id="kz-ef">＋ Fim</button><button id="kz-ei">＋ Início</button><button id="kz-eu">⌫ Último</button><button id="kz-ep1">⌫ Primeiro</button></div><div class="r"><button id="kz-esv">💾 Salvar</button><button id="kz-ecn">Cancelar</button></div></div><div id="kz-pbar"><div style="display:flex;gap:10px"><button id="kz-pn">Cancelar</button><button id="kz-pok">OK</button><button id="kz-pg" title="Ir para minha localização">🛰️</button></div><div id="kz-pco"></div></div><div id="kz-map"></div><div id="kz-toast"></div><div id="kz-card"></div></div></div>';
   S.montado=true;
   S.map=L.map('kz-map',{renderer:L.canvas({tolerance:12}),zoomControl:true}).setView([-3.78,-38.49],12);
   var sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,attribution:'Esri'});
@@ -352,7 +426,9 @@ function desenhar(){
   S.grupos=tot; var limites=[];
   d.lns.forEach(function(l){
     var g=tot[l[0]]; if(!g) return; g.lns++;
-    var pl=L.polyline(l[2],{color:g.cor,weight:3,opacity:.85}).bindTooltip(esc(l[1]||'cabo'),{sticky:true}).addTo(g.camada); g.linhas.push(pl);
+    var mt=medir(l[2]); g.metros=(g.metros||0)+mt;
+    var pl=L.polyline(l[2],{color:g.cor,weight:3,opacity:.85,bubblingMouseEvents:false}).bindTooltip(esc(l[1]||'cabo')+' · '+fmtM(mt),{sticky:true}).addTo(g.camada); g.linhas.push(pl); l._pl=pl;
+    pl.on('click',function(){ if(S.editando) return; abrirCardLinha(l); });
   });
   d.pts.forEach(function(p){
     var g=tot[p[4]]; if(!g) return; g.pts++;
@@ -382,11 +458,11 @@ function montarArvore(){
   function gs(n){ var r=n.grupos.slice(); n.filhos.forEach(function(f){ r=r.concat(gs(f)); }); return r; }
   function html(n){
     var todos=gs(n), tot=0, vis=0, on=0;
-    todos.forEach(function(g){ tot+=g.pts; if(g.on){ vis+=g.pts; on++; } });
+    var mtot=0; todos.forEach(function(g){ tot+=g.pts; mtot+=(g.metros||0); if(g.on){ vis+=g.pts; on++; } });
     var cor=(n.grupos[0]||todos[0]||{}).cor||'#888';
     var h='<div class="kz-n"><span class="sw" style="background:'+cor+'"></span>'+
       (n.filhos.length?'<button class="ch" data-t="'+n.id+'">'+(S.abertos[n.path]?'⌄':'›')+'</button>':'')+
-      '<div class="tx" data-t="'+n.id+'"><b>'+esc(n.nome)+'</b><small>'+vis+'/'+tot+' marcadores</small></div>'+
+      '<div class="tx" data-t="'+n.id+'"><b>'+esc(n.nome)+'</b><small>'+vis+'/'+tot+' marcadores'+(mtot?' · '+fmtM(mtot):'')+'</small></div>'+
       '<input type="color" data-k="'+n.id+'" value="'+cor+'" title="Cor dos ícones">'+
       '<button class="ch" data-m="'+n.id+'" title="Opções da pasta">⋮</button>'+
       '<input type="checkbox" data-c="'+n.id+'"'+(on===todos.length&&todos.length?' checked':'')+'></div>';
@@ -420,6 +496,7 @@ function metaAtual(){
 }
 function gravarMeta(){ S.dados.meta=metaAtual(); return window._kmzApi.salvarMeta(S.prov, S.dados.meta); }
 function redesenhar(){
+  if(S.editando) S.editando();
   var d=S.dados; var z=S.semZoom; S.semZoom=true;
   S.grupos.forEach(function(g){ S.map.removeLayer(g.camada); });
   S.grupos=[]; S.marcadores=[]; S.rotulados=[]; fecharCard(); desenhar(); S.semZoom=z;

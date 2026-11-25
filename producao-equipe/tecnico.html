@@ -46,6 +46,16 @@
     },
     salvarMeta: (prov, meta) => setDoc(doc(_kmzCol(prov), 'meta'), meta),
     criarProjeto: (nome) => setDoc(doc(fsDb, 'producao_equipe_provedores', nome), { nome, totalCaixas: 0 }, { merge: true }),
+    salvarPartes: async (prov, meta, partes, tipo) => {
+      const col = _kmzCol(prov);
+      const antigos = await getDocs(col);
+      const novos = new Set(partes.map(p => p.id));
+      for(const p of partes) await setDoc(doc(col, p.id), { j: JSON.stringify(p.d) });
+      await setDoc(doc(col, 'meta'), meta);
+      const t = [];
+      antigos.forEach(d => { if(d.id !== 'meta' && d.id !== 'edits' && d.id.charAt(0) === tipo && !novos.has(d.id)) t.push(deleteDoc(d.ref)); });
+      await Promise.all(t);
+    },
     salvarEdits: (prov, obj) => setDoc(doc(_kmzCol(prov), 'edits'), obj),
     salvarEdit: (prov, chave, valor) => setDoc(doc(_kmzCol(prov), 'edits'), { [chave]: JSON.stringify(valor) }, { merge: true }),
     salvar: async (prov, meta, partes) => {
