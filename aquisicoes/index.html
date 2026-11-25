@@ -1507,8 +1507,8 @@ function tplRede(){
         <div class="kpi" id="kpi-kmz-outros-wrap" style="display:none;"><div class="label">Pontos não classificados</div><div class="value" id="kpi-kmz-outros">—</div></div>
       </div>
       <div class="kpi-row" style="margin-top:16px;">
-        <div class="kpi"><div class="label">Portas, se todas 1x8</div><div class="value" id="kpi-kmz-portas-1x8">—</div><div class="sub">caixas × 8</div></div>
-        <div class="kpi"><div class="label">Portas, se todas 1x16</div><div class="value" id="kpi-kmz-portas-1x16">—</div><div class="sub">caixas × 16</div></div>
+        <div class="kpi"><div class="label">Portas, se todas 1x8</div><div class="value" id="kpi-kmz-portas-1x8">—</div><div class="sub" id="kpi-kmz-portas-1x8-sub">caixas × 8</div></div>
+        <div class="kpi"><div class="label">Portas, se todas 1x16</div><div class="value" id="kpi-kmz-portas-1x16">—</div><div class="sub" id="kpi-kmz-portas-1x16-sub">caixas × 16</div></div>
       </div>
       <div class="field-grid" style="margin-top:16px;">
         <div class="field"><label>Custo por caixa/CTO (R$)</label><div class="money"><span class="prefix">R$</span><input id="in-kmz-custo-caixa" type="text" inputmode="numeric"></div></div>
@@ -2992,9 +2992,16 @@ function renderKmzStatsPanel(){
 
   // Portas totais nos dois cenários (o KMZ não traz o modelo do splitter
   // de cada caixa, então mostra as duas hipóteses: todas 1x8 ou todas
-  // 1x16), a partir do total de caixas/CTOs já detectado acima.
-  setText('kpi-kmz-portas-1x8', fmtNum(s.caixas*8));
-  setText('kpi-kmz-portas-1x16', fmtNum(s.caixas*16));
+  // 1x16), a partir do total de caixas/CTOs já detectado acima - e a
+  // ocupação da rede em cada cenário (clientes ÷ portas).
+  const portas1x8 = s.caixas*8, portas1x16 = s.caixas*16;
+  const clientes = Number(p.clientes) || 0;
+  setText('kpi-kmz-portas-1x8', fmtNum(portas1x8));
+  setText('kpi-kmz-portas-1x16', fmtNum(portas1x16));
+  const sub1x8 = document.getElementById('kpi-kmz-portas-1x8-sub');
+  const sub1x16 = document.getElementById('kpi-kmz-portas-1x16-sub');
+  if(sub1x8) sub1x8.textContent = portas1x8>0 ? `caixas × 8 · ocupação ${fmtPct(clientes/portas1x8)}` : 'caixas × 8';
+  if(sub1x16) sub1x16.textContent = portas1x16>0 ? `caixas × 16 · ocupação ${fmtPct(clientes/portas1x16)}` : 'caixas × 16';
 
   if(!p.kmzCabosManuais) p.kmzCabosManuais = [];
   if(!p.kmzCabosExcluidos) p.kmzCabosExcluidos = [];
