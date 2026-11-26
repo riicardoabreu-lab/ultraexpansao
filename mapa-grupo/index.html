@@ -88,9 +88,12 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script type="module">
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-
-const SENHA = 'grupoifl';
+// Não tem mais senha nem chave do Supabase aqui - os dois ficavam visíveis
+// pra qualquer um que abrisse o código da página (e a chave sozinha já
+// bastava pra ler mapa_rede_grupo direto, sem nem passar pela senha).
+// Agora o navegador manda a senha digitada pro backend (api/mapa-grupo-
+// dados.js), que confere com a variável de ambiente da Vercel e só então
+// lê os dados com a service_role key (revisão de segurança, 2026-11-26).
 
 const CORES = {
   infolink: '#e63050',
@@ -105,33 +108,47 @@ const NOMES = {
   giganet_fortaleza: 'Giga Net Fortaleza',
 };
 
-const sb = createClient(
-  "https://kmqzvwakxeyujefrvxsz.supabase.co",
-  "sb_publishable_rilibSAUCQ3OIvH3mxZEKg_-VxLLjR6"
-);
-
-function liberarAcesso(){
+function mostrarMapa(){
   document.getElementById('loginWrap').style.display = 'none';
   document.getElementById('hdr').style.display = '';
   document.getElementById('legend').style.display = '';
   document.getElementById('status').style.display = '';
-  iniciarMapa();
 }
 
 document.getElementById('loginBtn').addEventListener('click', tentarLogin);
 document.getElementById('loginSenha').addEventListener('keydown', e => { if(e.key === 'Enter') tentarLogin(); });
-function tentarLogin(){
+async function tentarLogin(){
   const v = document.getElementById('loginSenha').value;
-  if(v === SENHA){
-    sessionStorage.setItem('mapa_grupo_auth', 'ok');
-    liberarAcesso();
-  } else {
-    document.getElementById('loginErr').textContent = 'Senha incorreta.';
-  }
+  document.getElementById('loginErr').textContent = '';
+  const linhas = await buscarLinhas(v);
+  if(linhas == null){ document.getElementById('loginErr').textContent = 'Senha incorreta.'; return; }
+  // Guarda a senha só neste navegador, só nesta aba/sessão (sessionStorage
+  // some ao fechar) - pra não precisar digitar de novo a cada F5, sem
+  // deixá-la escrita no código da página pra qualquer um ver.
+  sessionStorage.setItem('mapa_grupo_senha', v);
+  mostrarMapa();
+  iniciarMapa(linhas);
 }
-if(sessionStorage.getItem('mapa_grupo_auth') === 'ok') liberarAcesso();
+async function buscarLinhas(senha){
+  try{
+    const resp = await fetch('/api/mapa-grupo-dados', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({senha}),
+    });
+    if(!resp.ok) return null;
+    const {linhas} = await resp.json();
+    return linhas;
+  }catch(e){ console.error('Falha ao buscar mapa-grupo:', e); return null; }
+}
+(async () => {
+  const senhaSalva = sessionStorage.getItem('mapa_grupo_senha');
+  if(!senhaSalva) return;
+  const linhas = await buscarLinhas(senhaSalva);
+  if(linhas == null){ sessionStorage.removeItem('mapa_grupo_senha'); return; }
+  mostrarMapa();
+  iniciarMapa(linhas);
+})();
 
-async function iniciarMapa(){
+async function iniciarMapa(linhas){
   const map = L.map('map', {preferCanvas: true, zoomControl: false}).setView([-3.75, -38.9], 10);
   window._mapaGrupoRef = map;
   L.control.zoom({position:'bottomright'}).addTo(map);
@@ -156,30 +173,22 @@ async function iniciarMapa(){
 
   const status = document.getElementById('status');
   try {
-    const PAGINA = 1000;
     let total = 0;
-    for(let desde = 0; ; desde += PAGINA){
-      const {data, error} = await sb.from('mapa_rede_grupo').select('*').range(desde, desde + PAGINA - 1);
-      if(error) throw error;
-      if(!data.length) break;
-      for(const row of data){
-        const cor = CORES[row.cliente] || '#999';
-        const marker = L.marker([row.latitude, row.longitude], {
-          icon: L.divIcon({
-            html: `<div class="marker-dot" style="width:10px;height:10px;background:${cor};"></div>`,
-            className: '', iconSize: [10, 10],
-          }),
-        });
-        const localidadeLinha = row.localidade ? `<br>${row.localidade}` : '';
-        marker.bindPopup(`<b>${row.sigla || row.id}</b><br>${NOMES[row.cliente] || row.cliente} · ${row.item}${localidadeLinha}<br>${row.municipio || ''}`);
-        if(grupos[row.cliente]){
-          grupos[row.cliente].addLayer(marker);
-          contagens[row.cliente]++;
-        }
-        total++;
+    for(const row of linhas){
+      const cor = CORES[row.cliente] || '#999';
+      const marker = L.marker([row.latitude, row.longitude], {
+        icon: L.divIcon({
+          html: `<div class="marker-dot" style="width:10px;height:10px;background:${cor};"></div>`,
+          className: '', iconSize: [10, 10],
+        }),
+      });
+      const localidadeLinha = row.localidade ? `<br>${row.localidade}` : '';
+      marker.bindPopup(`<b>${row.sigla || row.id}</b><br>${NOMES[row.cliente] || row.cliente} · ${row.item}${localidadeLinha}<br>${row.municipio || ''}`);
+      if(grupos[row.cliente]){
+        grupos[row.cliente].addLayer(marker);
+        contagens[row.cliente]++;
       }
-      status.textContent = `Carregando… ${total} pontos`;
-      if(data.length < PAGINA) break;
+      total++;
     }
 
     for(const cliente of Object.keys(CORES)) grupos[cliente].addTo(map);

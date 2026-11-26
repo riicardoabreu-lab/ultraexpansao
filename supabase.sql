@@ -61,9 +61,10 @@ create table if not exists mapa_rede_grupo (
 
 create index if not exists mapa_rede_grupo_cliente_idx on mapa_rede_grupo (cliente);
 
+-- RLS fechada (revisão de segurança, 2026-11-26): diferente de mapa_rede
+-- acima, esta tabela mistura dados de concorrentes (Dnet, Giga Net) junto
+-- com a Infolink - sem política nenhuma de leitura pra "anon"/"authenticated",
+-- a chave pública do Supabase sozinha não basta mais pra ler. Só o backend
+-- lê (service_role, que ignora RLS - ver api/mapa-grupo-dados.js), depois
+-- de conferir a senha (MAPA_GRUPO_TOKEN, variável de ambiente da Vercel).
 alter table mapa_rede_grupo enable row level security;
-
-create policy "Leitura pública" on mapa_rede_grupo
-  for select
-  to anon, authenticated
-  using (true);
