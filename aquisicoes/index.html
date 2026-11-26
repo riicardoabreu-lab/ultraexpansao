@@ -1084,7 +1084,14 @@ function proposalCalc(pr, p, m){
   if(caixaMensal<=0) viavel="NÃO";
   else if(isFinite(paybackI) && paybackI<=(p.metaPayback||0)) viavel="SIM";
   else viavel="REVISAR";
-  return {entradaR, saldoFin, parcela, porCliente, evMRRi, evEBITDAi, paybackI, caixaMensal, banco, bancoAuto, bancoManualAtivo, caixaReal, roiMeses, viavel};
+  // Custo de oportunidade: se a entrada ficasse investida (1% a.m., referência
+  // simples tipo CDB/Tesouro Selic) em vez de paga na aquisição, quanto
+  // renderia por mês - pra comparar com a receita mensal (MRR) que a
+  // aquisição traz. pctRendSobreMRR>=1 significa que só o rendimento da
+  // entrada já bateria a receita mensal inteira do provedor.
+  const rendEntrada1pct = entradaR*0.01;
+  const pctRendSobreMRR = m.mrr ? rendEntrada1pct/m.mrr : null;
+  return {entradaR, saldoFin, parcela, porCliente, evMRRi, evEBITDAi, paybackI, caixaMensal, banco, bancoAuto, bancoManualAtivo, caixaReal, roiMeses, viavel, rendEntrada1pct, pctRendSobreMRR};
 }
 
 /* ======================================================================
@@ -1730,10 +1737,18 @@ function buildInvestTable(){
   };
 }
 
+// Entrada R$ + rendimento de referência (1% a.m., se investida em vez de
+// paga na aquisição) comparado com a receita mensal (MRR) do provedor -
+// pra visualizar o custo de oportunidade da entrada de cada proposta.
+function entradaRCellHTML(c){
+  if(c.pctRendSobreMRR==null) return fmtBRL(c.entradaR);
+  const cor = c.pctRendSobreMRR>=1 ? 'var(--good)' : 'var(--text-dim)';
+  return `${fmtBRL(c.entradaR)}<div style="font-size:11px;color:${cor};margin-top:2px;font-weight:400;white-space:normal;max-width:130px;margin-left:auto;">≈${fmtBRL(c.rendEntrada1pct)}/mês a 1%a.m. (${fmtPct(c.pctRendSobreMRR)} da receita)</div>`;
+}
 function refreshPropostaRowComputed(tr, pr){
   const p = current(); const m = compute(p);
   const c = proposalCalc(pr, p, m);
-  tr.querySelector('[data-role="entradaR"]').textContent = fmtBRL(c.entradaR);
+  tr.querySelector('[data-role="entradaR"]').innerHTML = entradaRCellHTML(c);
   tr.querySelector('[data-role="saldoFin"]').textContent = fmtBRL(c.saldoFin);
   tr.querySelector('[data-role="parcela"]').textContent = fmtBRL(c.parcela);
   tr.querySelector('[data-role="porCliente"]').textContent = fmtBRL2(c.porCliente);
@@ -1764,7 +1779,7 @@ function buildPropostasTable(){
       <td><input data-role="nome" type="text" value="${esc(pr.nome)}"></td>
       <td><input data-role="valor" type="text" inputmode="numeric" value="${fmtMoneyInput(pr.valor)}"></td>
       <td><input data-role="entrada" type="number" step="1" value="${pr.entrada}"></td>
-      <td class="computed" data-role="entradaR">${fmtBRL(c.entradaR)}</td>
+      <td class="computed" data-role="entradaR">${entradaRCellHTML(c)}</td>
       <td class="computed" data-role="saldoFin">${fmtBRL(c.saldoFin)}</td>
       <td><input data-role="parcelas" type="number" step="1" value="${pr.parcelas}"></td>
       <td class="computed" data-role="parcela">${fmtBRL(c.parcela)}</td>
@@ -1792,7 +1807,7 @@ function buildPropostasTable(){
       <td><em>${esc(sug.nome)}</em></td>
       <td class="computed" style="color:var(--accent);font-weight:600;">${fmtBRL(sug.valor)}</td>
       <td><input data-role="entrada" type="number" step="1" value="${sug.entrada}"></td>
-      <td class="computed" data-role="entradaR">${fmtBRL(cs.entradaR)}</td>
+      <td class="computed" data-role="entradaR">${entradaRCellHTML(cs)}</td>
       <td class="computed" data-role="saldoFin">${fmtBRL(cs.saldoFin)}</td>
       <td><input data-role="parcelas" type="number" step="1" value="${sug.parcelas}"></td>
       <td class="computed" data-role="parcela">${fmtBRL(cs.parcela)}</td>
@@ -2153,7 +2168,7 @@ function refreshProposalsComputed(p, m){
     const c = proposalCalc(pr,p,m);
     const set = (sel,val)=>{ const el=tr.querySelector(sel); if(el) el.textContent=val; };
     if(i!=='sug'){
-      set('[data-role="entradaR"]', fmtBRL(c.entradaR));
+      const entradaREl = tr.querySelector('[data-role="entradaR"]'); if(entradaREl) entradaREl.innerHTML = entradaRCellHTML(c);
       set('[data-role="saldoFin"]', fmtBRL(c.saldoFin));
       set('[data-role="parcela"]', fmtBRL(c.parcela));
       set('[data-role="porCliente"]', fmtBRL2(c.porCliente));
@@ -2167,7 +2182,10 @@ function refreshProposalsComputed(p, m){
     } else {
       const tds = tr.querySelectorAll('td.computed');
       const vals = [fmtBRL(c.entradaR), fmtBRL(c.saldoFin), fmtBRL(c.parcela), fmtBRL2(c.porCliente), fmtMult(c.evMRRi), fmtMult(c.evEBITDAi), isFinite(c.paybackI)?c.paybackI.toFixed(1):'N/A', fmtBRL(m.custoCompradorTotal), fmtBRL(c.caixaMensal), fmtBRLouTraco(c.caixaReal), isFinite(c.roiMeses)?c.roiMeses.toFixed(1):'N/A'];
-      tds.forEach((td,idx)=>{ if(idx>0 && vals[idx-1]!==undefined) td.textContent = vals[idx-1]; });
+      tds.forEach((td,idx)=>{
+        if(idx===1){ td.innerHTML = entradaRCellHTML(c); return; }
+        if(idx>0 && vals[idx-1]!==undefined) td.textContent = vals[idx-1];
+      });
     }
     const bancoInput = tr.querySelector('[data-role="banco"]');
     if(bancoInput && document.activeElement!==bancoInput) bancoInput.value = fmtMoneyInput(c.banco);
