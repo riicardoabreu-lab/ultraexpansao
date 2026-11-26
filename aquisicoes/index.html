@@ -3848,7 +3848,7 @@ function tplMapaGeral(){
   `;
 }
 
-function bindMapaGeralControls(){
+function bindMapaGeralControls(idsParaRestaurar){
   const legenda = document.getElementById('mapaGeralLegenda');
   const holder = document.getElementById('mapaGeralMapHolder');
   const meta = document.getElementById('mapaGeralMeta');
@@ -3977,6 +3977,19 @@ function bindMapaGeralControls(){
       fitTodasVisiveis();
     };
   });
+
+  // Restaura o que já estava marcado antes deste re-render (ex.: um
+  // snapshot em tempo real chegando da nuvem enquanto o usuário já tinha
+  // marcado provedores aqui) - senão o mapa "pisca" e desmarca tudo
+  // sozinho, mesmo sem ninguém mexer em nada (bug real, 2026-11-26).
+  if(idsParaRestaurar && idsParaRestaurar.length){
+    legenda.querySelectorAll('.mapaGeralChk').forEach(chk=>{
+      if(idsParaRestaurar.includes(chk.dataset.id)){
+        chk.checked = true;
+        chk.onchange();
+      }
+    });
+  }
 }
 
 /* ======================================================================
@@ -3994,8 +4007,9 @@ function renderAll(){
   if(leafletMap){ try{ leafletMap.stop(); leafletMap.remove(); }catch(e){} leafletMap = null; currentKmlLayer = null; }
   if(mapaGeralMap){ try{ mapaGeralMap.stop(); mapaGeralMap.remove(); }catch(e){} mapaGeralMap = null; mapaGeralLayers = {}; }
   if(vistaMapaGeral){
+    const idsParaRestaurar = Array.from(document.querySelectorAll('.mapaGeralChk:checked')).map(el=>el.dataset.id);
     main.innerHTML = tplMapaGeral();
-    bindMapaGeralControls();
+    bindMapaGeralControls(idsParaRestaurar);
     renderSidebar();
     return;
   }
