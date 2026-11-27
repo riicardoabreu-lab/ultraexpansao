@@ -23,12 +23,12 @@ function pasta_() {
   return f;
 }
 
-// Pasta por projeto: IP2 (ou sem projeto) = pasta raiz 'Caixas - Fotos' (como sempre foi);
-// Connect = subpasta 'Fotos Connect'; qualquer outro projeto = 'Fotos <projeto>'.
+// Pasta por projeto: sem projeto = pasta raiz 'Caixas - Fotos'; IP2 Fortaleza = 'fotos IP2 Fortaleza';
+// Connect = 'Fotos Connect'; qualquer outro projeto = 'Fotos <projeto>'.
 function pastaProjeto_(projeto) {
   var raiz = pasta_(), pj = String(projeto || '').trim();
-  if (!pj || (/ip2/i.test(pj) && !/connect/i.test(pj))) return raiz;
-  var nome = /connect/i.test(pj) ? 'Fotos Connect' : 'Fotos ' + pj.replace(/[\\\/:*?"<>|\r\n]+/g, ' ').trim().substring(0, 60);
+  if (!pj) return raiz;
+  var nome = /connect/i.test(pj) ? 'Fotos Connect' : (/ip2/i.test(pj) && /fortaleza/i.test(pj)) ? 'fotos IP2 Fortaleza' : 'Fotos ' + pj.replace(/[\\\/:*?"<>|\r\n]+/g, ' ').trim().substring(0, 60);
   var key = 'PASTA_' + nome, p = props_(), id = p.getProperty(key);
   if (id) { try { return DriveApp.getFolderById(id); } catch (e) {} }
   var it = raiz.getFoldersByName(nome);
