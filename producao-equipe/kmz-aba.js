@@ -181,14 +181,28 @@ var MODELO_DESC='SPLITTER:\nFIBRA:\nCABO:\nPOTENCIA:\nCLIENTE:';
 function descLimpa(v){ v=(v||'').trim(); return v===MODELO_DESC ? '' : v; }
 var ICONES={ circulo:'Círculo', quadrado:'Caixa (■)', losango:'CTO (◆)', triangulo:'CEO (▲)', pino:'Pino', estrela:'Estrela' };
 var ICONE_LISTA=['circulo','quadrado','losango','triangulo','pino','estrela'];
+function tamIc(){ // tamanho do ícone conforme o zoom: pequeno no zoom aberto (não cobre o mapa), cheio de perto
+  var z=S.map ? S.map.getZoom() : 17;
+  return z>=17?24 : z>=16?20 : z>=15?16 : z>=14?12 : z>=13?9 : z>=12?7 : 6;
+}
 function mkIcon(tipo, cor){
-  var f='fill="'+cor+'" stroke="#000" stroke-width="1.5"', sh='';
+  var T=tamIc(), f='fill="'+cor+'" stroke="#000" stroke-width="'+(T<12?2.5:1.5)+'"', sh='';
   if(tipo==='quadrado') sh='<rect x="3" y="3" width="18" height="18" rx="2" '+f+'/>';
   else if(tipo==='losango') sh='<polygon points="12,1 23,12 12,23 1,12" '+f+'/>';
   else if(tipo==='triangulo') sh='<polygon points="12,2 23,21 1,21" '+f+'/>';
   else if(tipo==='estrela') sh='<polygon points="12,1 15,9 23,9 17,14 19,22 12,17 5,22 7,14 1,9 9,9" '+f+'/>';
   else sh='<path d="M12 23C12 23 4 14 4 9a8 8 0 0 1 16 0c0 5-8 14-8 14z" '+f+'/><circle cx="12" cy="9" r="3" fill="#fff"/>';
-  return L.divIcon({ className:'kz-ic', html:'<svg width="24" height="24" viewBox="0 0 24 24">'+sh+'</svg>', iconSize:[24,24], iconAnchor:tipo==='pino'?[12,22]:[12,12] });
+  var svg='<svg width="'+T+'" height="'+T+'" viewBox="0 0 24 24">'+sh+'</svg>';
+  if(tipo==='pino' || T>=20) return L.divIcon({ className:'kz-ic', html:svg, iconSize:[T,T], iconAnchor:tipo==='pino'?[T/2,T*22/24]:[T/2,T/2] });
+  // ícone pequeno: área de toque de 20px (ícone centralizado) para ainda dar pra tocar
+  return L.divIcon({ className:'kz-ic', html:'<div style="width:20px;height:20px;display:flex;align-items:center;justify-content:center">'+svg+'</div>', iconSize:[20,20], iconAnchor:[10,10] });
+}
+function escalarIcones(){
+  var T=tamIc();
+  S.marcadores.forEach(function(mk){
+    if(mk.setRadius) mk.setRadius(Math.max(3,Math.round(T/3)));
+    else mk.setIcon(mkIcon(mk._p[7]||mk._g.icone, mk._p[8]||mk._g.cor));
+  });
 }
 function grupoDe(i){ return S.grupos[i] || {icone:'circulo',cor:CORES[0]}; }
 function icoHtml(id, ic, cor, g){
@@ -367,6 +381,7 @@ function montar(){
   S.map.on('locationfound',function(e){ if(S.pos) S.map.removeLayer(S.pos); S.pos=L.circleMarker(e.latlng,{radius:8,color:'#fff',weight:2,fillColor:'#2563eb',fillOpacity:1}).addTo(S.map); });
   S.map.on('locationerror',function(){ msg('Não consegui a localização. Ative o GPS.',true); });
   S.map.on('moveend zoomend', rotular);
+  S.map.on('zoomend', escalarIcones);
   S.map.on('click', function(){ fecharCard(); $('kz-side').classList.remove('aberto'); });
   $('kz-imp').onclick=function(){ if(!S.prov){ msg('Escolha o projeto primeiro.',true); return; } $('kz-file').value=''; $('kz-file').click(); };
   $('kz-file').onchange=function(){ if(this.files[0]) importar(this.files[0]); };
@@ -485,7 +500,7 @@ function desenhar(){
   d.pts.forEach(function(p){
     var g=tot[p[4]]; if(!g) return; g.pts++;
     var ic=p[7]||g.icone||'circulo', cr=p[8]||g.cor;
-    var m=(ic!=='circulo') ? L.marker([p[2],p[3]],{icon:mkIcon(ic,cr),bubblingMouseEvents:false}) : L.circleMarker([p[2],p[3]],{radius:8,color:'#000',weight:1,fillColor:cr,fillOpacity:.95,bubblingMouseEvents:false});
+    var m=(ic!=='circulo') ? L.marker([p[2],p[3]],{icon:mkIcon(ic,cr),bubblingMouseEvents:false}) : L.circleMarker([p[2],p[3]],{radius:Math.max(3,Math.round(tamIc()/3)),color:'#000',weight:1,fillColor:cr,fillOpacity:.95,bubblingMouseEvents:false});
     m.on('click',function(){ abrirCard(p); var sd=$('kz-side'); if(sd) sd.classList.remove('aberto'); });
     m.addTo(g.camada); m._p=p; m._g=g; S.marcadores.push(m); limites.push([p[2],p[3]]);
   });
