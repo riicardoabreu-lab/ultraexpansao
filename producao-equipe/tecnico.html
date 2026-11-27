@@ -208,10 +208,13 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--tx);min-hei
 <div id="tela-senha" class="wrap">
   <div class="card">
     <div class="topo"><div><h1>🚀 Lançamento diário</h1><div class="sub">Produção da Equipe · Infolink</div></div></div>
+    <p id="login-carregando" class="sub" style="margin:18px 0 6px">Carregando…</p>
+    <div id="login-campos" style="display:none">
     <div class="fl" id="fl-nome" style="display:none"><label>Meu nome</label><select id="in-nome"></select></div>
     <div class="fl"><label>Senha de acesso</label><input type="password" id="in-senha" placeholder="Senha" autocomplete="off"></div>
     <button class="btn pri" id="btn-entrar">Entrar</button>
     <p id="erro-senha" style="color:var(--rd);font-size:12.5px;margin-top:10px;display:none">Senha incorreta.</p>
+    </div>
   </div>
 </div>
 
@@ -568,8 +571,12 @@ function popularLogin(lista){
   document.getElementById('fl-nome').style.display = tem ? 'flex' : 'none';
   document.getElementById('in-nome').innerHTML = USUARIOS.map(u=>`<option value="${u.nome.replace(/"/g,'&quot;')}">${u.nome}</option>`).join('');
 }
+function mostrarCamposLogin(){ // só mostra o formulário depois de saber se há login por nome (evita o "pisca" da tela antiga)
+  document.getElementById('login-carregando').style.display = 'none';
+  document.getElementById('login-campos').style.display = 'block';
+}
 function carregarUsuariosLogin(){
-  return window._carregarUsuarios().then(popularLogin).catch(err=>{ console.error('lista de técnicos falhou:', err); });
+  return window._carregarUsuarios().then(popularLogin).catch(err=>{ console.error('lista de técnicos falhou:', err); }).finally(mostrarCamposLogin);
 }
 async function entrar(){
   const senha = document.getElementById('in-senha').value;
