@@ -476,11 +476,22 @@ function renderPainelTecnico(){
 }
 
 // ---------- provedores (só leitura - meta x coletado) ----------
+// Núcleo do nome: sem siglas finais de 1-2 letras ("CONNECT CE" -> "connect"), pra
+// "CONNECT" sozinho num lançamento também cair em "CONNECT CE".
+function nomeNucleo(nomeN){ const p = nomeN.split(' '); while(p.length>1 && p[p.length-1].length<=2) p.pop(); const n = p.join(' '); return n.length>=4 ? n : ''; }
 function entradasDoProvedorTec(nomeProvedor){
-  // Mesmo mecanismo de apelidos do painel principal (ver PROVEDORES em
-  // index.html) - "IP2" e "CONNECT CE" por exemplo são a mesma empresa.
-  const prov = PROVEDORES_TEC[nomeProvedor] || {};
-  const alvos = [nomeProvedor, ...(prov.apelidos||[])].map(normalizar).filter(Boolean);
+  // Mesma regra do painel principal (index.html): cada lançamento conta em
+  // UM único provedor - vence o apelido relacionado ao nome do provedor e,
+  // no empate, o texto casado mais longo ("ip2 caucaia" ganha de "ip2").
+  const normProv = txt => normalizar(txt).replace(/\s+/g,' ').trim();
+  const cands = [];
+  Object.keys(PROVEDORES_TEC).forEach(nome=>{
+    const nomeN = normProv(nome);
+    const apelidos = (PROVEDORES_TEC[nome] && PROVEDORES_TEC[nome].apelidos) || [];
+    new Set([nomeN, nomeNucleo(nomeN), ...apelidos.map(normProv)]).forEach(alvo=>{
+      if(alvo) cands.push({ nome, alvo, rel: (nomeN.includes(alvo) || alvo.includes(nomeN)) ? 1 : 0 });
+    });
+  });
   let coletado = 0;
   const diasComLancamento = new Set();
   Object.keys(DIAS).forEach(k=>{
@@ -488,8 +499,13 @@ function entradasDoProvedorTec(nomeProvedor){
     TIMES.forEach(t=>{
       const e = dia.equipes && dia.equipes[t];
       if(!e || e.tipo!=='numero' || !e.bairro) return;
-      const bairroNorm = normalizar(e.bairro);
-      if(alvos.some(a=>bairroNorm.includes(a))){ coletado += Number(e.valor)||0; diasComLancamento.add(k); }
+      const bairroNorm = normProv(e.bairro);
+      let melhor = null;
+      cands.forEach(c=>{
+        if(!bairroNorm.includes(c.alvo)) return;
+        if(!melhor || c.rel>melhor.rel || (c.rel===melhor.rel && c.alvo.length>melhor.alvo.length)) melhor = c;
+      });
+      if(melhor && melhor.nome===nomeProvedor){ coletado += Number(e.valor)||0; diasComLancamento.add(k); }
     });
   });
   return {coletado, diasTrabalhados: diasComLancamento.size};

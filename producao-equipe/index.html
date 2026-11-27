@@ -905,25 +905,46 @@ function renderPesquisa(){
 // Casa pelo texto do bairro/atividade (contém o nome do provedor, sem
 // diferenciar maiúscula/acento) - mesmo texto livre que a planilha original
 // usava, tipo "COLETA IP2 TELECOM" pro provedor "IP2".
-function entradasDoProvedor(nomeProvedor){
-  // Considera também os apelidos cadastrados (ex.: "IP2" e "CONNECT CE" são
-  // a mesma empresa com nomes diferentes nos lançamentos) - soma tudo que
-  // bater com o nome OU qualquer apelido.
-  const prov = PROVEDORES[nomeProvedor] || {};
-  const alvos = [nomeProvedor, ...(prov.apelidos||[])].map(normalizar).filter(Boolean);
-  const entradas = [];
+// Cada lançamento (equipe/dia) conta em UM ÚNICO provedor. Antes, um mesmo
+// lançamento entrava em todo provedor cujo nome/apelido aparecesse no texto
+// (ex.: "IP2 CAUCAIA" caía em "IP2 FORTALEZA" por causa do apelido "IP2"), e
+// os totais ficavam duplicados. Agora, entre os provedores que casam, vence:
+//  1) o que tem nome/apelido relacionado ao próprio nome (ex.: o apelido
+//     "CONNECT" pertence ao provedor "CONNECT CE", não a "IP2 FORTALEZA");
+//  2) o texto casado mais longo/específico ("ip2 caucaia" ganha de "ip2").
+function normProv(txt){ return normalizar(txt).replace(/\s+/g,' ').trim(); }
+// Núcleo do nome: sem siglas finais de 1-2 letras ("CONNECT CE" -> "connect"), pra
+// "CONNECT" sozinho num lançamento também cair em "CONNECT CE".
+function nomeNucleo(nomeN){ const p = nomeN.split(' '); while(p.length>1 && p[p.length-1].length<=2) p.pop(); const n = p.join(' '); return n.length>=4 ? n : ''; }
+function atribuirEntradasProvedores(){
+  const cands = [];
+  const res = {};
+  Object.keys(PROVEDORES).forEach(nome=>{
+    res[nome] = [];
+    const nomeN = normProv(nome);
+    const apelidos = (PROVEDORES[nome] && PROVEDORES[nome].apelidos) || [];
+    new Set([nomeN, nomeNucleo(nomeN), ...apelidos.map(normProv)]).forEach(alvo=>{
+      if(alvo) cands.push({ nome, nomeN, alvo, rel: (nomeN.includes(alvo) || alvo.includes(nomeN)) ? 1 : 0 });
+    });
+  });
   Object.keys(DIAS).sort().reverse().forEach(k=>{
     const dia = DIAS[k];
     TIMES.forEach(t=>{
       const e = dia.equipes && dia.equipes[t];
       if(!e || e.tipo!=='numero' || !e.bairro) return;
-      const bairroNorm = normalizar(e.bairro);
-      if(alvos.some(a=>bairroNorm.includes(a))){
-        entradas.push({ data: k, equipe: t, valor: Number(e.valor)||0, bairro: e.bairro });
-      }
+      const bairroNorm = normProv(e.bairro);
+      let melhor = null;
+      cands.forEach(c=>{
+        if(!bairroNorm.includes(c.alvo)) return;
+        if(!melhor || c.rel>melhor.rel || (c.rel===melhor.rel && c.alvo.length>melhor.alvo.length)) melhor = c;
+      });
+      if(melhor) res[melhor.nome].push({ data: k, equipe: t, valor: Number(e.valor)||0, bairro: e.bairro });
     });
   });
-  return entradas;
+  return res;
+}
+function entradasDoProvedor(nomeProvedor){
+  return atribuirEntradasProvedores()[nomeProvedor] || [];
 }
 
 // Soma N dias ÚTEIS (segunda a sexta, pula sábado/domingo) a partir de uma
