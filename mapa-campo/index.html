@@ -500,6 +500,12 @@ function upsertMarker(id, data){
   if (!entry.oculta) entry.marker.bringToFront();
 }
 
+function trazerMarcadoresParaFrente(){
+  for (const [, entry] of markersById) {
+    if (!entry.oculta) entry.marker.bringToFront();
+  }
+}
+
 // ---- Desambiguação de cliques (dois itens no mesmo poste/ponto) ----
 // Uma caixa de emenda (CEO) e uma caixa de atendimento (CTO/terminal) no
 // mesmo poste ficam em camadas diferentes mas podem cair nas mesmas
@@ -835,6 +841,11 @@ function desenharCabosDoKml(kmlTexto){
       if (caboDestacado && caboDestacado !== polilinha) caboDestacado.setStyle(ESTILO_CABO);
       polilinha.setStyle(ESTILO_CABO_DESTACADO);
       polilinha.bringToFront();
+      // Cabo e marcadores (caixa/reserva/etc.) dividem o mesmo canvas (ver
+      // iconePara) - sem isso, o bringToFront acima deixava o cabo destacado
+      // por cima dos marcadores até o próximo upsert, bloqueando o clique
+      // neles (relatado pelo usuário: clicar no cabo "tapava" a caixa).
+      trazerMarcadoresParaFrente();
       caboDestacado = polilinha;
     });
     total++;
