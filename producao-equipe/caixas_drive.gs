@@ -23,6 +23,20 @@ function pasta_() {
   return f;
 }
 
+// Pasta por projeto: IP2 (ou sem projeto) = pasta raiz 'Caixas - Fotos' (como sempre foi);
+// Connect = subpasta 'Fotos Connect'; qualquer outro projeto = 'Fotos <projeto>'.
+function pastaProjeto_(projeto) {
+  var raiz = pasta_(), pj = String(projeto || '').trim();
+  if (!pj || (/ip2/i.test(pj) && !/connect/i.test(pj))) return raiz;
+  var nome = /connect/i.test(pj) ? 'Fotos Connect' : 'Fotos ' + pj.replace(/[\\\/:*?"<>|\r\n]+/g, ' ').trim().substring(0, 60);
+  var key = 'PASTA_' + nome, p = props_(), id = p.getProperty(key);
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) {} }
+  var it = raiz.getFoldersByName(nome);
+  var f = it.hasNext() ? it.next() : raiz.createFolder(nome);
+  p.setProperty(key, f.getId());
+  return f;
+}
+
 function planilha_() {
   var p = props_(), id = p.getProperty('PLANILHA'), ss;
   if (id) { try { ss = SpreadsheetApp.openById(id); } catch (e) {} }
@@ -99,11 +113,18 @@ function doPost(e) {
       p.setProperty('PROX', String(num + 1));
     }
 
-    var pasta = pasta_(), links = [], fotos = d.fotos || [];
+    var pasta = pastaProjeto_(d.projeto), links = [], fotos = d.fotos || [];
+    var porProjeto = pasta.getId() !== pasta_().getId();
     // nome do arquivo = o que o tecnico digitou em Observacao (sem caracteres proibidos); sem texto, usa o numero
     var base = String(d.obs || '').replace(/[\\\/:*?"<>|\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 80) || String(num);
+    // projeto com pasta propria (Connect...): arquivo = numero da caixa (26500.jpg, 26500 (2).jpg),
+    // igual as fotos extraidas do KMZ; se ja existe, continua a sequencia (2), (3)...
+    if (porProjeto && /^\d{5,12}$/.test(String(num))) base = String(num);
+    var seq = 0;
     for (var k = 0; k < fotos.length && k < 3; k++) {
-      var nome = base + (k === 0 ? '' : ' (' + (k + 1) + ')') + '.jpg';
+      var nome;
+      do { seq++; nome = base + (seq === 1 ? '' : ' (' + seq + ')') + '.jpg'; }
+      while (porProjeto && pasta.getFilesByName(nome).hasNext());
       var blob = Utilities.newBlob(Utilities.base64Decode(fotos[k]), 'image/jpeg', nome);
       links.push(pasta.createFile(blob).getUrl());
     }

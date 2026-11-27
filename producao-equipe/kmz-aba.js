@@ -245,7 +245,7 @@ function enviarFotos(files, p){
   msg('Preparando '+files.length+' foto(s)…');
   Promise.all(files.map(fotoReduzir)).then(function(b64){
     var num=(/^\s*(\d{5,12})/.exec(p[1])||[])[1]||p[1];
-    var pl={ id:Date.now()+'-'+Math.random().toString(36).slice(2,8), tecnico:(S.cfg.foto.tecnico&&S.cfg.foto.tecnico())||'', tipo:(S.dados.pastas[p[4]]||'').split('/').pop(), lat:p[2], lng:p[3], obs:p[1], numeroTexto:num, fotos:b64 };
+    var pl={ id:Date.now()+'-'+Math.random().toString(36).slice(2,8), tecnico:(S.cfg.foto.tecnico&&S.cfg.foto.tecnico())||'', tipo:(S.dados.pastas[p[4]]||'').split('/').pop(), lat:p[2], lng:p[3], obs:p[1], numeroTexto:num, projeto:S.prov||'', fotos:b64 };
     fotoDb(function(db){
       if(!db){ msg('Não foi possível guardar as fotos neste aparelho.',true); return; }
       var tx=db.transaction('f','readwrite'); tx.objectStore('f').put(pl);
