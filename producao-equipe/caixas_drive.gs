@@ -23,12 +23,20 @@ function pasta_() {
   return f;
 }
 
-// Pasta por projeto: IP2 (ou sem projeto) = pasta raiz 'Caixas - Fotos' (como sempre foi);
-// Connect = subpasta 'Fotos Connect'; qualquer outro projeto = 'Fotos <projeto>'.
+// rede de seguranca: se o painel nao mandou o projeto (pagina antiga em cache), deduz pela faixa do numero
+function projetoPorNumero_(num) {
+  var n = parseInt(String(num), 10);
+  if (n >= 25000 && n <= 26455) return 'IP2 Fortaleza';
+  if (n >= 26500 && n <= 27300) return 'Connect';
+  return '';
+}
+
+// Pasta por projeto: sem projeto = pasta raiz 'Caixas - Fotos'; IP2 Fortaleza = 'fotos IP2 Fortaleza';
+// Connect = 'Fotos Connect'; qualquer outro projeto = 'Fotos <projeto>'.
 function pastaProjeto_(projeto) {
   var raiz = pasta_(), pj = String(projeto || '').trim();
-  if (!pj || (/ip2/i.test(pj) && !/connect/i.test(pj))) return raiz;
-  var nome = /connect/i.test(pj) ? 'Fotos Connect' : 'Fotos ' + pj.replace(/[\\\/:*?"<>|\r\n]+/g, ' ').trim().substring(0, 60);
+  if (!pj) return raiz;
+  var nome = /connect/i.test(pj) ? 'Fotos Connect' : (/ip2/i.test(pj) && /fortaleza/i.test(pj)) ? 'fotos IP2 Fortaleza' : 'Fotos ' + pj.replace(/[\\\/:*?"<>|\r\n]+/g, ' ').trim().substring(0, 60);
   var key = 'PASTA_' + nome, p = props_(), id = p.getProperty(key);
   if (id) { try { return DriveApp.getFolderById(id); } catch (e) {} }
   var it = raiz.getFoldersByName(nome);
@@ -113,7 +121,7 @@ function doPost(e) {
       p.setProperty('PROX', String(num + 1));
     }
 
-    var pasta = pastaProjeto_(d.projeto), links = [], fotos = d.fotos || [];
+    var pasta = pastaProjeto_(d.projeto || projetoPorNumero_(num)), links = [], fotos = d.fotos || [];
     var porProjeto = pasta.getId() !== pasta_().getId();
     // nome do arquivo = o que o tecnico digitou em Observacao (sem caracteres proibidos); sem texto, usa o numero
     var base = String(d.obs || '').replace(/[\\\/:*?"<>|\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 80) || String(num);
