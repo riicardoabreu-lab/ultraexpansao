@@ -852,6 +852,13 @@ function desenharCabosDoKml(kmlTexto){
   }
   const el = document.getElementById('contagemCabos');
   if (el) el.textContent = total ? `(${total.toLocaleString('pt-BR')})` : '';
+  // Cabos e marcadores (caixa/reserva/CEO etc.) dividem o mesmo canvas - os
+  // cabos só terminam de carregar (fetch + descompactar o KMZ) depois dos
+  // marcadores na maioria das vezes, e sem isso ficavam desenhados por cima
+  // de tudo, bloqueando o clique nos marcadores mesmo sem ninguém ter
+  // clicado em nenhum cabo (relatado pelo usuário: só dava pra clicar nos
+  // cabos, nunca nas caixas/reservas/CEO por baixo).
+  trazerMarcadoresParaFrente();
 }
 
 // Mostra a falha no lugar do contador de cabos (em vez de sumir em silêncio -
